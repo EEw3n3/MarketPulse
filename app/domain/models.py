@@ -14,6 +14,14 @@ class ScrapingRule(SQLModel, table=True):
     price_css: Optional[str] = Field(default=None)
     stock_css: Optional[str] = Field(default=None)
     next_page_css: Optional[str] = Field(default=None)
+    
+    # --- Метрики здоровья (самообучение) ---
+    last_success: Optional[datetime] = Field(default=None)
+    last_error: Optional[str] = Field(default=None)
+    success_count: int = Field(default=0)
+    failure_count: int = Field(default=0)
+    health_score: float = Field(default=1.0) # 0.0 - 1.0
+
 
 # --- 1. ТОВАР (Статичные данные) ---
 class Product(SQLModel, table=True):

@@ -11,7 +11,8 @@ class AIGenerator:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-    async def get_or_create_rule(self, session, url: str, html_content: str, force_refresh: bool = False) -> ScrapingRule:
+    async def get_or_create_rule(self, session, url: str, html_content: str, force_refresh: bool = False, error_hint: str = None) -> ScrapingRule:
+
         domain = urlparse(url).netloc.replace("www.", "")
         
         statement = select(ScrapingRule).where(ScrapingRule.domain == domain)
@@ -28,7 +29,8 @@ class AIGenerator:
             logger.info(f"📍 Найдено правило для {domain}")
             return rule
             
-        new_rule = await self.generate_rule(url, html_content)
+        new_rule = await self.generate_rule(url, html_content, error_hint=error_hint)
+
         
         if new_rule:
             new_rule.domain = domain 
@@ -51,16 +53,23 @@ class AIGenerator:
             return str(soup)[:60000]
         except Exception: return html[:30000]
 
-    async def generate_rule(self, url: str, html_content: str) -> ScrapingRule:
+    async def generate_rule(self, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
         logger.info(f"🤖 Запрашиваю помощь ИИ для: {url}...")
+        if error_hint:
+             logger.warning(f"💡 Использую подсказку об ошибке: {error_hint}")
+
         clean_content = self.clean_html(html_content)
+        
+        hint_text = f"\nCRITICAL: Previous attempt failed with error: {error_hint}. AVOID the selectors that caused this!" if error_hint else ""
         
         # Промпт теперь абсолютно универсален
         prompt = f"""
         Analyze the HTML from: {url}
         Task: Identify CSS selectors for a product catalog.
+        {hint_text}
         
         RETURN JSON OBJECT:
+
         - "site_name": Store name.
         - "emoji": Store icon.
         - "container_css": CSS selector for the product card wrapper. Provide 2-3 common variations comma-separated (e.g. 'li.item, div.card').

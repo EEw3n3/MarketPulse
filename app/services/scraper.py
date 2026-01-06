@@ -18,6 +18,9 @@ class ScrapedItem:
     price: Decimal
     availability: str
     url: str
+    is_valid: bool = True
+    validation_error: str = ""
+
 
 class ScraperService:
     def parse_price(self, price_text: str) -> Decimal:
@@ -32,6 +35,40 @@ class ScraperService:
     def extract_clean_text(self, element: Selector) -> str:
         if not element: return ""
         return element.xpath('string(.)').get().strip()
+
+    def validate_dataset(self, items: list[ScrapedItem]) -> dict:
+        """
+        Проверяет качество собранных данных. 
+        Возвращает отчет о 'здоровье' сета.
+        """
+        if not items:
+            return {"score": 0.0, "error": "No items found", "is_healthy": False}
+
+        total = len(items)
+        zero_prices = sum(1 for i in items if i.price <= 0)
+        short_titles = sum(1 for i in items if len(i.title) < 5)
+        
+        # Штрафные баллы
+        penalty = (zero_prices / total) * 0.7  # Цены важнее всего
+        penalty += (short_titles / total) * 0.3 # Заголовки тоже важны
+        
+        score = max(0.0, 1.0 - penalty)
+        
+        report = {
+            "total": total,
+            "zero_prices": zero_prices,
+            "short_titles": short_titles,
+            "score": round(score, 2),
+            "is_healthy": score > 0.7 and total >= 10
+        }
+        
+        if score <= 0.7:
+            report["error"] = "Low data quality: too many zero prices or bad titles"
+        elif total < 10:
+            report["error"] = "Low quantity: less than 10 items found"
+            
+        return report
+
 
     def _find_next_page_fallback(self, sel: Selector, current_url: str) -> str | None:
         def clean_href(href: str | None) -> str | None:
@@ -212,7 +249,27 @@ class ScraperService:
                 logger.info("⏹️ Пагинация завершена.")
                 break
         
+        # --- QUALITY CONTROL & SELF-LEARNING ---
+        report = self.validate_dataset(collected_items)
+        
+        from datetime import datetime
+        rule.health_score = report["score"]
+        
+        if report["is_healthy"]:
+            rule.last_success = datetime.utcnow()
+            rule.success_count += 1
+            rule.last_error = None
+            logger.success(f"💎 Качество данных подтверждено: {report['score']} ({len(collected_items)} шт)")
+        else:
+            rule.failure_count += 1
+            rule.last_error = report.get("error", "Unknown error")
+            logger.warning(f"💊 Низкое качество данных: {report['score']} | Ошибка: {rule.last_error}")
+
+        session.add(rule)
+        await session.commit()
+
         return collected_items
+
 
     async def scrape_page(self, url: str):
         html = await stealth_client.get_page(url)

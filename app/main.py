@@ -59,28 +59,29 @@ async def process_target(session, url: str):
     logger.info(f"📦 [{rule.site_name}] Попытка сбора #1...")
     products = await scraper_service.scrape_catalog(session, url, html, max_items=TARGET_COUNT)
     
-    # --- QUALITY CONTROL ---
-    bad_prices = sum(1 for p in products if p.price == 0)
-    is_bad_data = False
+    # --- ИСПОЛЬЗУЕМ ЦЕНТРАЛИЗОВАННУЮ ПРОВЕРКУ ---
+    report = scraper_service.validate_dataset(products)
     
-    if products:
-        bad_ratio = bad_prices / len(products)
-        if bad_ratio > 0.3:
-            logger.warning(f"📉 КАЧЕСТВО НИЗКОЕ: {bad_prices} из {len(products)} товаров имеют цену 0.00!")
-            is_bad_data = True
-        if len(products) < 15: # Чуть снизил порог
-            logger.warning(f"📉 КОЛИЧЕСТВО НИЗКОЕ: Найдено всего {len(products)} товаров.")
-            is_bad_data = True
+    if not products or not report["is_healthy"]:
+        logger.warning(f"🚨 [ALARM] Данные неудовлетворительны: {report.get('error', 'Unknown')}")
 
-    if not products or is_bad_data:
+
+    if not products or not report["is_healthy"]:
         logger.warning(f"🚨 [ALARM] Данные неудовлетворительны. Запускаем восстановление.")
         logger.warning(f"♻️ ЗАПУСК ПРОТОКОЛА ВОССТАНОВЛЕНИЯ (Tier 3 + Force Refresh)...")
         
         html_rendered = await get_hybrid_html(url, force_browser=True)
         if html_rendered:
-            logger.info("🧠 Регенерация правил...")
-            # Принудительно генерируем новое
-            new_rule = await ai_generator.get_or_create_rule(session, url, html_rendered, force_refresh=True)
+            logger.info("🧠 Регенерация правил с учетом ошибок...")
+            # Передаем подсказку об ошибке, чтобы ИИ не наступил на те же грабли
+            new_rule = await ai_generator.get_or_create_rule(
+                session, 
+                url, 
+                html_rendered, 
+                force_refresh=True,
+                error_hint=report.get("error")
+            )
+
             
             if new_rule:
                 rule = new_rule # Обновляем переменную rule

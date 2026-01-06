@@ -5,17 +5,19 @@ from app.domain.models import Product, PriceHistory, ScrapingRule
 from loguru import logger
 
 async def clear_database():
-    await init_db()
-    async with async_session() as session:
-        logger.warning("🗑️ Начинаю полную очистку базы данных...")
+    from app.core.database import engine
+    from sqlmodel import SQLModel
+    
+    logger.warning("🗑️ Полный сброс структуры базы данных (DROP TABLES)...")
+    
+    async with engine.begin() as conn:
+        # Сначала удаляем все таблицы
+        await conn.run_sync(SQLModel.metadata.drop_all)
+        # Затем создаем их заново с новыми колонками
+        await conn.run_sync(SQLModel.metadata.create_all)
         
-        # Удаляем в правильном порядке из-за внешних ключей
-        await session.execute(delete(PriceHistory))
-        await session.execute(delete(Product))
-        await session.execute(delete(ScrapingRule))
-        
-        await session.commit()
-        logger.success("✅ База данных полностью очищена!")
+    logger.success("✅ Структура базы данных обновлена и очищена!")
+
 
 if __name__ == "__main__":
     import sys
