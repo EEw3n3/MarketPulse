@@ -1,0 +1,49 @@
+import asyncio
+import sys
+from sqlmodel import select
+from app.core.database import init_db, async_session
+from app.domain.models import Product, PriceHistory
+
+async def inspect_database():
+    # Инициализация (на случай если таблицы еще не созданы, хотя они должны быть)
+    await init_db()
+    
+    async with async_session() as session:
+        # 1. Запрос всех товаров
+        statement = select(Product).order_by(Product.created_at.desc())
+        results = await session.execute(statement)
+        products = results.scalars().all()
+        
+        if not products:
+            print("\n❌ База данных пуста. Сначала запустите скрапинг (main.py).")
+            return
+
+        print(f"\n📊 ВСЕГО В БАЗЕ: {len(products)} ТОВАРОВ")
+        print(f"{'ID':<4} | {'МАГАЗИН':<15} | {'ЦЕНА':<10} | {'ДАТА':<19} | {'НАЗВАНИЕ'}")
+        print("-" * 100)
+        
+        for p in products:
+            # 2. Получаем последнюю актуальную цену для каждого товара
+            # (так как история может содержать много записей)
+            hist_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(PriceHistory.parsed_at.desc()).limit(1)
+            hist_res = await session.execute(hist_stmt)
+            latest_price_rec = hist_res.scalar_one_or_none()
+            
+            price_display = f"{latest_price_rec.price:>8.2f} €" if latest_price_rec else "---"
+            date_display = latest_price_rec.parsed_at.strftime("%Y-%m-%d %H:%M:%S") if latest_price_rec else "---"
+            title_short = (p.title[:50] + '...') if len(p.title) > 50 else p.title
+            
+            print(f"{p.id:<4} | {p.search_term:<15} | {price_display:<10} | {date_display:<19} | {title_short}")
+        
+        print("-" * 100)
+        print(f"✅ Просмотр завершен. Всего записей: {len(products)}")
+
+if __name__ == "__main__":
+    # Для Windows/Docker специфичная настройка цикла событий
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    try:
+        asyncio.run(inspect_database())
+    except KeyboardInterrupt:
+        pass

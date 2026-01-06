@@ -1,0 +1,8 @@
+{
+    "quotes.toscrape.com": {
+        "container": ".quote",
+        "title": "span.text",
+        "price": null,
+        "stock": null
+    }
+}
