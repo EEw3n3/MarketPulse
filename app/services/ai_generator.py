@@ -3,9 +3,9 @@ from urllib.parse import urlparse
 from openai import AsyncOpenAI
 from bs4 import BeautifulSoup
 from loguru import logger
-from sqlmodel import select
+from sqlmodel import select, desc
 from app.core.config import settings
-from app.domain.models import ScrapingRule
+from app.domain.models import ScrapingRule, SharedPattern
 
 class AIGenerator:
     def __init__(self):
@@ -29,7 +29,7 @@ class AIGenerator:
             logger.info(f"📍 Найдено правило для {domain}")
             return rule
             
-        new_rule = await self.generate_rule(url, html_content, error_hint=error_hint)
+        new_rule = await self.generate_rule(session, url, html_content, error_hint=error_hint)
 
         
         if new_rule:
@@ -53,12 +53,22 @@ class AIGenerator:
             return str(soup)[:60000]
         except Exception: return html[:30000]
 
-    async def generate_rule(self, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
+    async def generate_rule(self, session, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
         logger.info(f"🤖 Запрашиваю помощь ИИ для: {url}...")
         if error_hint:
              logger.warning(f"💡 Использую подсказку об ошибке: {error_hint}")
 
         clean_content = self.clean_html(html_content)
+        
+        # --- КОЛЛЕКТИВНЫЙ РАЗУМ: Достаем лучшие паттерны ---
+        stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(10)
+        db_patterns = (await session.execute(stmt)).scalars().all()
+        
+        knowledge_base = ""
+        if db_patterns:
+            knowledge_base = "\nKNOWLEDGE BASE (Patterns that often work):\n"
+            for p in db_patterns:
+                knowledge_base += f"- {p.pattern_type}: {p.css_selector} (Success count: {p.success_count})\n"
         
         hint_text = f"\nCRITICAL: Previous attempt failed with error: {error_hint}. AVOID the selectors that caused this!" if error_hint else ""
         
@@ -67,21 +77,20 @@ class AIGenerator:
         Analyze the HTML from: {url}
         Task: Identify CSS selectors for a product catalog.
         {hint_text}
+        {knowledge_base}
+        
+        INSTRUCTION:
+        1. Look at the HTML snippet.
+        2. Check if any patterns from the KNOWLEDGE BASE match the structure. Use them if they fit!
+        3. If no patterns match, find NEW precise selectors.
         
         RETURN JSON OBJECT:
-
         - "site_name": Store name.
         - "emoji": Store icon.
-        - "container_css": CSS selector for the product card wrapper. Provide 2-3 common variations comma-separated (e.g. 'li.item, div.card').
-        - "title_css": CSS selector for the product Title.
-        - "price_css": CSS selector for the Price.
-        - "next_page_css": CSS selector for the 'Next Page' button/link.
-        
-        RULES:
-        1. Be precise with tag names (li, div, article).
-        2. Avoid guessing parent classes that are not strictly necessary (prefer '.product' over 'div.catalog ul.products li.product').
-        3. For 'container_css', prioritize the tag that is repeated for each product.
-        4. For 'price_css', look for tags containing numbers and currency symbols.
+        - "container_css": CSS selector for product card (e.g. 'li.item').
+        - "title_css": CSS selector for Title.
+        - "price_css": CSS selector for Price.
+        - "next_page_css": CSS selector for Next page.
         
         HTML SNIPPET:
         {clean_content}
@@ -90,7 +99,8 @@ class AIGenerator:
         try:
             response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "system", "content": "You are a professional web scraping expert."}, 
+                          {"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
             )
             data = json.loads(response.choices[0].message.content)

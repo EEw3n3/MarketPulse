@@ -44,3 +44,11 @@ class PriceHistory(SQLModel, table=True):
     # Связь с таблицей Product
     product_id: Optional[int] = Field(default=None, foreign_key="product.id")
     product: Optional[Product] = Relationship(back_populates="history")
+
+# --- 3. ГЛОБАЛЬНЫЕ ПАТТЕРНЫ (Коллективный разум) ---
+class SharedPattern(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    pattern_type: str = Field(index=True) # 'container', 'title', 'price', 'next_page'
+    css_selector: str = Field(unique=True)
+    success_count: int = Field(default=1)
+    last_used: datetime = Field(default_factory=datetime.utcnow)

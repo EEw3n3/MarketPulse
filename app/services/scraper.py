@@ -9,7 +9,7 @@ from loguru import logger
 from sqlmodel import select
 from urllib.parse import urljoin, urlparse
 
-from app.domain.models import ScrapingRule, Product, PriceHistory
+from app.domain.models import ScrapingRule, Product, PriceHistory, SharedPattern
 from app.core.client import stealth_client
 
 @dataclass
@@ -68,6 +68,36 @@ class ScraperService:
             report["error"] = "Low quantity: less than 10 items found"
             
         return report
+
+    async def learn_from_success(self, session, rule: ScrapingRule):
+        """
+        Сохраняет удачные селекторы в общую базу знаний.
+        """
+        patterns = [
+            ('container', rule.container_css),
+            ('title', rule.title_css),
+            ('price', rule.price_css),
+            ('next_page', rule.next_page_css)
+        ]
+        
+        from datetime import datetime
+        for p_type, selector in patterns:
+            if not selector: continue
+            
+            # Ищем, есть ли уже такой паттерн
+            stmt = select(SharedPattern).where(SharedPattern.css_selector == selector)
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+            
+            if existing:
+                existing.success_count += 1
+                existing.last_used = datetime.utcnow()
+                session.add(existing)
+            else:
+                new_p = SharedPattern(pattern_type=p_type, css_selector=selector)
+                session.add(new_p)
+        
+        await session.commit()
+        logger.info(f"🧠 Паттерны сайта {rule.domain} добавлены в базу знаний.")
 
 
     def _find_next_page_fallback(self, sel: Selector, current_url: str) -> str | None:
@@ -260,7 +290,10 @@ class ScraperService:
             rule.success_count += 1
             rule.last_error = None
             logger.success(f"💎 Качество данных подтверждено: {report['score']} ({len(collected_items)} шт)")
+            # ОБУЧЕНИЕ: Запоминаем паттерны
+            await self.learn_from_success(session, rule)
         else:
+
             rule.failure_count += 1
             rule.last_error = report.get("error", "Unknown error")
             logger.warning(f"💊 Низкое качество данных: {report['score']} | Ошибка: {rule.last_error}")
