@@ -18,7 +18,10 @@ class StealthClient:
         self.current_proxy = None
 
     async def init_session(self):
-        """Создает долгоживущую сессию (Keep-Alive)"""
+        """
+        Initializes a long-lived HTTP session with Keep-Alive support.
+        Configures TLS spoofing (impersonation) and rotates proxies to bypass bot detection.
+        """
         if self.session:
             await self.close()
             
@@ -41,6 +44,10 @@ class StealthClient:
         logger.info(f"🔌 Создана новая Stealth-сессия: {self.current_browser} | {proxy_log}")
 
     async def get_page(self, url: str):
+        """
+        Fetches the HTML content of a given URL using the active stealth session.
+        Implements automatic retry logic, proxy rotation, and error handling for common bot blocks.
+        """
         # Если сессии нет - создаем
         if not self.session:
             await self.init_session()

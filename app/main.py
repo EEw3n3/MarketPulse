@@ -15,6 +15,11 @@ TARGETS = [
 TARGET_COUNT = 100
 
 async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
+    """
+    Attempts to fetch HTML content using a tiered approach:
+    Tier 1: Fast stealth client
+    Tier 3: Full browser rendering (if Tier 1 fails or if forced)
+    """
     if force_browser:
         logger.warning(f"🚜 [Tier 3] Принудительный запуск браузера для {url}...")
         try:
@@ -40,8 +45,8 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     return await get_hybrid_html(url, force_browser=True)
 
 async def process_target(session, url: str):
-    logger.info(f"\n🏁 НАЧИНАЕМ СТРЕСС-ТЕСТ: {url}")
-    logger.info(f"🎯 Цель: Собрать {TARGET_COUNT} товаров с правильными ценами.")
+    logger.info(f"\n🏁 НАЧИНАЕМ СТАТИСТИЧЕСКУЮ ПРОВЕРКУ: {url}")
+    logger.info(f"🎯 Цель: Собрать {TARGET_COUNT} товаров с валидацией данных.")
     
     html = await get_hybrid_html(url)
     if not html: return
@@ -115,7 +120,7 @@ async def process_target(session, url: str):
         logger.error(f"❌ ФИНАЛЬНЫЙ ПРОВАЛ.")
 
 async def main():
-    logger.info("🚀 Запуск MarketPulse: Quality Control Mode")
+    logger.info("🚀 Запуск MarketPulse: Quality Control & Intelligence System")
     await init_db()
     await stealth_client.init_session()
 
