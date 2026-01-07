@@ -18,7 +18,7 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     """
     Attempts to fetch HTML content using a tiered approach:
     Tier 1: Fast stealth client
-    Tier 3: Full browser rendering (if Tier 1 fails or if forced)
+    Tier 3: Full browser rendering (if Tier 1 fails or if forced).
     """
     if force_browser:
         logger.warning(f"🚜 [Tier 3] Принудительный запуск браузера для {url}...")
