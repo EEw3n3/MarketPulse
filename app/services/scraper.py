@@ -4,12 +4,13 @@ import sys
 import re
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Optional
 from parsel import Selector
 from loguru import logger
 from sqlmodel import select
 from urllib.parse import urljoin, urlparse
 
-from app.domain.models import ScrapingRule, Product, PriceHistory, SharedPattern
+from app.domain.models import ScrapingRule, Product, PriceHistory, SharedPattern, ProductGroup
 from app.core.client import stealth_client
 
 @dataclass
@@ -18,6 +19,7 @@ class ScrapedItem:
     price: Decimal
     availability: str
     url: str
+    image_url: Optional[str] = None
     is_valid: bool = True
     validation_error: str = ""
 
@@ -77,6 +79,7 @@ class ScraperService:
             ('container', rule.container_css),
             ('title', rule.title_css),
             ('price', rule.price_css),
+            ('image', rule.image_css),
             ('next_page', rule.next_page_css)
         ]
         
@@ -105,9 +108,6 @@ class ScraperService:
             if not href: return None
             if href.startswith('javascript:') or href == '#': return None
             
-            # РЕШЕНИЕ ПРОБЛЕМЫ "Фрактальных URL":
-            # Если href начинается с 'categories/' (как на rdveikals), 
-            # он скорее всего коренной, а не относительный к текущей папке.
             if href.startswith('categories/') or href.startswith('catalog/'):
                 parsed = urlparse(current_url)
                 joined = urljoin(f"{parsed.scheme}://{parsed.netloc}/", href)
@@ -129,23 +129,16 @@ class ScraperService:
         # 3. Numeric pagination
         active_candidates = ['is-active', 'active', 'current', 'selected', 'active-page']
         for cls in active_candidates:
-            # Ищем всех соседей-ссылок и перебираем их
             xpath_query = f"//*[contains(@class, '{cls}')]/following-sibling::a/@href"
             links = sel.xpath(xpath_query).getall()
             for l in links:
                 if clean_href(l): return clean_href(l)
             
-            # Пробуем через родителя (li)
             xpath_li = f"//li[contains(@class, '{cls}')]/following-sibling::li/a/@href"
             links_li = sel.xpath(xpath_li).getall()
             for l in links_li:
                 if clean_href(l): return clean_href(l)
         
-        # 4. Последний шанс: любая ссылка в блоке пагинации, которая больше текущей страницы
-        # (Оставим это как идею, если не сработает выше)
-
-        return None
-
         return None
 
     def _try_selectors(self, source: Selector, css_list: str) -> tuple[list[Selector], str | None]:
@@ -158,7 +151,7 @@ class ScraperService:
             except: continue
         return [], None
 
-    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100):
+    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
         statement = select(ScrapingRule).where(ScrapingRule.domain == domain)
@@ -176,8 +169,10 @@ class ScraperService:
                 logger.info(f"🚀 [Page {page_number}] Загрузка: {current_url}")
                 html = await stealth_client.get_page(current_url)
                 if not html:
-                    from app.core.browser import browser_manager
-                    html = await browser_manager.get_page_content(current_url)
+                    try:
+                        from app.core.browser import browser_manager
+                        html = await browser_manager.get_page_content(current_url)
+                    except: pass
             if not html: break 
 
             sel = Selector(text=html)
@@ -231,7 +226,15 @@ class ScraperService:
                         price_text = self.extract_clean_text(price_el)
                         price_val = self.parse_price(price_text)
 
-                    # 4. URL
+                    # 4. IMAGE
+                    image_url = None
+                    if rule.image_css:
+                        img_el, _ = self._try_selectors(card, rule.image_css)
+                        if img_el:
+                            image_url = img_el.css("img::attr(src), img::attr(data-src), ::attr(src)").get()
+                            if image_url: image_url = urljoin(current_url, image_url)
+
+                    # 5. URL
                     product_url = current_url
                     link_node = card.css("a::attr(href)").get()
                     if not link_node: link_node = card.css("*::attr(href)").get()
@@ -241,14 +244,30 @@ class ScraperService:
                     product = (await session.execute(stmt)).scalar_one_or_none()
                     
                     if not product:
-                        product = Product(title=title, url=product_url, search_term=rule.site_name)
+                        product = Product(
+                            title=title, 
+                            url=product_url, 
+                            search_term=rule.site_name,
+                            group_id=group_id
+                        )
                         session.add(product)
                         await session.flush()
                     
+                    # Обновляем метаданные товара
+                    product.last_price = price_val
+                    if image_url: product.image_url = image_url
+                    session.add(product)
+
                     history = PriceHistory(price=price_val, in_stock=True, product_id=product.id)
                     session.add(history)
                     
-                    collected_items.append(ScrapedItem(title=product.title, price=price_val, availability="Yes", url=product.url))
+                    collected_items.append(ScrapedItem(
+                        title=product.title, 
+                        price=price_val, 
+                        availability="Yes", 
+                        url=product.url, 
+                        image_url=image_url
+                    ))
                     
                 except Exception: continue
             
@@ -257,7 +276,7 @@ class ScraperService:
             if rule.next_page_css:
                 el_p, winner = self._try_selectors(sel, rule.next_page_css)
                 if el_p:
-                    el = el_p[0] # Берем первый найденный элемент
+                    el = el_p[0]
                     attr = el.attrib.get('href') or el.css('a::attr(href)').get()
                     if attr: next_page = urljoin(current_url, attr)
             
@@ -290,10 +309,8 @@ class ScraperService:
             rule.success_count += 1
             rule.last_error = None
             logger.success(f"💎 Качество данных подтверждено: {report['score']} ({len(collected_items)} шт)")
-            # ОБУЧЕНИЕ: Запоминаем паттерны
             await self.learn_from_success(session, rule)
         else:
-
             rule.failure_count += 1
             rule.last_error = report.get("error", "Unknown error")
             logger.warning(f"💊 Низкое качество данных: {report['score']} | Ошибка: {rule.last_error}")

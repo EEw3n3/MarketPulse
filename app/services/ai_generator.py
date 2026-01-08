@@ -61,7 +61,7 @@ class AIGenerator:
         clean_content = self.clean_html(html_content)
         
         # --- КОЛЛЕКТИВНЫЙ РАЗУМ: Достаем лучшие паттерны ---
-        stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(10)
+        stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(15)
         db_patterns = (await session.execute(stmt)).scalars().all()
         
         knowledge_base = ""
@@ -90,6 +90,7 @@ class AIGenerator:
         - "container_css": CSS selector for product card (e.g. 'li.item').
         - "title_css": CSS selector for Title.
         - "price_css": CSS selector for Price.
+        - "image_css": CSS selector for Product Image (usually img tag or its container).
         - "next_page_css": CSS selector for Next page.
         
         HTML SNIPPET:
@@ -115,6 +116,7 @@ class AIGenerator:
                 container_css=data.get("container_css"),
                 title_css=data.get("title_css"),
                 price_css=data.get("price_css"),
+                image_css=data.get("image_css"),
                 next_page_css=data.get("next_page_css")
             )
         except Exception as e:
