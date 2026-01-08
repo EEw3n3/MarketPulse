@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from loguru import logger
+from sqlmodel import select
 
 from app.core.database import init_db, async_session
 from app.core.client import stealth_client
