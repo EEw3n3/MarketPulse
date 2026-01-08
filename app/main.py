@@ -13,10 +13,11 @@ TARGETS = [
         "url": "https://www.rdveikals.lv/categories/lv/388/sort/5/filter/0_0_74_0/page/1/Mobilie-telefoni.html",
         "search_term": "Mobile Phones",
         "category": "Electronics"
-    }
+    },
+    # Можно добавить другие сайты позже для сравнения в одной группе
 ]
 
-TARGET_COUNT = 100
+TARGET_COUNT = 20 # Уменьшим для быстрого теста бэкенда
 
 async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     """
@@ -80,7 +81,7 @@ async def process_target(session, target: dict):
         logger.error("❌ Не удалось создать правило.")
         return
 
-    logger.info(f"📦 [{rule.site_name}] Попытка сбора #1...")
+    logger.info(f"📦 [{rule.site_name}] Попытка сбора...")
     products = await scraper_service.scrape_catalog(
         session, url, html, max_items=TARGET_COUNT, group_id=group.id
     )
@@ -88,66 +89,58 @@ async def process_target(session, target: dict):
     report = scraper_service.validate_dataset(products)
     
     if not products or not report["is_healthy"]:
-        logger.warning(f"🚨 [ALARM] Данные неудовлетворительны: {report.get('error', 'Unknown')}")
-        logger.warning(f"♻️ ЗАПУСК ПРОТОКОЛА ВОССТАНОВЛЕНИЯ (Tier 3 + Force Refresh)...")
-        
+        logger.warning(f"🚨 [ALARM] Данные неудовлетворительны. Запуск восстановления...")
         html_rendered = await get_hybrid_html(url, force_browser=True)
         if html_rendered:
             new_rule = await ai_generator.get_or_create_rule(
-                session, 
-                url, 
-                html_rendered, 
-                force_refresh=True,
-                error_hint=report.get("error")
+                session, url, html_rendered, force_refresh=True, error_hint=report.get("error")
             )
-            
             if new_rule:
-                rule = new_rule 
-                logger.info(f"📦 [{rule.site_name}] Попытка сбора #2 (FIXED)...")
-                products = await scraper_service.scrape_catalog(
+                await scraper_service.scrape_catalog(
                     session, url, html_rendered, max_items=TARGET_COUNT, group_id=group.id
                 )
 
-    # Итоговый отчет
-    if products and rule:
-        final_bad_prices = sum(1 for p in products if p.price == 0)
-        logger.success(f"🎉 [{rule.site_name}] Сбор завершен!")
-        print(f"\n{rule.emoji}  --- РЕЗУЛЬТАТЫ ---")
-        print(f"   Группа: {group.name}")
-        print(f"   Собрано: {len(products)}")
-        for p in products[-1:]:
-            print(f"   Пример: {p.title[:50]} | {p.price} | {p.image_url[:40] if p.image_url else 'No Img'}...")
-        print(f"{'—' * 75}\n")
-    else:
-        logger.error(f"❌ ФИНАЛЬНЫЙ ПРОВАЛ.")
-
-# Семафор для ограничения количества одновременных задач парсинга
+# Семафор для ограничения одновременных задач
 MAX_CONCURRENT_SCRAPES = 3
 scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
 
 async def process_target_worker(target: dict):
-    """
-    Обертка для process_target, которая соблюдает ограничения семафора 
-    и управляет жизненным циклом сессии.
-    """
     async with scrape_semaphore:
         async with async_session() as session:
-            try:
-                await process_target(session, target)
-            except Exception as e:
-                logger.error(f"💥 Критическая ошибка при обработке {target['url']}: {e}")
+            try: await process_target(session, target)
+            except Exception as e: logger.error(f"💥 Ошибка {target['url']}: {e}")
 
 async def main():
-    logger.info("🚀 Запуск MarketPulse: Intelligence Backend")
+    logger.info("🚀 Запуск MarketPulse: Intelligence CLI")
     await init_db()
-    
-    # Инициализация сессии клиента
     await stealth_client.init_session()
 
     try:
-        # Запускаем задачи параллельно
+        # 1. Запускаем параллельный парсинг
         tasks = [process_target_worker(target) for target in TARGETS]
         await asyncio.gather(*tasks)
+
+        # 2. ФИНАЛЬНЫЙ АНАЛИЗ (Вместо API)
+        logger.info("\n📊 ГЕНЕРАЦИЯ ОТЧЕТА ПО ГРУППАМ...")
+        from app.services.analyzer import price_analyzer
+        from app.domain.models import ProductGroup
+
+        async with async_session() as session:
+            groups_stmt = select(ProductGroup)
+            groups = (await session.execute(groups_stmt)).scalars().all()
+
+            for g in groups:
+                analysis = await price_analyzer.analyze_group(session, g.id)
+                if analysis:
+                    print(f"\n💎 ОТЧЕТ ПО ГРУППЕ: {g.name}")
+                    print(f"   Категория:  {g.category}")
+                    print(f"   Ср. цена:   {analysis['avg_group_price']} €")
+                    print(f"   Лучшая:     {analysis['best_price']} € ({analysis['best_store']})")
+                    print(f"   Экономия:   {analysis['savings']} €")
+                    print(f"{'—' * 60}")
+                else:
+                    print(f"\nℹ️ Группа {g.name} пока пуста.")
+
     finally:
         await stealth_client.close()
         await browser_manager.stop()
