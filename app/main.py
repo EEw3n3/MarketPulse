@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from urllib.parse import quote_plus
 from loguru import logger
 from sqlmodel import select
 
@@ -8,17 +9,12 @@ from app.core.client import stealth_client
 from app.core.browser import browser_manager
 from app.services.ai_generator import ai_generator
 from app.services.scraper import scraper_service
+from app.services.intent import intent_service
 
-TARGETS = [
-    {
-        "url": "https://www.rdveikals.lv/categories/lv/388/sort/5/filter/0_0_74_0/page/1/Mobilie-telefoni.html",
-        "search_term": "Mobile Phones",
-        "category": "Electronics"
-    },
-    # Можно добавить другие сайты позже для сравнения в одной группе
-]
+# Больше не используем жестко зашитые TARGETS
+# TARGETS = [...] 
 
-TARGET_COUNT = 20 # Уменьшим для быстрого теста бэкенда
+TARGET_COUNT = 20 
 
 async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     """
@@ -113,34 +109,67 @@ async def process_target_worker(target: dict):
 
 async def main():
     logger.info("🚀 Запуск MarketPulse: Intelligence CLI")
+    
+    # 1. ВЗАИМОДЕЙСТВИЕ С ПОЛЬЗОВАТЕЛЕМ
+    print("\n" + "="*50)
+    print("🤖 ДОБРО ПОЖАЛОВАТЬ В MARKETPULSE CLI")
+    print("="*50)
+    user_query = input("🎯 Что вы хотите найти сегодня? (например: iPhone 16 или Nike Zoom): ").strip()
+    
+    if not user_query:
+        logger.error("Запрос не может быть пустым.")
+        return
+
     await init_db()
     await stealth_client.init_session()
 
     try:
-        # 1. Запускаем параллельный парсинг
-        tasks = [process_target_worker(target) for target in TARGETS]
+        # 2. РАЗБОР НАМЕРЕНИЯ ЧЕРЕЗ ИИ
+        intent = await intent_service.parse_user_query(user_query)
+        search_term = intent["search_term"]
+        category = intent["category"]
+        
+        # 3. ДИНАМИЧЕСКАЯ ГЕНЕРАЦИЯ ЦЕЛЕЙ (Магазины)
+        # Мы можем добавить сколько угодно магазинов, просто формируя URL поиска
+        encoded_query = quote_plus(search_term)
+        
+        dynamic_targets = [
+            {
+                "url": f"https://www.rdveikals.lv/search/lv/word/{encoded_query}/page/1/",
+                "search_term": search_term,
+                "category": category
+            },
+            {
+                 "url": f"https://www.nike.com/w?q={encoded_query}",
+                 "search_term": search_term,
+                 "category": category
+            }
+        ]
+
+        # 4. Запускаем параллельный парсинг
+        tasks = [process_target_worker(target) for target in dynamic_targets]
         await asyncio.gather(*tasks)
 
-        # 2. ФИНАЛЬНЫЙ АНАЛИЗ (Вместо API)
+        # 5. ФИНАЛЬНЫЙ АНАЛИЗ
         logger.info("\n📊 ГЕНЕРАЦИЯ ОТЧЕТА ПО ГРУППАМ...")
         from app.services.analyzer import price_analyzer
         from app.domain.models import ProductGroup
 
         async with async_session() as session:
-            groups_stmt = select(ProductGroup)
+            groups_stmt = select(ProductGroup).where(ProductGroup.name == search_term)
             groups = (await session.execute(groups_stmt)).scalars().all()
 
             for g in groups:
                 analysis = await price_analyzer.analyze_group(session, g.id)
                 if analysis:
-                    print(f"\n💎 ОТЧЕТ ПО ГРУППЕ: {g.name}")
+                    print(f"\n💎 ОТЧЕТ ПО ПОИСКУ: {g.name}")
                     print(f"   Категория:  {g.category}")
                     print(f"   Ср. цена:   {analysis['avg_group_price']} €")
                     print(f"   Лучшая:     {analysis['best_price']} € ({analysis['best_store']})")
-                    print(f"   Экономия:   {analysis['savings']} €")
+                    print(f"   Экономия:   {analysis['savings']} € (от средней цены)")
                     print(f"{'—' * 60}")
                 else:
-                    print(f"\nℹ️ Группа {g.name} пока пуста.")
+                    print(f"\nℹ️ По запросу '{g.name}' данные в базе не найдены.")
 
     finally:
         await stealth_client.close()
