@@ -108,13 +108,18 @@ class ScraperService:
             if not href: return None
             if href.startswith('javascript:') or href == '#': return None
             
-            if href.startswith('categories/') or href.startswith('catalog/'):
-                parsed = urlparse(current_url)
-                joined = urljoin(f"{parsed.scheme}://{parsed.netloc}/", href)
-            else:
-                joined = urljoin(current_url, href)
+            # Если ссылка уже абсолютная - берем как есть
+            if bool(urlparse(href).netloc):
+                return href
+                
+            # Иначе соединяем с корнем домена или текущей страницей
+            parsed_base = urlparse(current_url)
+            base_root = f"{parsed_base.scheme}://{parsed_base.netloc}"
             
-            return joined
+            if href.startswith('/'):
+                return urljoin(base_root, href)
+            else:
+                return urljoin(current_url, href)
 
         # 1. Standard rel="next"
         link = sel.css('link[rel="next"]::attr(href), a[rel="next"]::attr(href)').get()

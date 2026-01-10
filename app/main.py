@@ -9,10 +9,11 @@ from app.core.client import stealth_client
 from app.core.browser import browser_manager
 from app.services.ai_generator import ai_generator
 from app.services.scraper import scraper_service
-from app.services.intent import intent_service
-
+from app.core.registry import register_domain
 # Больше не используем жестко зашитые TARGETS
 # TARGETS = [...] 
+from app.services.intent import intent_service
+
 
 TARGET_COUNT = 20 
 
@@ -46,25 +47,14 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
 
     return await get_hybrid_html(url, force_browser=True)
 
-async def process_target(session, target: dict):
+from app.services.validator import content_validator
+
+async def process_target(session, target: dict, intent: dict, group_id: int):
     url = target["url"]
     search_term = target["search_term"]
-    category = target.get("category", "General")
 
     logger.info(f"\n🏁 НАЧИНАЕМ ПРОВЕРКУ: {url}")
-    logger.info(f"🎯 Поиск: {search_term} | Категория: {category}")
     
-    # 0. Находим или создаем Группу
-    from app.domain.models import ProductGroup
-    stmt = select(ProductGroup).where(ProductGroup.name == search_term)
-    group = (await session.execute(stmt)).scalar_one_or_none()
-    
-    if not group:
-        group = ProductGroup(name=search_term, category=category)
-        session.add(group)
-        await session.flush()
-        logger.info(f"📁 Создана новая группа: {search_term}")
-
     html = await get_hybrid_html(url)
     if not html: return
 
@@ -80,31 +70,24 @@ async def process_target(session, target: dict):
 
     logger.info(f"📦 [{rule.site_name}] Попытка сбора...")
     products = await scraper_service.scrape_catalog(
-        session, url, html, max_items=TARGET_COUNT, group_id=group.id
+        session, url, html, max_items=TARGET_COUNT, group_id=group_id
     )
     
-    report = scraper_service.validate_dataset(products)
+    # --- Фильтрация мусора (чехлы, одежда и т.д.) ---
+    if intent and products:
+        content_validator.validate_items(products, intent)
     
-    if not products or not report["is_healthy"]:
-        logger.warning(f"🚨 [ALARM] Данные неудовлетворительны. Запуск восстановления...")
-        html_rendered = await get_hybrid_html(url, force_browser=True)
-        if html_rendered:
-            new_rule = await ai_generator.get_or_create_rule(
-                session, url, html_rendered, force_refresh=True, error_hint=report.get("error")
-            )
-            if new_rule:
-                await scraper_service.scrape_catalog(
-                    session, url, html_rendered, max_items=TARGET_COUNT, group_id=group.id
-                )
+    # Репорт валидации остается для метрик здоровья правила
+    scraper_service.validate_dataset(products)
 
 # Семафор для ограничения одновременных задач
 MAX_CONCURRENT_SCRAPES = 3
 scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
 
-async def process_target_worker(target: dict):
+async def process_target_worker(target: dict, intent: dict, group_id: int):
     async with scrape_semaphore:
         async with async_session() as session:
-            try: await process_target(session, target)
+            try: await process_target(session, target, intent, group_id)
             except Exception as e: logger.error(f"💥 Ошибка {target['url']}: {e}")
 
 async def main():
@@ -133,6 +116,20 @@ async def main():
             search_term = intent["search_term"]
             category = intent["category"]
             
+            # --- ЦЕНТРАЛИЗОВАННОЕ СОЗДАНИЕ ГРУППЫ ---
+            from app.domain.models import ProductGroup
+            async with async_session() as session:
+                stmt = select(ProductGroup).where(ProductGroup.name == search_term)
+                # Используем .first() чтобы не падать если дубликат уже есть
+                group = (await session.execute(stmt)).scalars().first()
+                if not group:
+                    group = ProductGroup(name=search_term, category=category)
+                    session.add(group)
+                    await session.commit()
+                    await session.refresh(group)
+                    logger.info(f"📁 Создана новая группа: {search_term}")
+                group_id = group.id
+
             encoded_query = quote_plus(search_term)
             dynamic_targets = [
                 {
@@ -150,7 +147,8 @@ async def main():
             from app.core.registry import register_domain
             for t in dynamic_targets: register_domain(t["url"])
 
-            tasks = [process_target_worker(target) for target in dynamic_targets]
+            # 4. Запускаем параллельный парсинг и передаем group_id
+            tasks = [process_target_worker(target, intent, group_id) for target in dynamic_targets]
             await asyncio.gather(*tasks)
 
         elif choice == "2":
@@ -165,6 +163,18 @@ async def main():
             global TARGET_COUNT
             TARGET_COUNT = limit
 
+            # Создаем группу для режима 2
+            from app.domain.models import ProductGroup
+            async with async_session() as session:
+                stmt = select(ProductGroup).where(ProductGroup.name == search_term)
+                group = (await session.execute(stmt)).scalars().first()
+                if not group:
+                    group = ProductGroup(name=search_term, category=category)
+                    session.add(group)
+                    await session.commit()
+                    await session.refresh(group)
+                group_id = group.id
+
             from app.core.registry import register_domain
             register_domain(target_url)
 
@@ -174,7 +184,7 @@ async def main():
                 "category": category
             }
             
-            await process_target_worker(target)
+            await process_target_worker(target, None, group_id)
         
         else:
             logger.error("Неверный выбор режима.")
@@ -185,9 +195,10 @@ async def main():
         from app.services.analyzer import price_analyzer
         from app.domain.models import ProductGroup
 
+        from sqlalchemy.orm import selectinload
         async with async_session() as session:
-            # Если был поиск - берем конкр. группу, если обучение - все новые
-            groups_stmt = select(ProductGroup).order_by(ProductGroup.created_at.desc()).limit(1)
+            # Добавлена опция selectinload, чтобы товары загружались сразу (фикст MissingGreenlet)
+            groups_stmt = select(ProductGroup).options(selectinload(ProductGroup.products)).order_by(ProductGroup.created_at.desc()).limit(1)
             results = await session.execute(groups_stmt)
             groups = results.scalars().all()
 

@@ -22,8 +22,9 @@ class IntentService:
         RULES:
         1. "search_term": A concise, optimized string for a search engine (e.g. "iPhone 16 128GB Black").
         2. "category": One of [Electronics, Shoes, Clothing, Home, Other].
-        3. "max_price": Integer or null if not specified.
-        4. "raw_query": Keep the original query.
+        3. "brand": The primary brand (e.g. "Apple", "Nike").
+        4. "forbidden_keywords": List of words that indicate an accessory or wrong item (e.g. ["case", "cover", "glass", "cable", "strap"]).
+        5. "max_price": Integer or null if not specified.
 
         RETURN JSON ONLY.
         """
