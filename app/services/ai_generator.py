@@ -92,6 +92,7 @@ class AIGenerator:
         - "price_css": CSS selector for Price.
         - "image_css": CSS selector for Product Image (usually img tag or its container).
         - "next_page_css": CSS selector for Next page.
+        - "negative_keywords": LIST of strings. Words that indicate "garbage" or accessories for this SPECIFIC store/category. (e.g. for Phones: ["case", "cover", "glass", "mount"]).
         
         HTML SNIPPET:
         {clean_content}
@@ -117,7 +118,8 @@ class AIGenerator:
                 title_css=data.get("title_css"),
                 price_css=data.get("price_css"),
                 image_css=data.get("image_css"),
-                next_page_css=data.get("next_page_css")
+                next_page_css=data.get("next_page_css"),
+                negative_keywords=json.dumps(data.get("negative_keywords", []))
             )
         except Exception as e:
             logger.error(f"Ошибка AI: {e}")

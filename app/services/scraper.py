@@ -156,7 +156,7 @@ class ScraperService:
             except: continue
         return [], None
 
-    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None):
+    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
         statement = select(ScrapingRule).where(ScrapingRule.domain == domain)
@@ -165,11 +165,12 @@ class ScraperService:
         if not rule: return []
 
         current_url = start_url
-        collected_items = []
+        candidates = [] 
         page_number = 1
         html = initial_html
         
-        while len(collected_items) < max_items and current_url:
+        # --- ФАЗА 1: СБОР КАНДИДАТОВ ---
+        while len(candidates) < max_items * 2 and current_url: # Собираем с запасом
             if not html:
                 logger.info(f"🚀 [Page {page_number}] Загрузка: {current_url}")
                 html = await stealth_client.get_page(current_url)
@@ -200,7 +201,7 @@ class ScraperService:
             logger.info(f"{rule.emoji} [Page {page_number}] Карточек: {len(cards)}")
 
             for card in cards:
-                if len(collected_items) >= max_items: break
+                if len(candidates) >= max_items * 3: break
                 try:
                     # 2. TITLE
                     title_el, winner = self._try_selectors(card, rule.title_css)
@@ -245,35 +246,17 @@ class ScraperService:
                     if not link_node: link_node = card.css("*::attr(href)").get()
                     if link_node: product_url = urljoin(current_url, link_node)
 
-                    stmt = select(Product).where(Product.url == product_url)
-                    product = (await session.execute(stmt)).scalar_one_or_none()
+                    if not link_node: link_node = card.css("*::attr(href)").get()
+                    if link_node: product_url = urljoin(current_url, link_node)
                     
-                    if not product:
-                        product = Product(
-                            title=title, 
-                            url=product_url, 
-                            search_term=rule.site_name,
-                            group_id=group_id
-                        )
-                        session.add(product)
-                        await session.flush()
-                    
-                    # Обновляем метаданные товара
-                    product.last_price = price_val
-                    if image_url: product.image_url = image_url
-                    session.add(product)
+                    # Store as primitive dict first for analysis
+                    candidates.append({
+                        "title": title,
+                        "price": price_val,
+                        "url": product_url,
+                        "image_url": image_url
+                    })
 
-                    history = PriceHistory(price=price_val, in_stock=True, product_id=product.id)
-                    session.add(history)
-                    
-                    collected_items.append(ScrapedItem(
-                        title=product.title, 
-                        price=price_val, 
-                        availability="Yes", 
-                        url=product.url, 
-                        image_url=image_url
-                    ))
-                    
                 except Exception: continue
             
             # --- ПАГИНАЦИЯ ---
@@ -293,18 +276,98 @@ class ScraperService:
             
             await session.commit()
 
-            if next_page and next_page != current_url:
+            if next_page and next_page != current_url and len(candidates) < max_items:
                 logger.info(f"➡️ Переход на следующую страницу: {next_page}")
                 current_url = next_page
                 page_number += 1
                 html = None 
                 await asyncio.sleep(random.uniform(1.0, 2.5))
             else:
-                logger.info("⏹️ Пагинация завершена.")
+                logger.info("⏹️ Пагинация завершена (или лимит достигнут).")
                 break
         
+        # --- ФАЗА 2: ФИЛЬТРАЦИЯ И АНАЛИЗ (Методы 1, 2, 3) ---
+        valid_items = []
+        
+        if candidates:
+            # 1. Price Anomaly Detection (Метод 1)
+            # Find the most expensive items to establish a baseline
+            all_prices = [c["price"] for c in candidates if c["price"] > 0]
+            max_price = max(all_prices) if all_prices else Decimal("0.00")
+            
+            # Если цена очень низкая в принципе, фильтр не нужен
+            price_threshold = Decimal("0.00")
+            if max_price > Decimal("50.00"):
+                # Если товар дороже 50 евро, считаем, что все, что дешевле 10% от него - это аксессуары
+                # Используем 10% как порог. Если телефон 1000, все что ниже 100 - мусор.
+                price_threshold = max_price * Decimal("0.10")
+                logger.info(f"💰 [PriceFilter] Max: {max_price}€ | Threshold: {price_threshold}€ (Dropping cheaper items)")
+
+            import json
+            from app.services.validator import content_validator
+            from datetime import datetime
+            
+            all_forbidden = []
+            if intent:
+                all_forbidden = intent.get("forbidden_keywords", []).copy()
+            if rule.negative_keywords:
+                try: 
+                   context_negative = json.loads(rule.negative_keywords)
+                   if isinstance(context_negative, list): all_forbidden.extend(context_negative)
+                except: pass
+
+            for item in candidates:
+                # Чек 1: Цена (Метод 1)
+                if item["price"] < price_threshold and item["price"] > 0:
+                     logger.debug(f"📉 [PriceFilter] Drop {item['title']} ({item['price']}€ < {price_threshold}€)")
+                     continue
+                
+                # Чек 2: Слова (Метод 2/3)
+                if intent:
+                    if content_validator.is_garbage(item["title"], all_forbidden):
+                        # logger.debug(f"🗑️ [WordFilter] Drop {item['title']}")
+                        continue
+                    if not content_validator.check_brand(item["title"], intent.get("brand")):
+                        continue
+                
+                valid_items.append(item)
+
+        # --- ФАЗА 3: СОХРАНЕНИЕ ---
+        final_scraped_items = []
+        logger.info(f"💾 Сохранение {len(valid_items)} товаров (из {len(candidates)} кандидатов)...")
+        
+        for item in valid_items[:max_items]:
+            stmt = select(Product).where(Product.url == item["url"])
+            product = (await session.execute(stmt)).scalar_one_or_none()
+            
+            if not product:
+                product = Product(
+                    title=item["title"], 
+                    url=item["url"], 
+                    search_term=rule.site_name,
+                    group_id=group_id
+                )
+                session.add(product)
+                await session.flush()
+            
+            product.last_price = item["price"]
+            if item["image_url"]: product.image_url = item["image_url"]
+            session.add(product)
+
+            history = PriceHistory(price=item["price"], in_stock=True, product_id=product.id)
+            session.add(history)
+            
+            final_scraped_items.append(ScrapedItem(
+                title=product.title, 
+                price=item["price"], 
+                availability="Yes", 
+                url=product.url, 
+                image_url=item["image_url"]
+            ))
+
+        await session.commit()        
         # --- QUALITY CONTROL & SELF-LEARNING ---
-        report = self.validate_dataset(collected_items)
+        report = self.validate_dataset(final_scraped_items)
         
         from datetime import datetime
         rule.health_score = report["score"]
@@ -313,7 +376,7 @@ class ScraperService:
             rule.last_success = datetime.utcnow()
             rule.success_count += 1
             rule.last_error = None
-            logger.success(f"💎 Качество данных подтверждено: {report['score']} ({len(collected_items)} шт)")
+            logger.success(f"💎 Качество данных подтверждено: {report['score']} ({len(final_scraped_items)} шт)")
             await self.learn_from_success(session, rule)
         else:
             rule.failure_count += 1
@@ -323,7 +386,7 @@ class ScraperService:
         session.add(rule)
         await session.commit()
 
-        return collected_items
+        return final_scraped_items
 
 
     async def scrape_page(self, url: str):

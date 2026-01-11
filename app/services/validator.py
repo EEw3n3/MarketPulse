@@ -6,14 +6,24 @@ class ContentValidator:
     def __init__(self):
         # Базовые "мусорные" слова для электроники
         self.accessory_markers = [
-            "case", "cover", "glass", "cable", "strap", "holster", 
-            "чехол", "стекло", "кабель", "ремешок", "пленка", "защита",
-            "adapter", "charger", "power bank", "box", "dummy"
+            # Exact word matches (требуют пробелов вокруг)
+            "case", "cover", "holster", "korpus", "apvalks", "macins", "futrolis",
+            "box", "dummy", "replacement", "part", "auduma", "silikona", "adas",
+            # Substring matches (ищем везде)
+            "protect", "shield", "guard", "armor", "film", "folija", "plēve", "pleve",
+            "glass", "stikls", "screen", "ekran", "display",
+            "cable", "kabel", "vads", "cord", "wire",
+            "adapter", "charger", "lādē", "ladet", "power", "baterij", "battery",
+            "strap", "band", "siksna", "belt",
+            "mount", "holder", "stand", "turēt", "statīv",
+            "cleaning", "tīrī", "repair", "remont",
+            "magclick", "magnetic", "magsafe",
+            "liquid", "hybrid", "combat", "optix", "fender" # Case model names often appearing without "case"
         ]
 
     def is_garbage(self, title: str, forbidden_keywords: List[str] = None) -> bool:
         """
-        Простая и быстрая проверка на ключевые слова
+        Проверка на ключевые слова
         """
         title_lower = title.lower()
         
@@ -23,12 +33,17 @@ class ContentValidator:
                 if word.lower() in title_lower:
                     return True
                     
-        # Затем наши базовые маркеры
+        # Проверяем расширенный список маркеров
         for marker in self.accessory_markers:
-            # Важно: ищем как отдельное слово или в составе, 
-            # но с осторожностью (чтобы не убить "CaseLogic" если это бренд)
-            if f" {marker} " in f" {title_lower} ":
-                return True
+            # Для коротких слов (3-4 буквы) лучше использовать границы слов
+            if len(marker) < 4:
+                 if f" {marker} " in f" {title_lower} ":
+                     return True
+            else:
+                # Для длинных слов и специфических терминов - ищем подстроку
+                # Это поймает "NeoGlass", "Protector", "Charging"
+                if marker in title_lower:
+                    return True
         
         return False
 

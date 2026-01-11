@@ -70,12 +70,12 @@ async def process_target(session, target: dict, intent: dict, group_id: int):
 
     logger.info(f"📦 [{rule.site_name}] Попытка сбора...")
     products = await scraper_service.scrape_catalog(
-        session, url, html, max_items=TARGET_COUNT, group_id=group_id
+        session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent
     )
     
-    # --- Фильтрация мусора (чехлы, одежда и т.д.) ---
-    if intent and products:
-        content_validator.validate_items(products, intent)
+    # --- Фильтрация теперь происходит внутри scrape_catalog ---
+    # if intent and products:
+    #     content_validator.validate_items(products, intent)
     
     # Репорт валидации остается для метрик здоровья правила
     scraper_service.validate_dataset(products)

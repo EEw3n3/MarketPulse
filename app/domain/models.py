@@ -27,6 +27,9 @@ class ScrapingRule(SQLModel, table=True):
     image_css: Optional[str] = Field(default=None) # НОВОЕ: Для картинок
     stock_css: Optional[str] = Field(default=None)
     next_page_css: Optional[str] = Field(default=None)
+
+    # Контекстный фильтр
+    negative_keywords: Optional[str] = Field(default="[]") # JSON list of strings
     
     # Метрики здоровья (автономность)
     last_success: Optional[datetime] = Field(default=None)
