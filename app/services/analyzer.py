@@ -6,13 +6,13 @@ from app.domain.models import Product, PriceHistory, ProductGroup
 
 class PriceAnalyzer:
     """
-    Сервис для анализа цен и выявления аномалий.
+    Service for price analysis and anomaly detection.
     """
     
     @staticmethod
     async def get_stats(session, product_id: int):
         """
-        Возвращает статистику по конкретному товару: мин, макс, средняя.
+        Returns statistics for a specific product: min, max, avg.
         """
         stmt = select(
             func.min(PriceHistory.price),
@@ -32,7 +32,7 @@ class PriceAnalyzer:
     @staticmethod
     def detect_price_drop(current_price: Decimal, history_stats: dict, threshold: float = 0.1) -> bool:
         """
-        Проверяет, является ли текущая цена выгодной (ниже средней на X%).
+        Checks if current price is a bargain (below average by X%).
         """
         if not history_stats["avg"]: return False
         
@@ -45,8 +45,8 @@ class PriceAnalyzer:
 
     async def analyze_group(self, session, group_id: int):
         """
-        Сравнивает цены внутри группы (разные магазины).
-        Находит самое выгодное предложение.
+        Compares prices within the group (different stores).
+        Finds the best offer.
         """
         stmt = select(Product).where(Product.group_id == group_id)
         result = await session.execute(stmt)
@@ -54,7 +54,7 @@ class PriceAnalyzer:
         
         if not products: return None
         
-        # Фильтруем товары с ценой > 0
+        # Filter products with price > 0
         priced_products = [p for p in products if p.last_price and p.last_price > 0]
         if not priced_products: return None
         
@@ -64,7 +64,7 @@ class PriceAnalyzer:
         return {
             "group_id": group_id,
             "best_price": best_offer.last_price,
-            "best_store": best_offer.search_term, # В нашем случае search_term пока хранит имя магазина из правила
+            "best_store": best_offer.search_term, # In our case search_term currently holds store name from rule
             "avg_group_price": round(avg_price, 2),
             "savings": round(avg_price - best_offer.last_price, 2)
         }

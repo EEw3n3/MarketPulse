@@ -11,18 +11,18 @@ async def inspect_rules():
         rules = results.scalars().all()
         
         if not rules:
-            print("\n❌ В базе пока нет сохраненных правил. Запустите парсер (main.py).")
+            print("\n❌ No saved rules in DB. Start parser (main.py).")
             return
 
-        print(f"\n🧠 СОХРАНЕННЫЕ ПРАВИЛА ИИ: {len(rules)}")
+        print(f"\n🧠 SAVED AI RULES: {len(rules)}")
         print("-" * 120)
         
         for r in rules:
-            print(f"Магазин: {r.emoji} {r.site_name} ({r.domain})")
-            print(f"  ├─ Карточка:   {r.container_css}")
-            print(f"  ├─ Заголовок:  {r.title_css}")
-            print(f"  ├─ Цена:       {r.price_css}")
-            print(f"  └─ Пагинация:  {r.next_page_css}")
+            print(f"Store: {r.emoji} {r.site_name} ({r.domain})")
+            print(f"  ├─ Card:       {r.container_css}")
+            print(f"  ├─ Title:      {r.title_css}")
+            print(f"  ├─ Price:      {r.price_css}")
+            print(f"  └─ Pagination: {r.next_page_css}")
             print("-" * 120)
 
 if __name__ == "__main__":

@@ -8,15 +8,15 @@ async def clear_database():
     from app.core.database import engine
     from sqlmodel import SQLModel
     
-    logger.warning("🗑️ Полный сброс структуры базы данных (DROP TABLES)...")
+    logger.warning("🗑️ Complete database structure reset (DROP TABLES)...")
     
     async with engine.begin() as conn:
-        # Сначала удаляем все таблицы
+        # First drop all tables
         await conn.run_sync(SQLModel.metadata.drop_all)
-        # Затем создаем их заново с новыми колонками
+        # Then recreate them with new columns
         await conn.run_sync(SQLModel.metadata.create_all)
         
-    logger.success("✅ Структура базы данных обновлена и очищена!")
+    logger.success("✅ Database structure updated and cleaned!")
 
 
 if __name__ == "__main__":

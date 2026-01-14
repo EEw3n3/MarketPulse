@@ -3,35 +3,35 @@ from decimal import Decimal
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship
 
-# --- 1. ГРУППА ТОВАРОВ (Агрегация для сравнения) ---
+# --- 1. PRODUCT GROUP (Aggregation for comparison) ---
 class ProductGroup(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(index=True) # Например: "iPhone 15 128GB Black"
+    name: str = Field(index=True) # Example: "iPhone 15 128GB Black"
     category: Optional[str] = Field(default="General", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
-    # Связь с конкретными предложениями в разных магазинах
+    # Relationship with specific offers in different stores
     products: List["Product"] = Relationship(back_populates="group")
 
-# --- 2. ПРАВИЛА ПАРСИНГА (Конфигурация домена) ---
+# --- 2. PARSING RULES (Domain configuration) ---
 class ScrapingRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     domain: str = Field(unique=True, index=True)
-    site_name: str = Field(default="Unknown Shop") # Название магазина (Nike, Zara...)
+    site_name: str = Field(default="Unknown Shop") # Store name (Nike, Zara...)
     emoji: str = Field(default="🛒")
     
-    # Селекторы
+    # Selectors
     container_css: str
     title_css: str
     price_css: Optional[str] = Field(default=None)
-    image_css: Optional[str] = Field(default=None) # НОВОЕ: Для картинок
+    image_css: Optional[str] = Field(default=None) # NEW: For images
     stock_css: Optional[str] = Field(default=None)
     next_page_css: Optional[str] = Field(default=None)
 
-    # Контекстный фильтр
+    # Contextual filter
     negative_keywords: Optional[str] = Field(default="[]") # JSON list of strings
     
-    # Метрики здоровья (автономность)
+    # Health metrics (autonomy)
     last_success: Optional[datetime] = Field(default=None)
     last_error: Optional[str] = Field(default=None)
     success_count: int = Field(default=0)
@@ -39,28 +39,28 @@ class ScrapingRule(SQLModel, table=True):
     health_score: float = Field(default=1.0) # 0.0 - 1.0
 
 
-# --- 3. ТОВАР (Конкретное предложение в магазине) ---
+# --- 3. PRODUCT (Specific offer in store) ---
 class Product(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     url: str = Field(unique=True, index=True)
     title: str
-    image_url: Optional[str] = Field(default=None) # Ссылка на картинку
+    image_url: Optional[str] = Field(default=None) # Image URL
     description: Optional[str] = Field(default=None)
     
-    search_term: str = Field(default="unknown", index=True) # Ключевое слово поиска
+    search_term: str = Field(default="unknown", index=True) # Search keyword
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
-    # Денормализация для быстрого доступа
+    # Denormalization for fast access
     last_price: Optional[Decimal] = Field(default=None)
     
-    # Связь с группой (сравнение цен)
+    # Relationship with group (price comparison)
     group_id: Optional[int] = Field(default=None, foreign_key="productgroup.id")
     group: Optional[ProductGroup] = Relationship(back_populates="products")
     
-    # История цен
+    # Price history
     history: List["PriceHistory"] = Relationship(back_populates="product")
 
-# --- 4. ИСТОРИЯ ЦЕН (Таймсерии) ---
+# --- 4. PRICE HISTORY (Timeseries) ---
 class PriceHistory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     price: Decimal
@@ -70,7 +70,7 @@ class PriceHistory(SQLModel, table=True):
     product_id: Optional[int] = Field(default=None, foreign_key="product.id")
     product: Optional[Product] = Relationship(back_populates="history")
 
-# --- 5. ГЛОБАЛЬНЫЕ ПАТТЕРНЫ (Опыт системы) ---
+# --- 5. GLOBAL PATTERNS (System experience) ---
 class SharedPattern(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     pattern_type: str = Field(index=True) # 'container', 'title', 'price', 'image', 'next_page'

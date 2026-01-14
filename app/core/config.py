@@ -1,21 +1,21 @@
 import os
 from dotenv import load_dotenv
 
-# Загружаем переменные из .env файла в память
+# Load variables from .env file into memory
 load_dotenv()
 
 class Settings:
-    # База данных
+    # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///database.db"
     
     # OpenAI
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini") # Если в env пусто, возьмет 4o-mini
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini") # If env is empty, take 4o-mini
 
-    # Проверка, что ключ загрузился
+    # Check that key is loaded
     def validate(self):
         if not self.OPENAI_API_KEY:
-            raise ValueError("ОШИБКА: Не найден OPENAI_API_KEY в файле .env")
+            raise ValueError("ERROR: OPENAI_API_KEY not found in .env file")
 
-# Создаем единственный экземпляр настроек
+# Create single instance of settings
 settings = Settings()

@@ -10,7 +10,7 @@ from app.core.browser import browser_manager
 from app.services.ai_generator import ai_generator
 from app.services.scraper import scraper_service
 from app.core.registry import register_domain
-# Больше не используем жестко зашитые TARGETS
+# No longer using hardcoded TARGETS
 # TARGETS = [...] 
 from app.services.intent import intent_service
 
@@ -24,26 +24,26 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     Tier 3: Full browser rendering (if Tier 1 fails or if forced).
     """
     if force_browser:
-        logger.warning(f"🚜 [Tier 3] Принудительный запуск браузера для {url}...")
+        logger.warning(f"🚜 [Tier 3] Forced browser launch for {url}...")
         try:
             html = await browser_manager.get_page_content(url)
             if html and len(html) > 1000:
-                logger.success(f"✅ [Tier 3] Браузер отрендерил страницу! ({len(html)} байт)")
+                logger.success(f"✅ [Tier 3] Browser rendered the page! ({len(html)} bytes)")
                 return html
         except Exception as e:
-            logger.critical(f"❌ [Tier 3] Ошибка браузера: {e}")
+            logger.critical(f"❌ [Tier 3] Browser error: {e}")
         return None
 
-    logger.info(f"⚡ [Tier 1] Пробую быстрый метод для {url}...")
+    logger.info(f"⚡ [Tier 1] Trying fast method for {url}...")
     try:
         html = await stealth_client.get_page(url)
         if html and len(html) > 1000 and "Access Denied" not in html:
-            logger.success(f"✅ [Tier 1] Успех! Получено {len(html)} байт.")
+            logger.success(f"✅ [Tier 1] Success! Received {len(html)} bytes.")
             return html
         else:
-            logger.warning("⚠️ [Tier 1] Неудачно (блокада или пустой ответ).")
+            logger.warning("⚠️ [Tier 1] Unsuccessful (block or empty response).")
     except Exception as e:
-        logger.error(f"⚠️ [Tier 1] Ошибка: {e}")
+        logger.error(f"⚠️ [Tier 1] Error: {e}")
 
     return await get_hybrid_html(url, force_browser=True)
 
@@ -53,34 +53,34 @@ async def process_target(session, target: dict, intent: dict, group_id: int):
     url = target["url"]
     search_term = target["search_term"]
 
-    logger.info(f"\n🏁 НАЧИНАЕМ ПРОВЕРКУ: {url}")
+    logger.info(f"\n🏁 STARTING CHECK: {url}")
     
     html = await get_hybrid_html(url)
     if not html: return
 
     rule = await ai_generator.get_or_create_rule(session, url, html)
     if not rule:
-        logger.warning("🤔 Правило не создано. Пробую Browser...")
+        logger.warning("🤔 Rule not created. Trying Browser...")
         html = await get_hybrid_html(url, force_browser=True)
         rule = await ai_generator.get_or_create_rule(session, url, html)
         
     if not rule:
-        logger.error("❌ Не удалось создать правило.")
+        logger.error("❌ Failed to create rule.")
         return
 
-    logger.info(f"📦 [{rule.site_name}] Попытка сбора...")
+    logger.info(f"📦 [{rule.site_name}] Attempting collection...")
     products = await scraper_service.scrape_catalog(
         session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent
     )
     
-    # --- Фильтрация теперь происходит внутри scrape_catalog ---
+    # --- Filtering now happens inside scrape_catalog ---
     # if intent and products:
     #     content_validator.validate_items(products, intent)
     
-    # Репорт валидации остается для метрик здоровья правила
+    # Validation report remains for rule health metrics
     scraper_service.validate_dataset(products)
 
-# Семафор для ограничения одновременных задач
+# Semaphore for limiting concurrent tasks
 MAX_CONCURRENT_SCRAPES = 3
 scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
 
@@ -88,46 +88,46 @@ async def process_target_worker(target: dict, intent: dict, group_id: int):
     async with scrape_semaphore:
         async with async_session() as session:
             try: await process_target(session, target, intent, group_id)
-            except Exception as e: logger.error(f"💥 Ошибка {target['url']}: {e}")
+            except Exception as e: logger.error(f"💥 Error {target['url']}: {e}")
 
 async def main():
-    logger.info("🚀 Запуск MarketPulse: Intelligence CLI")
+    logger.info("🚀 Launching MarketPulse: Intelligence CLI")
     
     print("\n" + "="*50)
-    print("🤖 ДОБРО ПОЖАЛОВАТЬ В MARKETPULSE CLI")
+    print("🤖 WELCOME TO MARKETPULSE CLI")
     print("="*50)
-    print("Выберите режим работы:")
-    print("1. 🎯 Умный Поиск (Interactive Search)")
-    print("2. 🚜 Массовый Скрапинг (Category Training / Mass Scrape)")
+    print("Choose operation mode:")
+    print("1. 🎯 Smart Search (Interactive Search)")
+    print("2. 🚜 Mass Scraping (Category Training / Mass Scrape)")
     print("-" * 50)
     
-    choice = input("👉 Выберите вариант (1 или 2): ").strip()
+    choice = input("👉 Select option (1 or 2): ").strip()
     
     await init_db()
     await stealth_client.init_session()
 
     try:
         if choice == "1":
-            # --- РЕЖИМ 1: УМНЫЙ ПОИСК ---
-            user_query = input("\n🎯 Что ищем? (например: iPhone 16): ").strip()
+            # --- MODE 1: SMART SEARCH ---
+            user_query = input("\n🎯 What are we looking for? (e.g., iPhone 16): ").strip()
             if not user_query: return
             
             intent = await intent_service.parse_user_query(user_query)
             search_term = intent["search_term"]
             category = intent["category"]
             
-            # --- ЦЕНТРАЛИЗОВАННОЕ СОЗДАНИЕ ГРУППЫ ---
+            # --- CENTRALIZED GROUP CREATION ---
             from app.domain.models import ProductGroup
             async with async_session() as session:
                 stmt = select(ProductGroup).where(ProductGroup.name == search_term)
-                # Используем .first() чтобы не падать если дубликат уже есть
+                # Use .first() to avoid crashing if duplicate exists
                 group = (await session.execute(stmt)).scalars().first()
                 if not group:
                     group = ProductGroup(name=search_term, category=category)
                     session.add(group)
                     await session.commit()
                     await session.refresh(group)
-                    logger.info(f"📁 Создана новая группа: {search_term}")
+                    logger.info(f"📁 New group created: {search_term}")
                 group_id = group.id
 
             encoded_query = quote_plus(search_term)
@@ -147,23 +147,23 @@ async def main():
             from app.core.registry import register_domain
             for t in dynamic_targets: register_domain(t["url"])
 
-            # 4. Запускаем параллельный парсинг и передаем group_id
+            # 4. Launch parallel parsing and pass group_id
             tasks = [process_target_worker(target, intent, group_id) for target in dynamic_targets]
             await asyncio.gather(*tasks)
 
         elif choice == "2":
-            # --- РЕЖИМ 2: МАССОВЫЙ СКРАПИНГ ---
-            print("\n🚜 РЕЖИМ ОБУЧЕНИЯ (Mass Scrape)")
-            target_url = input("🔗 Введите URL каталога/категории: ").strip()
-            search_term = input("🏷️ Назовите эту группу (например: Nike Shoes): ").strip()
-            category = input("📁 Категория (Electronics/Shoes/etc): ").strip() or "General"
-            limit = input("🔢 Лимит товаров (по умолчанию 50): ").strip()
+            # --- MODE 2: MASS SCRAPING ---
+            print("\n🚜 TRAINING MODE (Mass Scrape)")
+            target_url = input("🔗 Enter catalog/category URL: ").strip()
+            search_term = input("🏷️ Name this group (e.g., Nike Shoes): ").strip()
+            category = input("📁 Category (Electronics/Shoes/etc): ").strip() or "General"
+            limit = input("🔢 Item limit (default 50): ").strip()
             limit = int(limit) if limit.isdigit() else 50
             
             global TARGET_COUNT
             TARGET_COUNT = limit
 
-            # Создаем группу для режима 2
+            # Creating group for mode 2
             from app.domain.models import ProductGroup
             async with async_session() as session:
                 stmt = select(ProductGroup).where(ProductGroup.name == search_term)
@@ -187,17 +187,17 @@ async def main():
             await process_target_worker(target, None, group_id)
         
         else:
-            logger.error("Неверный выбор режима.")
+            logger.error("Invalid mode selection.")
             return
 
-        # 5. ФИНАЛЬНЫЙ АНАЛИЗ (только для режима поиска, либо если есть данные)
-        logger.info("\n📊 ГЕНЕРАЦИЯ ОТЧЕТА ПО ГРУППАМ...")
+        # 5. FINAL ANALYSIS (only for search mode, or if data exists)
+        logger.info("\n📊 GROUP REPORT GENERATION...")
         from app.services.analyzer import price_analyzer
         from app.domain.models import ProductGroup
 
         from sqlalchemy.orm import selectinload
         async with async_session() as session:
-            # Добавлена опция selectinload, чтобы товары загружались сразу (фикст MissingGreenlet)
+            # Added selectinload option so products load immediately (fix MissingGreenlet)
             groups_stmt = select(ProductGroup).options(selectinload(ProductGroup.products)).order_by(ProductGroup.created_at.desc()).limit(1)
             results = await session.execute(groups_stmt)
             groups = results.scalars().all()
@@ -205,11 +205,11 @@ async def main():
             for g in groups:
                 analysis = await price_analyzer.analyze_group(session, g.id)
                 if analysis:
-                    print(f"\n💎 ОТЧЕТ: {g.name}")
-                    print(f"   Категория:  {g.category}")
-                    print(f"   Кол-во:     {len(g.products)} товаров")
-                    print(f"   Ср. цена:   {analysis['avg_group_price']} €")
-                    print(f"   Лучшая:     {analysis['best_price']} € ({analysis['best_store']})")
+                    print(f"\n💎 REPORT: {g.name}")
+                    print(f"   Category:   {g.category}")
+                    print(f"   Count:      {len(g.products)} items")
+                    print(f"   Avg. price: {analysis['avg_group_price']} €")
+                    print(f"   Best:       {analysis['best_price']} € ({analysis['best_store']})")
                     print(f"{'—' * 60}")
 
     finally:

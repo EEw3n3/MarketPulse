@@ -6,14 +6,14 @@ from app.core.proxy import proxy_manager
 
 class StealthClient:
     """
-    Улучшенный клиент: использует Keep-Alive (постоянные сессии) 
-    и TLS Spoofing для имитации реального браузера.
+    Enhanced client: uses Keep-Alive (persistent sessions)
+    and TLS Spoofing to mimic a real browser.
     """
     IMPERSONATE_TARGETS = ["chrome120", "chrome124", "safari15_5"]
-    MAX_RETRIES = 5  # Количество попыток пробить защиту
+    MAX_RETRIES = 5  # Number of attempts to bypass protection
 
     def __init__(self):
-        self.session = None # Храним сессию здесь
+        self.session = None # Store session here
         self.current_browser = None
         self.current_proxy = None
 
@@ -26,7 +26,7 @@ class StealthClient:
             await self.close()
             
         self.current_browser = random.choice(self.IMPERSONATE_TARGETS)
-        # Получаем новый прокси из менеджера
+        # Get new proxy from manager
         self.current_proxy = proxy_manager.get_proxy()
         proxies = {"http": self.current_proxy, "https": self.current_proxy} if self.current_proxy else None
         
@@ -41,14 +41,14 @@ class StealthClient:
             timeout=30
         )
         proxy_log = "Direct" if not self.current_proxy else f"Proxy {self.current_proxy.split('@')[-1]}"
-        logger.info(f"🔌 Создана новая Stealth-сессия: {self.current_browser} | {proxy_log}")
+        logger.info(f"🔌 New Stealth session created: {self.current_browser} | {proxy_log}")
 
     async def get_page(self, url: str):
         """
         Fetches the HTML content of a given URL using the active stealth session.
         Implements automatic retry logic, proxy rotation, and error handling for common bot blocks.
         """
-        # Если сессии нет - создаем
+        # If no session - create it
         if not self.session:
             await self.init_session()
             
@@ -56,39 +56,39 @@ class StealthClient:
         while attempt < self.MAX_RETRIES:
             attempt += 1
             
-            # Формируем лог прокси для текущего запроса
+            # Form proxy log for current request
             proxy_log = "Direct" if not self.current_proxy else f"Proxy {self.current_proxy.split('@')[-1]}"
-            logger.info(f"🕵️‍♂️ [Попытка {attempt}/{self.MAX_RETRIES}] {self.current_browser} | {proxy_log} | Target: {url}")
+            logger.info(f"🕵️‍♂️ [Attempt {attempt}/{self.MAX_RETRIES}] {self.current_browser} | {proxy_log} | Target: {url}")
             
             try:
                 response = await self.session.get(url)
                 
-                # УСПЕХ
+                # SUCCESS
                 if response.status_code == 200:
                     return response.text
                 
-                # СТРАНИЦА НЕ НАЙДЕНА
+                # PAGE NOT FOUND
                 if response.status_code == 404:
-                    logger.warning(f"Страница не найдена (404): {url}")
+                    logger.warning(f"Page not found (404): {url}")
                     return None
 
-                # БАН ИЛИ ОШИБКА ОЖИДАНИЯ
+                # BAN OR TIMEOUT ERROR
                 if response.status_code in [403, 429, 503]:
-                    logger.warning(f"⛔ Блокировка {response.status_code} на {proxy_log}. Баню прокси и меняю сессию...")
+                    logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Banning proxy and changing session...")
                     if self.current_proxy:
                         proxy_manager.ban_proxy(self.current_proxy)
                     
-                    # Закрываем текущую сессию и создаем новую (с новым IP и браузером)
+                    # Close current session and create new one (with new IP and browser)
                     await self.init_session()
                     await asyncio.sleep(random.uniform(1, 3))
                     continue
                 
-                logger.warning(f"Странный статус ({response.status_code}) на {proxy_log}")
+                logger.warning(f"Strange status ({response.status_code}) on {proxy_log}")
                 return None
 
             except Exception as e:
                 logger.error(f"Network Error ({proxy_log}): {e}")
-                # При ошибке сети тоже баним прокси и пересоздаем сессию
+                # On network error also ban proxy and recreate session
                 if self.current_proxy:
                     proxy_manager.ban_proxy(self.current_proxy)
                 
@@ -96,7 +96,7 @@ class StealthClient:
                 await asyncio.sleep(random.uniform(1, 2))
                 continue
         
-        logger.critical(f"❌ Не удалось пробить защиту после {self.MAX_RETRIES} попыток.")
+        logger.critical(f"❌ Failed to bypass protection after {self.MAX_RETRIES} attempts.")
         return None
 
     async def close(self):
@@ -107,5 +107,5 @@ class StealthClient:
                 pass
             self.session = None
 
-# Глобальный клиент для переиспользования
+# Global client for reuse
 stealth_client = StealthClient()

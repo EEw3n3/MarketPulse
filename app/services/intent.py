@@ -12,7 +12,7 @@ class IntentService:
         Parses user's natural language query into structured search parameters.
         Cost: Extremely low (using gpt-4o-mini).
         """
-        logger.info(f"🧠 Анализ намерения пользователя: '{query}'")
+        logger.info(f"🧠 User intent analysis: '{query}'")
         
         prompt = f"""
         Analyze the following user search query: "{query}"
@@ -40,11 +40,11 @@ class IntentService:
             )
             
             data = json.loads(response.choices[0].message.content)
-            logger.success(f"🎯 Намерение определено: {data['search_term']} ({data['category']})")
+            logger.success(f"🎯 Intent defined: {data['search_term']} ({data['category']})")
             return data
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при разборе намерения: {e}")
+            logger.error(f"❌ Error parsing intent: {e}")
             # Fallback if AI fails
             return {
                 "search_term": query,

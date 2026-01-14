@@ -2,106 +2,106 @@ import asyncio
 import sys
 from loguru import logger
 from app.core.client import stealth_client
-# Импортируем менеджер браузера (убедись, что файл app/core/browser.py существует)
-# Если его нет, тест Tier 3 упадет, но Tier 1 сработает.
+# Importing browser manager (ensure app/core/browser.py exists)
+# If missing, Tier 3 will fail, but Tier 1 will work.
 try:
     from app.core.browser import browser_manager
     HAS_BROWSER = True
 except ImportError:
     HAS_BROWSER = False
-    logger.warning("⚠️ BrowserManager не найден. Tier 3 будет пропущен.")
+    logger.warning("⚠️ BrowserManager not found. Tier 3 skipped.")
 
-# Цель: Мужская обувь Nike (Категория)
+# Target: Men's Nike Shoes (Category)
 TARGET_URL = "https://www.nike.com/w/mens-shoes-nik1zy7ok"
 
 async def test_tier_1():
     """
-    TIER 1: Проверка TLS Spoofing (curl_cffi)
-    Пытаемся притвориться Chrome 120 и скачать HTML.
+    TIER 1: TLS Spoofing Check (curl_cffi)
+    Trying to pretend to be Chrome 120 and download HTML.
     """
-    logger.info("⚔️ [TIER 1] Проверка curl_cffi (TLS Spoofing)...")
+    logger.info("⚔️ [TIER 1] Checking curl_cffi (TLS Spoofing)...")
     try:
-        # Инициализируем сессию
+        # Initializing session
         await stealth_client.init_session()
         
         html = await stealth_client.get_page(TARGET_URL)
         
         if not html:
-            logger.error("❌ [TIER 1] Пустой ответ или ошибка сети.")
+            logger.error("❌ [TIER 1] Empty response or network error.")
             return False
             
         if "Access Denied" in html or "403 Forbidden" in html:
-            logger.error("❌ [TIER 1] БЛОКИРОВКА! (Access Denied / 403)")
+            logger.error("❌ [TIER 1] BLOCK! (Access Denied / 403)")
             return False
             
-        # Проверяем специфичные для Nike признаки успеха
+        # Checking specific Nike success signs
         if "nike.com" in html:
-            logger.success(f"✅ [TIER 1] ПРОБИТИЕ! HTML получен (Длина: {len(html)}).")
-            # Проверим, есть ли товары в HTML (или они только в JS)
+            logger.success(f"✅ [TIER 1] BREAKTHROUGH! HTML received (Length: {len(html)}).")
+            # Check if items are in HTML (or only in JS)
             if "product-card" in html or "product-grid" in html:
-                logger.success("   -> И товары тоже видны в HTML!")
+                logger.success("   -> And items are also visible in HTML!")
             else:
-                logger.warning("   -> Но товаров в чистом HTML нет (нужен JS рендеринг).")
+                logger.warning("   -> But no items in pure HTML (JS rendering needed).")
             return True
             
-        logger.warning("⚠️ [TIER 1] Статус 200, но контент странный.")
+        logger.warning("⚠️ [TIER 1] Status 200, but content is strange.")
         return False
         
     except Exception as e:
-        logger.error(f"❌ [TIER 1] Критическая ошибка: {e}")
+        logger.error(f"❌ [TIER 1] Critical error: {e}")
         return False
 
 async def test_tier_3():
     """
-    TIER 3: Проверка Полноценного Браузера (Playwright)
+    TIER 3: Full Browser Check (Playwright)
     """
     if not HAS_BROWSER:
         return False
         
-    logger.info("🚜 [TIER 3] Проверка Playwright (Браузер)...")
+    logger.info("🚜 [TIER 3] Checking Playwright (Browser)...")
     try:
-        # Загружаем страницу
+        # Loading page
         html = await browser_manager.get_page_content(TARGET_URL)
         
         if not html:
-            logger.error("❌ [TIER 3] Браузер не вернул контент.")
+            logger.error("❌ [TIER 3] Browser returned no content.")
             return False
 
         if "Access Denied" in html:
-            logger.error("❌ [TIER 3] БЛОКИРОВКА БРАУЗЕРА!")
+            logger.error("❌ [TIER 3] BROWSER BLOCK!")
             return False
 
-        # Ищем признаки товаров (классы Nike часто меняются, ищем общие)
-        # Обычно Nike использует 'product-card', 'product-grid__items' и т.д.
+        # Looking for item signs (Nike classes change often, look for common ones)
+        # Usually Nike uses 'product-card', 'product-grid__items' etc.
         if "product-card" in html or "wall-image-loader" in html or "Price-characteristic" in html:
-            logger.success(f"✅ [TIER 3] ПОЛНАЯ ПОБЕДА! Товары загружены через JS.")
+            logger.success(f"✅ [TIER 3] FULL VICTORY! Items loaded via JS.")
             return True
         else:
-            logger.warning("⚠️ [TIER 3] Доступ есть, но товаров не видно. Возможно, защита Akamai скрыла их.")
+            logger.warning("⚠️ [TIER 3] Access granted, but items invisible. Maybe Akamai hidden them.")
             return False
             
     except Exception as e:
-        logger.error(f"❌ [TIER 3] Ошибка браузера: {e}")
+        logger.error(f"❌ [TIER 3] Browser error: {e}")
         return False
 
 async def main():
-    logger.info(f"🎯 ЦЕЛЬ: {TARGET_URL}")
+    logger.info(f"🎯 TARGET: {TARGET_URL}")
     print("-" * 40)
     
-    # Запускаем Tier 1
+    # Running Tier 1
     t1_result = await test_tier_1()
     print("-" * 40)
     
-    # Запускаем Tier 3
+    # Running Tier 3
     t3_result = await test_tier_3()
     print("-" * 40)
 
-    # ИТОГИ
-    print("\n📊 ОТЧЕТ РАЗВЕДКИ NIKE:")
+    # REPORT
+    print("\n📊 NIKE RECON REPORT:")
     print(f"Tier 1 (TLS Request): {'✅ WIN' if t1_result else '❌ FAIL'}")
     print(f"Tier 3 (Browser):     {'✅ WIN' if t3_result else '❌ FAIL'}")
     
-    # Закрываем ресурсы
+    # Closing resources
     await stealth_client.close()
     if HAS_BROWSER:
         await browser_manager.stop()

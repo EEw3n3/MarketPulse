@@ -11,32 +11,32 @@ PROXY_LIST = os.getenv("PROXY_LIST", "")
 class ProxyManager:
     def __init__(self, proxy_list: List[str] = None):
         self.proxies = proxy_list or []
-        self.bad_proxies = set() # Сюда кидаем сгоревшие IP
+        self.bad_proxies = set() # Burnt IPs go here
         
-        # Если прокси не передали, пробуем загрузить из env или файла
+        # If no proxies passed, try to load from env or file
         if not self.proxies:
             self._load_from_env()
 
     def _load_from_env(self):
-        # В продакшене список прокси будет длинным, берем из переменной окружения
-        # Формат: "http://user:pass@ip:port,http://user:pass@ip:port"
+        # In production proxy list will be long, take from environment variable
+        # Format: "http://user:pass@ip:port,http://user:pass@ip:port"
         proxy_str = os.getenv("PROXY_LIST", "")
         if proxy_str:
             self.proxies = [p.strip() for p in proxy_str.split(",")]
-            logger.info(f"🔌 Загружено {len(self.proxies)} прокси из настроек.")
+            logger.info(f"🔌 Loaded {len(self.proxies)} proxies from settings.")
 
     def get_proxy(self) -> Optional[str]:
         """
-        Возвращает случайный живой прокси.
+        Returns a random alive proxy.
         """
         available = [p for p in self.proxies if p not in self.bad_proxies]
         
         if not available:
             if not self.proxies:
-                return None # Работаем без прокси (Direct)
+                return None # Working without proxy (Direct)
             else:
-                # Если все прокси "сгорели", обнуляем бан-лист (Desperate mode)
-                logger.warning("♻️ Все прокси помечены как плохие. Сброс цикла ротации.")
+                # If all proxies are "burnt", reset ban list (Desperate mode)
+                logger.warning("♻️ All proxies marked as bad. Rotation cycle reset.")
                 self.bad_proxies.clear()
                 available = self.proxies
         
@@ -44,15 +44,15 @@ class ProxyManager:
 
     def ban_proxy(self, proxy: str):
         """
-        Помечает прокси как 'сгоревший' на эту сессию.
+        Marks proxy as 'burnt' for this session.
         """
         if proxy:
-            logger.warning(f"🔥 Прокси сожжен и убран в бан: {proxy}")
+            logger.warning(f"🔥 Proxy burnt and banned: {proxy}")
             self.bad_proxies.add(proxy)
 
     def get_stats(self):
         """
-        Метод для отладки: показывает состояние пула прокси.
+        Debug method: shows proxy pool state.
         """
         total = len(self.proxies)
         banned = len(self.bad_proxies)
@@ -64,5 +64,5 @@ class ProxyManager:
             "Banned_List": list(self.bad_proxies)
         }
 
-# Глобальный инстанс
+# Global instance
 proxy_manager = ProxyManager()

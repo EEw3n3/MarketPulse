@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 def register_domain(url: str):
     """
-    Добавляет уникальный домен в файл scraped_domains.txt
+    Adds unique domain to scraped_domains.txt
     """
     domain = urlparse(url).netloc.replace("www.", "")
     if not domain:
@@ -11,7 +11,7 @@ def register_domain(url: str):
         
     file_path = "scraped_domains.txt"
     
-    # Читаем существующие домены, чтобы избежать дублей
+    # Read existing domains to avoid duplicates
     existing_domains = set()
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
@@ -21,4 +21,4 @@ def register_domain(url: str):
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(f"{domain}\n")
         from loguru import logger
-        logger.info(f"📝 Домен {domain} добавлен в реестр сайтов.")
+        logger.info(f"📝 Domain {domain} added to site registry.")

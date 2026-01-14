@@ -20,13 +20,13 @@ class AIGenerator:
         rule = result.scalar_one_or_none()
         
         if rule and force_refresh:
-            logger.warning(f"♻️ Удаляю старое правило для {domain}...")
+            logger.warning(f"♻️ Deleting old rule for {domain}...")
             await session.delete(rule)
             await session.commit()
             rule = None
         
         if rule:
-            logger.info(f"📍 Найдено правило для {domain}")
+            logger.info(f"📍 Found rule for {domain}")
             return rule
             
         new_rule = await self.generate_rule(session, url, html_content, error_hint=error_hint)
@@ -37,7 +37,7 @@ class AIGenerator:
             session.add(new_rule)
             await session.commit()
             await session.refresh(new_rule)
-            logger.success(f"💾 Новое правило для {domain} сохранено.")
+            logger.success(f"💾 New rule for {domain} saved.")
             return new_rule
             
         return None
@@ -47,20 +47,20 @@ class AIGenerator:
             soup = BeautifulSoup(html, "html.parser")
             useless_tags = ["script", "style", "svg", "path", "noscript", "meta", "link", "iframe"]
             for element in soup(useless_tags): element.decompose()
-            # Удаляем пустые элементы для экономии токенов
+            # Removing empty elements to save tokens
             for element in soup.find_all():
                 if len(element.get_text(strip=True)) == 0 and not element.find_all(): element.decompose()
             return str(soup)[:60000]
         except Exception: return html[:30000]
 
     async def generate_rule(self, session, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
-        logger.info(f"🤖 Запрашиваю помощь ИИ для: {url}...")
+        logger.info(f"🤖 Requesting AI help for: {url}...")
         if error_hint:
-             logger.warning(f"💡 Использую подсказку об ошибке: {error_hint}")
+             logger.warning(f"💡 Using error hint: {error_hint}")
 
         clean_content = self.clean_html(html_content)
         
-        # --- КОЛЛЕКТИВНЫЙ РАЗУМ: Достаем лучшие паттерны ---
+        # --- COLLECTIVE INTELLIGENCE: Retrieving best patterns ---
         stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(15)
         db_patterns = (await session.execute(stmt)).scalars().all()
         
@@ -72,7 +72,7 @@ class AIGenerator:
         
         hint_text = f"\nCRITICAL: Previous attempt failed with error: {error_hint}. AVOID the selectors that caused this!" if error_hint else ""
         
-        # Промпт теперь абсолютно универсален
+        # Prompt is now absolutely universal
         prompt = f"""
         Analyze the HTML from: {url}
         Task: Identify CSS selectors for a product catalog.
@@ -106,7 +106,7 @@ class AIGenerator:
                 response_format={"type": "json_object"}
             )
             data = json.loads(response.choices[0].message.content)
-            logger.success(f"🤖 ИИ сгенерировал: {data}")
+            logger.success(f"🤖 AI generated: {data}")
             
             if not data.get("container_css") or not data.get("title_css"): return None
             
@@ -122,7 +122,7 @@ class AIGenerator:
                 negative_keywords=json.dumps(data.get("negative_keywords", []))
             )
         except Exception as e:
-            logger.error(f"Ошибка AI: {e}")
+            logger.error(f"AI error: {e}")
             return None
 
 ai_generator = AIGenerator()

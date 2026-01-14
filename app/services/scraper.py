@@ -27,7 +27,7 @@ class ScrapedItem:
 class ScraperService:
     def parse_price(self, price_text: str) -> Decimal:
         if not price_text: return Decimal("0.00")
-        # Удаляем валюты, пробелы, неразрывные пробелы
+        # Removing currencies, spaces, non-breaking spaces
         clean = re.sub(r'[^\d.,]', '', price_text)
         clean = clean.replace(',', '.')
         if clean.count('.') > 1: clean = clean.replace('.', '', clean.count('.') - 1)
@@ -40,8 +40,8 @@ class ScraperService:
 
     def validate_dataset(self, items: list[ScrapedItem]) -> dict:
         """
-        Проверяет качество собранных данных. 
-        Возвращает отчет о 'здоровье' сета.
+        Checks collected data quality.
+        Returns 'health' report of the set.
         """
         if not items:
             return {"score": 0.0, "error": "No items found", "is_healthy": False}
@@ -50,9 +50,9 @@ class ScraperService:
         zero_prices = sum(1 for i in items if i.price <= 0)
         short_titles = sum(1 for i in items if len(i.title) < 5)
         
-        # Штрафные баллы
-        penalty = (zero_prices / total) * 0.7  # Цены важнее всего
-        penalty += (short_titles / total) * 0.3 # Заголовки тоже важны
+        # Penalty points
+        penalty = (zero_prices / total) * 0.7  # Prices are most important
+        penalty += (short_titles / total) * 0.3 # Titles are also important
         
         score = max(0.0, 1.0 - penalty)
         
@@ -73,7 +73,7 @@ class ScraperService:
 
     async def learn_from_success(self, session, rule: ScrapingRule):
         """
-        Сохраняет удачные селекторы в общую базу знаний.
+        Saves successful selectors to the shared knowledge base.
         """
         patterns = [
             ('container', rule.container_css),
@@ -87,7 +87,7 @@ class ScraperService:
         for p_type, selector in patterns:
             if not selector: continue
             
-            # Ищем, есть ли уже такой паттерн
+            # Searching if this pattern already exists
             stmt = select(SharedPattern).where(SharedPattern.css_selector == selector)
             existing = (await session.execute(stmt)).scalar_one_or_none()
             
@@ -100,7 +100,7 @@ class ScraperService:
                 session.add(new_p)
         
         await session.commit()
-        logger.info(f"🧠 Паттерны сайта {rule.domain} добавлены в базу знаний.")
+        logger.info(f"🧠 Site patterns {rule.domain} added to knowledge base.")
 
 
     def _find_next_page_fallback(self, sel: Selector, current_url: str) -> str | None:
@@ -108,11 +108,11 @@ class ScraperService:
             if not href: return None
             if href.startswith('javascript:') or href == '#': return None
             
-            # Если ссылка уже абсолютная - берем как есть
+            # If link is already absolute, take as is
             if bool(urlparse(href).netloc):
                 return href
                 
-            # Иначе соединяем с корнем домена или текущей страницей
+            # Otherwise join with domain root or current page
             parsed_base = urlparse(current_url)
             base_root = f"{parsed_base.scheme}://{parsed_base.netloc}"
             
@@ -169,10 +169,10 @@ class ScraperService:
         page_number = 1
         html = initial_html
         
-        # --- ФАЗА 1: СБОР КАНДИДАТОВ ---
-        while len(candidates) < max_items * 2 and current_url: # Собираем с запасом
+        # --- PHASE 1: CANDIDATE COLLECTION ---
+        while len(candidates) < max_items * 2 and current_url: # Collecting with a margin
             if not html:
-                logger.info(f"🚀 [Page {page_number}] Загрузка: {current_url}")
+                logger.info(f"🚀 [Page {page_number}] Loading: {current_url}")
                 html = await stealth_client.get_page(current_url)
                 if not html:
                     try:
@@ -190,15 +190,15 @@ class ScraperService:
                  fallback_selectors = "li.product, li.product-item, .product-item, .item, article"
                  cards, winner = self._try_selectors(sel, fallback_selectors)
                  if cards and winner:
-                     logger.warning(f"🔧 Исправляю container_css для {domain}: {rule.container_css} -> {winner}")
+                     logger.warning(f"🔧 Fixing container_css for {domain}: {rule.container_css} -> {winner}")
                      rule.container_css = winner
                      rule_updated = True
 
             if not cards:
-                 logger.error(f"❌ Карточки не найдены ({rule.container_css})")
+                 logger.error(f"❌ Cards not found ({rule.container_css})")
                  break
                  
-            logger.info(f"{rule.emoji} [Page {page_number}] Карточек: {len(cards)}")
+            logger.info(f"{rule.emoji} [Page {page_number}] Cards: {len(cards)}")
 
             for card in cards:
                 if len(candidates) >= max_items * 3: break
@@ -211,7 +211,7 @@ class ScraperService:
                         title_el, winner = self._try_selectors(card, fallback_title)
                         title = self.extract_clean_text(title_el)
                         if title and winner:
-                            logger.warning(f"🔧 Исправляю title_css для {domain}: {rule.title_css} -> {winner}")
+                            logger.warning(f"🔧 Fixing title_css for {domain}: {rule.title_css} -> {winner}")
                             rule.title_css = winner
                             rule_updated = True
                     
@@ -225,7 +225,7 @@ class ScraperService:
                             fallback_price = ".price b, .price, .product-price, .item-price, .val"
                             price_el, winner = self._try_selectors(card, fallback_price)
                             if price_el and winner:
-                                logger.warning(f"🔧 Исправляю price_css для {domain}: {rule.price_css} -> {winner}")
+                                logger.warning(f"🔧 Fixing price_css for {domain}: {rule.price_css} -> {winner}")
                                 rule.price_css = winner
                                 rule_updated = True
                         
@@ -259,7 +259,7 @@ class ScraperService:
 
                 except Exception: continue
             
-            # --- ПАГИНАЦИЯ ---
+            # --- PAGINATION ---
             next_page = None
             if rule.next_page_css:
                 el_p, winner = self._try_selectors(sel, rule.next_page_css)
@@ -277,30 +277,28 @@ class ScraperService:
             await session.commit()
 
             if next_page and next_page != current_url and len(candidates) < max_items:
-                logger.info(f"➡️ Переход на следующую страницу: {next_page}")
+                logger.info(f"➡️ Going to next page: {next_page}")
                 current_url = next_page
                 page_number += 1
                 html = None 
                 await asyncio.sleep(random.uniform(1.0, 2.5))
             else:
-                logger.info("⏹️ Пагинация завершена (или лимит достигнут).")
+                logger.info("⏹️ Pagination finished (or limit reached).")
                 break
         
-        # --- ФАЗА 2: ФИЛЬТРАЦИЯ И АНАЛИЗ (Методы 1, 2, 3) ---
+        # --- PHASE 2: FILTERING AND ANALYSIS (Methods 1, 2, 3) ---
         valid_items = []
         
         if candidates:
-            # 1. Price Anomaly Detection (Метод 1)
+            # 1. Price Anomaly Detection (Method 1)
             # Find the most expensive items to establish a baseline
             all_prices = [c["price"] for c in candidates if c["price"] > 0]
             max_price = max(all_prices) if all_prices else Decimal("0.00")
             
-            # Если цена очень низкая в принципе, фильтр не нужен
-            price_threshold = Decimal("0.00")
+            # If item is over 50 euro, consider everything cheaper than 10% as accessories
+            # Using 10% as threshold. If phone is 1000, everything below 100 is garbage.
+            price_threshold = max_price * Decimal("0.10")
             if max_price > Decimal("50.00"):
-                # Если товар дороже 50 евро, считаем, что все, что дешевле 10% от него - это аксессуары
-                # Используем 10% как порог. Если телефон 1000, все что ниже 100 - мусор.
-                price_threshold = max_price * Decimal("0.10")
                 logger.info(f"💰 [PriceFilter] Max: {max_price}€ | Threshold: {price_threshold}€ (Dropping cheaper items)")
 
             import json
@@ -317,12 +315,12 @@ class ScraperService:
                 except: pass
 
             for item in candidates:
-                # Чек 1: Цена (Метод 1)
+                # Check 1: Price (Method 1)
                 if item["price"] < price_threshold and item["price"] > 0:
                      logger.debug(f"📉 [PriceFilter] Drop {item['title']} ({item['price']}€ < {price_threshold}€)")
                      continue
                 
-                # Чек 2: Слова (Метод 2/3)
+                # Check 2: Words (Method 2/3)
                 if intent:
                     if content_validator.is_garbage(item["title"], all_forbidden):
                         # logger.debug(f"🗑️ [WordFilter] Drop {item['title']}")
@@ -332,9 +330,9 @@ class ScraperService:
                 
                 valid_items.append(item)
 
-        # --- ФАЗА 3: СОХРАНЕНИЕ ---
+        # --- PHASE 3: SAVING ---
         final_scraped_items = []
-        logger.info(f"💾 Сохранение {len(valid_items)} товаров (из {len(candidates)} кандидатов)...")
+        logger.info(f"💾 Saving {len(valid_items)} items (from {len(candidates)} candidates)...")
         
         for item in valid_items[:max_items]:
             stmt = select(Product).where(Product.url == item["url"])
@@ -376,12 +374,12 @@ class ScraperService:
             rule.last_success = datetime.utcnow()
             rule.success_count += 1
             rule.last_error = None
-            logger.success(f"💎 Качество данных подтверждено: {report['score']} ({len(final_scraped_items)} шт)")
+            logger.success(f"💎 Data quality confirmed: {report['score']} ({len(final_scraped_items)} items)")
             await self.learn_from_success(session, rule)
         else:
             rule.failure_count += 1
             rule.last_error = report.get("error", "Unknown error")
-            logger.warning(f"💊 Низкое качество данных: {report['score']} | Ошибка: {rule.last_error}")
+            logger.warning(f"💊 Low data quality: {report['score']} | Error: {rule.last_error}")
 
         session.add(rule)
         await session.commit()

@@ -4,12 +4,12 @@ from app.services.scraper import ScrapedItem
 
 class ContentValidator:
     def __init__(self):
-        # Базовые "мусорные" слова для электроники
+        # Basic "garbage" words for electronics
         self.accessory_markers = [
-            # Exact word matches (требуют пробелов вокруг)
+            # Exact word matches (require spaces around)
             "case", "cover", "holster", "korpus", "apvalks", "macins", "futrolis",
             "box", "dummy", "replacement", "part", "auduma", "silikona", "adas",
-            # Substring matches (ищем везде)
+            # Substring matches (search everywhere)
             "protect", "shield", "guard", "armor", "film", "folija", "plēve", "pleve",
             "glass", "stikls", "screen", "ekran", "display",
             "cable", "kabel", "vads", "cord", "wire",
@@ -23,25 +23,25 @@ class ContentValidator:
 
     def is_garbage(self, title: str, forbidden_keywords: List[str] = None) -> bool:
         """
-        Проверка на ключевые слова
+        Keyword check
         """
         title_lower = title.lower()
         
-        # Сначала проверяем пользовательские минус-слова от ИИ
+        # First check user negative keywords from AI
         if forbidden_keywords:
             for word in forbidden_keywords:
                 if word.lower() in title_lower:
                     return True
                     
-        # Проверяем расширенный список маркеров
+        # Check extended marker list
         for marker in self.accessory_markers:
-            # Для коротких слов (3-4 буквы) лучше использовать границы слов
+            # For short words (3-4 letters) better to use word boundaries
             if len(marker) < 4:
                  if f" {marker} " in f" {title_lower} ":
                      return True
             else:
-                # Для длинных слов и специфических терминов - ищем подстроку
-                # Это поймает "NeoGlass", "Protector", "Charging"
+                # For long words and specific terms - search substring
+                # This will catch "NeoGlass", "Protector", "Charging"
                 if marker in title_lower:
                     return True
         
@@ -49,50 +49,50 @@ class ContentValidator:
 
     def check_brand(self, title: str, brand: str) -> bool:
         """
-        Проверяет, совпадает ли бренд (если он указан)
+        Checks if brand matches (if specified)
         """
         if not brand:
             return True
             
-        # Если мы ищем Apple, а в названии Nike - это мусор
-        # Но если мы ищем iPhone, то "Apple" может и не быть в названии
-        # Поэтому тут нужна гибкость
+        # If looking for Apple but title has Nike - it's garbage
+        # But if looking for iPhone, "Apple" might not be in title
+        # So flexibility is needed here
         title_lower = title.lower()
         brand_lower = brand.lower()
         
-        # Если в названии есть другой известный бренд из черного списка - это мусор
-        # (Например, ищем Apple, нашли Samsung)
+        # If title has another famous brand from blacklist - it's garbage
+        # (e.g., searching for Apple, found Samsung)
         major_brands = ["apple", "samsung", "nike", "adidas", "sony", "lg"]
         if brand_lower in major_brands:
             other_brands = [b for b in major_brands if b != brand_lower]
             for other in other_brands:
                 if other in title_lower:
-                    logger.warning(f"🚫 Бренд-конфликт: {title} (ищем {brand})")
+                    logger.warning(f"🚫 Brand conflict: {title} (searching for {brand})")
                     return False
         
         return True
 
     def validate_items(self, items: List[ScrapedItem], intent: dict) -> List[ScrapedItem]:
         """
-        Фильтрует список товаров
+        Filters item list
         """
         brand = intent.get("brand")
         forbidden = intent.get("forbidden_keywords", [])
         
         valid_items = []
         for item in items:
-            # 1. Проверка на аксессуары
+            # 1. Check for accessories
             if self.is_garbage(item.title, forbidden):
-                logger.debug(f"🗑️ Отфильтрован аксессуар: {item.title}")
+                logger.debug(f"🗑️ Filtered accessory: {item.title}")
                 continue
                 
-            # 2. Проверка соответствия бренда
+            # 2. Check brand match
             if not self.check_brand(item.title, brand):
                 continue
                 
             valid_items.append(item)
             
-        logger.info(f"✅ Фильтрация завершена: {len(valid_items)} из {len(items)} товаров прошли проверку.")
+        logger.info(f"✅ Filtering finished: {len(valid_items)} out of {len(items)} items passed check.")
         return valid_items
 
 content_validator = ContentValidator()

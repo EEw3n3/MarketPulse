@@ -5,26 +5,26 @@ from app.core.database import init_db, async_session
 from app.domain.models import Product, PriceHistory
 
 async def inspect_database():
-    # Инициализация (на случай если таблицы еще не созданы, хотя они должны быть)
+    # Initialization (in case tables are not created, though they should be)
     await init_db()
     
     async with async_session() as session:
-        # 1. Запрос всех товаров
+        # 1. Query all products
         statement = select(Product).order_by(Product.created_at.desc())
         results = await session.execute(statement)
         products = results.scalars().all()
         
         if not products:
-            print("\n❌ База данных пуста. Сначала запустите скрапинг (main.py).")
+            print("\n❌ Database empty. Start scraping first (main.py).")
             return
 
-        print(f"\n📊 ВСЕГО В БАЗЕ: {len(products)} ТОВАРОВ")
-        print(f"{'ID':<4} | {'МАГАЗИН':<15} | {'ЦЕНА':<10} | {'ДАТА':<19} | {'НАЗВАНИЕ'}")
+        print(f"\n📊 TOTAL IN DB: {len(products)} PRODUCTS")
+        print(f"{'ID':<4} | {'STORE':<15} | {'PRICE':<10} | {'DATE':<19} | {'TITLE'}")
         print("-" * 100)
         
         for p in products:
-            # 2. Получаем последнюю актуальную цену для каждого товара
-            # (так как история может содержать много записей)
+            # 2. Get latest actual price for each product
+            # (since history may contain many records)
             hist_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(PriceHistory.parsed_at.desc()).limit(1)
             hist_res = await session.execute(hist_stmt)
             latest_price_rec = hist_res.scalar_one_or_none()
@@ -36,10 +36,10 @@ async def inspect_database():
             print(f"{p.id:<4} | {p.search_term:<15} | {price_display:<10} | {date_display:<19} | {title_short}")
         
         print("-" * 100)
-        print(f"✅ Просмотр завершен. Всего записей: {len(products)}")
+        print(f"✅ Inspection finished. Total records: {len(products)}")
 
 if __name__ == "__main__":
-    # Для Windows/Docker специфичная настройка цикла событий
+    # Windows/Docker specific event loop setting
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
