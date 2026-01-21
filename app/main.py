@@ -99,6 +99,7 @@ async def main():
     print("Choose operation mode:")
     print("1. 🎯 Smart Search (Interactive Search)")
     print("2. 🚜 Mass Scraping (Category Training / Mass Scrape)")
+    print("3. ☠️  HARDCORE MODE (Full Market Monitor - Auto Match)")
     print("-" * 50)
     
     choice = input("👉 Select option (1 or 2): ").strip()
@@ -185,6 +186,41 @@ async def main():
             }
             
             await process_target_worker(target, None, group_id)
+
+        elif choice == "3":
+            # --- MODE 3: HARDCORE MONITOR ---
+            logger.warning("☠️  STARTING HARDCORE MARKET MONITOR")
+            logger.info("Subject: Men's Perfume (Vīriešu smaržas)")
+            
+            import json
+            try:
+                with open("configs/categories.json", "r", encoding="utf-8") as f:
+                    cats = json.load(f)
+                    targets = cats.get("mens_perfume", {}).get("targets", [])
+            except Exception as e:
+                logger.error(f"❌ Config error: {e}")
+                return
+
+            if not targets:
+                logger.error("❌ No targets found in config!")
+                return
+
+            from app.core.registry import register_domain
+            
+            tasks = []
+            logger.info(f"🚀 Loaded {len(targets)} data sources.")
+            
+            for t in targets:
+                register_domain(t["url"])
+                target_payload = {
+                    "url": t["url"],
+                    "search_term": "HardcoreMonitor", 
+                    "category": t["category"]
+                }
+                # group_id=None signals the scraper to use MatcherService
+                tasks.append(process_target_worker(target_payload, None, None))
+            
+            await asyncio.gather(*tasks)
         
         else:
             logger.error("Invalid mode selection.")

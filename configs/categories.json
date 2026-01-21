@@ -1,0 +1,22 @@
+{
+    "mens_perfume": {
+        "name": "Men's Perfume (Vīriešu smaržas)",
+        "targets": [
+            {
+                "site": "Douglas",
+                "url": "https://www.douglas.lv/lv/c/viriesiem/viriesu-smarzas/",
+                "category": "Perfume"
+            },
+            {
+                "site": "Notino",
+                "url": "https://www.notino.lv/smarzas-viriesiem/",
+                "category": "Perfume"
+            },
+            {
+                "site": "220.lv",
+                "url": "https://220.lv/lv/viriesu-smarzas",
+                "category": "Perfume"
+            }
+        ]
+    }
+}

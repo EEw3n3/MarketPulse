@@ -250,8 +250,11 @@ class ScraperService:
                     if link_node: product_url = urljoin(current_url, link_node)
                     
                     # Store as primitive dict first for analysis
+                    from app.services.normalizer import volume_normalizer
+                    normalized_title = volume_normalizer.normalize_title(title)
+                    
                     candidates.append({
-                        "title": title,
+                        "title": normalized_title,
                         "price": price_val,
                         "url": product_url,
                         "image_url": image_url
@@ -334,19 +337,49 @@ class ScraperService:
         final_scraped_items = []
         logger.info(f"💾 Saving {len(valid_items)} items (from {len(candidates)} candidates)...")
         
+        from app.services.matcher import matcher_service
+        from app.domain.models import ProductGroup
+
         for item in valid_items[:max_items]:
+            # 1. Check if product exists by URL
             stmt = select(Product).where(Product.url == item["url"])
             product = (await session.execute(stmt)).scalar_one_or_none()
             
+            # 2. Determine Group ID
+            final_group_id = group_id
+            
+            if not final_group_id:
+                # AUTO-MATCHING MODE (The Hardcore Part)
+                # If product exists, keep its group.
+                if product and product.group_id:
+                    final_group_id = product.group_id
+                else:
+                    # Try to find a match by title
+                    match = await matcher_service.find_best_match(session, item["title"])
+                    if match:
+                        final_group_id = match.id
+                    else:
+                        # Create NEW Group
+                        new_group = ProductGroup(name=item["title"], category="Auto-Discovered")
+                        session.add(new_group)
+                        await session.flush() # Get ID
+                        final_group_id = new_group.id
+                        logger.info(f"✨ Created NEW Group: {new_group.name}")
+
             if not product:
                 product = Product(
                     title=item["title"], 
                     url=item["url"], 
                     search_term=rule.site_name,
-                    group_id=group_id
+                    group_id=final_group_id
                 )
                 session.add(product)
                 await session.flush()
+            else:
+                # Update group if it was missing
+                if not product.group_id:
+                    product.group_id = final_group_id
+                    session.add(product)
             
             product.last_price = item["price"]
             if item["image_url"]: product.image_url = item["image_url"]

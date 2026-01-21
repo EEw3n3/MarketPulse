@@ -4,5 +4,26 @@
         "title": "span.text",
         "price": null,
         "stock": null
+    },
+    "douglas.lv": {
+        "container": ".product-grid__item, .product-tile",
+        "title": ".product-tile__brand-name, .text-name",
+        "price": ".product-tile__price-amount, .price-sale",
+        "image": ".product-tile__image img",
+        "stock": null
+    },
+    "notino.lv": {
+        "container": "[data-testid='product-container']",
+        "title": "h3[class*='styled__ProductName']",
+        "price": "span[class*='styled__Price']",
+        "image": "img[class*='styled__Image']",
+        "stock": null
+    },
+    "220.lv": {
+        "container": ".product-list-item",
+        "title": ".product-name, .c-product-card__name",
+        "price": ".product-price .price, .c-price__value",
+        "image": ".product-image img, .c-product-card__image",
+        "stock": ".label-stock"
     }
 }
