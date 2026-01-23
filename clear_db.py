@@ -5,18 +5,19 @@ from app.domain.models import Product, PriceHistory, ScrapingRule
 from loguru import logger
 
 async def clear_database():
-    from app.core.database import engine
-    from sqlmodel import SQLModel
+    from app.domain.models import Product, PriceHistory, ProductGroup
     
-    logger.warning("🗑️ Complete database structure reset (DROP TABLES)...")
+    logger.warning("🗑️ Cleaning up dynamic data (Products, History, Groups)...")
     
-    async with engine.begin() as conn:
-        # First drop all tables
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        # Then recreate them with new columns
-        await conn.run_sync(SQLModel.metadata.create_all)
+    async with async_session() as session:
+        # Delete only specific data models
+        await session.execute(delete(PriceHistory))
+        await session.execute(delete(Product))
+        await session.execute(delete(ProductGroup))
         
-    logger.success("✅ Database structure updated and cleaned!")
+        await session.commit()
+        
+    logger.success("✅ Dynamic data cleared. Scraping rules and patterns preserved!")
 
 
 if __name__ == "__main__":

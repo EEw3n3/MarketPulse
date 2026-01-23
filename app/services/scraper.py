@@ -156,6 +156,40 @@ class ScraperService:
             except: continue
         return [], None
 
+    def _extract_variants(self, card: Selector, base_title: str) -> list[dict]:
+        """
+        Attempts to find hidden variants (e.g., different volumes) inside the card.
+        Currently highly optimized for Makeup.lv JSON structure.
+        """
+        import json
+        variants = []
+        
+        # 1. Search for embedded JSON
+        script_text = card.css('script[type="application/json"]::text').get()
+        if script_text:
+            try:
+                data = json.loads(script_text)
+                # Structure: {"variantsData": {"ID": {"price": X, "value": "50 ml"}}}
+                v_data = data.get("variantsData")
+                if v_data and isinstance(v_data, dict):
+                    for v_id, info in v_data.items():
+                        volume = info.get("value", "")
+                        price = self.parse_price(str(info.get("price", "0")))
+                        
+                        # Use a common title format: Base Title - Volume
+                        full_title = f"{base_title} - {volume}" if volume else base_title
+                        
+                        variants.append({
+                            "title": full_title,
+                            "price": price,
+                            "variant_id": v_id
+                        })
+                    return variants
+            except Exception as e:
+                logger.debug(f"JSON Variant parse error: {e}")
+        
+        return []
+
     async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
@@ -169,8 +203,8 @@ class ScraperService:
         page_number = 1
         html = initial_html
         
-        # --- PHASE 1: CANDIDATE COLLECTION ---
-        while len(candidates) < max_items * 2 and current_url: # Collecting with a margin
+        processed_cards = 0
+        while processed_cards < max_items and current_url:
             if not html:
                 logger.info(f"🚀 [Page {page_number}] Loading: {current_url}")
                 html = await stealth_client.get_page(current_url)
@@ -201,7 +235,7 @@ class ScraperService:
             logger.info(f"{rule.emoji} [Page {page_number}] Cards: {len(cards)}")
 
             for card in cards:
-                if len(candidates) >= max_items * 3: break
+                if processed_cards >= max_items: break
                 try:
                     # 2. TITLE
                     title_el, winner = self._try_selectors(card, rule.title_css)
@@ -245,22 +279,35 @@ class ScraperService:
                     link_node = card.css("a::attr(href)").get()
                     if not link_node: link_node = card.css("*::attr(href)").get()
                     if link_node: product_url = urljoin(current_url, link_node)
-
-                    if not link_node: link_node = card.css("*::attr(href)").get()
-                    if link_node: product_url = urljoin(current_url, link_node)
                     
                     # Store as primitive dict first for analysis
                     from app.services.normalizer import volume_normalizer
                     normalized_title = volume_normalizer.normalize_title(title)
                     
-                    candidates.append({
-                        "title": normalized_title,
-                        "price": price_val,
-                        "url": product_url,
-                        "image_url": image_url
-                    })
+                    # --- VARIANT EXTRACTION (KILLER FEATURE) ---
+                    found_variants = self._extract_variants(card, normalized_title)
+                    
+                    if found_variants:
+                        for v in found_variants:
+                            candidates.append({
+                                "title": v["title"],
+                                "price": v["price"],
+                                "url": f"{product_url}?variant={v['variant_id']}" if v.get("variant_id") else product_url,
+                                "image_url": image_url
+                            })
+                    else:
+                         candidates.append({
+                            "title": normalized_title,
+                            "price": price_val,
+                            "url": product_url,
+                            "image_url": image_url
+                        })
+                    
+                    processed_cards += 1
 
-                except Exception: continue
+                except Exception as e: 
+                    logger.debug(f"Error parsing card: {e}")
+                    continue
             
             # --- PAGINATION ---
             next_page = None
@@ -336,12 +383,16 @@ class ScraperService:
 
         # --- PHASE 3: SAVING ---
         final_scraped_items = []
-        logger.info(f"💾 Saving {len(valid_items)} items (from {len(candidates)} candidates)...")
+        # When variants are enabled, we should process up to max_items *original products*
+        # But for simplicity, we'll just take the items from the final valid_items list.
+        # To make sure we get what user expects, we should have limited cards earlier.
+        
+        logger.info(f"💾 Saving {len(valid_items)} items...")
         
         from app.services.matcher import matcher_service
         from app.domain.models import ProductGroup
 
-        for item in valid_items[:max_items]:
+        for item in valid_items:
             # 1. Check if product exists by URL
             stmt = select(Product).where(Product.url == item["url"])
             product = (await session.execute(stmt)).scalar_one_or_none()

@@ -14,6 +14,10 @@ from app.core.registry import register_domain
 # TARGETS = [...] 
 from app.services.intent import intent_service
 
+def clean_text(text: str) -> str:
+    """Removes potential surrogate characters and non-utf8 garbage from terminal input."""
+    return text.encode('utf-8', 'ignore').decode('utf-8').strip()
+
 
 TARGET_COUNT = 20 
 
@@ -155,11 +159,11 @@ async def main():
         elif choice == "2":
             # --- MODE 2: MASS SCRAPING ---
             print("\n🚜 TRAINING MODE (Mass Scrape)")
-            target_url = input("🔗 Enter catalog/category URL: ").strip()
-            search_term = input("🏷️ Name this group (e.g., Nike Shoes): ").strip()
-            category = input("📁 Category (Electronics/Shoes/etc): ").strip() or "General"
-            limit = input("🔢 Item limit (default 10): ").strip()
-            limit = int(limit) if limit.isdigit() else 10
+            target_url = clean_text(input("🔗 Enter catalog/category URL: "))
+            search_term = clean_text(input("🏷️ Name this group (e.g., Nike Shoes): "))
+            category = clean_text(input("📁 Category (Electronics/Shoes/etc): ")) or "General"
+            limit_input = clean_text(input("🔢 Item limit (default 10): "))
+            limit = int(limit_input) if limit_input.isdigit() else 10
             
             global TARGET_COUNT
             TARGET_COUNT = limit
