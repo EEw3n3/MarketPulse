@@ -158,8 +158,8 @@ async def main():
             target_url = input("🔗 Enter catalog/category URL: ").strip()
             search_term = input("🏷️ Name this group (e.g., Nike Shoes): ").strip()
             category = input("📁 Category (Electronics/Shoes/etc): ").strip() or "General"
-            limit = input("🔢 Item limit (default 50): ").strip()
-            limit = int(limit) if limit.isdigit() else 50
+            limit = input("🔢 Item limit (default 10): ").strip()
+            limit = int(limit) if limit.isdigit() else 10
             
             global TARGET_COUNT
             TARGET_COUNT = limit
