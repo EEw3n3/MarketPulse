@@ -156,7 +156,7 @@ class ScraperService:
             except: continue
         return [], None
 
-    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None):
+    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
         statement = select(ScrapingRule).where(ScrapingRule.domain == domain)
@@ -300,8 +300,9 @@ class ScraperService:
             
             # If item is over 50 euro, consider everything cheaper than 10% as accessories
             # Using 10% as threshold. If phone is 1000, everything below 100 is garbage.
-            price_threshold = max_price * Decimal("0.10")
-            if max_price > Decimal("50.00"):
+            price_threshold = Decimal("0.00")
+            if enable_price_filter and max_price > Decimal("50.00"):
+                price_threshold = max_price * Decimal("0.10")
                 logger.info(f"💰 [PriceFilter] Max: {max_price}€ | Threshold: {price_threshold}€ (Dropping cheaper items)")
 
             import json

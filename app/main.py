@@ -49,7 +49,7 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
 
 from app.services.validator import content_validator
 
-async def process_target(session, target: dict, intent: dict, group_id: int):
+async def process_target(session, target: dict, intent: dict, group_id: int, enable_price_filter: bool = True):
     url = target["url"]
     search_term = target["search_term"]
 
@@ -70,7 +70,7 @@ async def process_target(session, target: dict, intent: dict, group_id: int):
 
     logger.info(f"📦 [{rule.site_name}] Attempting collection...")
     products = await scraper_service.scrape_catalog(
-        session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent
+        session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent, enable_price_filter=enable_price_filter
     )
     
     # --- Filtering now happens inside scrape_catalog ---
@@ -84,10 +84,10 @@ async def process_target(session, target: dict, intent: dict, group_id: int):
 MAX_CONCURRENT_SCRAPES = 3
 scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
 
-async def process_target_worker(target: dict, intent: dict, group_id: int):
+async def process_target_worker(target: dict, intent: dict, group_id: int, enable_price_filter: bool = True):
     async with scrape_semaphore:
         async with async_session() as session:
-            try: await process_target(session, target, intent, group_id)
+            try: await process_target(session, target, intent, group_id, enable_price_filter)
             except Exception as e: logger.error(f"💥 Error {target['url']}: {e}")
 
 async def main():
@@ -149,7 +149,7 @@ async def main():
             for t in dynamic_targets: register_domain(t["url"])
 
             # 4. Launch parallel parsing and pass group_id
-            tasks = [process_target_worker(target, intent, group_id) for target in dynamic_targets]
+            tasks = [process_target_worker(target, intent, group_id, enable_price_filter=True) for target in dynamic_targets]
             await asyncio.gather(*tasks)
 
         elif choice == "2":
@@ -185,7 +185,7 @@ async def main():
                 "category": category
             }
             
-            await process_target_worker(target, None, group_id)
+            await process_target_worker(target, None, group_id, enable_price_filter=False)
 
         elif choice == "3":
             # --- MODE 3: HARDCORE MONITOR ---
