@@ -190,7 +190,7 @@ class ScraperService:
         
         return []
 
-    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True):
+    async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True, site_name_ui: str = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
         statement = select(ScrapingRule).where(ScrapingRule.domain == domain)
@@ -204,9 +204,14 @@ class ScraperService:
         html = initial_html
         
         processed_cards = 0
+        from app.services.ui import get_dashboard
+        db = get_dashboard()
+
         while processed_cards < max_items and current_url:
             if not html:
-                logger.info(f"🚀 [Page {page_number}] Loading: {current_url}")
+                if db and site_name_ui:
+                    db.update_status(site_name_ui, f"Loading Page {page_number}")
+                
                 html = await stealth_client.get_page(current_url)
                 if not html:
                     try:
@@ -335,15 +340,22 @@ class ScraperService:
                 session.add(rule)
             
             await session.commit()
+            
+            # --- UI UPDATE ---
+            if db and site_name_ui:
+                progress = min(100, int((len(candidates) / max_items) * 100))
+                db.update_status(site_name_ui, f"Scanning (Found {len(candidates)} items)", progress)
+                db.update_log(site_name_ui, f"Page {page_number}: Found {len(cards)} cards")
 
             if next_page and next_page != current_url and len(candidates) < max_items:
-                logger.info(f"➡️ Going to next page: {next_page}")
                 current_url = next_page
                 page_number += 1
                 html = None 
                 await asyncio.sleep(random.uniform(1.0, 2.5))
             else:
                 logger.info("⏹️ Pagination finished (or limit reached).")
+                if db and site_name_ui:
+                    db.update_status(site_name_ui, "Finishing...", 100)
                 break
         
         # --- PHASE 2: FILTERING AND ANALYSIS (Methods 1, 2, 3) ---
@@ -416,17 +428,18 @@ class ScraperService:
                 if product and product.group_id:
                     final_group_id = product.group_id
                 else:
-                    # Try to find a match by title
-                    match = await matcher_service.find_best_match(session, item["title"])
+                    # Try to find a match by attributes
+                    match = await matcher_service.find_best_match(session, item)
                     if match:
                         final_group_id = match.id
                     else:
-                        # Create NEW Group
-                        new_group = ProductGroup(name=item["title"], category="Auto-Discovered")
+                        # Create NEW Group (Chain)
+                        canonical = matcher_service.get_canonical_name(item["title"])
+                        new_group = ProductGroup(name=canonical, category="Perfume")
                         session.add(new_group)
                         await session.flush() # Get ID
                         final_group_id = new_group.id
-                        logger.info(f"✨ Created NEW Group: {new_group.name}")
+                        logger.info(f"✨ Created NEW Chain: {new_group.name}")
 
             if not product:
                 product = Product(
@@ -475,6 +488,10 @@ class ScraperService:
                 change_type=change_type
             )
             session.add(history)
+            
+            # 4. Notify about changes
+            from app.services.notifier import notification_service
+            notification_service.report_change(product, history, rule.site_name)
             
             final_scraped_items.append(ScrapedItem(
                 title=product.title, 

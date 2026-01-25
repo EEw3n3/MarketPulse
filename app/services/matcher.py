@@ -1,89 +1,103 @@
-from typing import Optional, List
+from typing import Optional, Dict
 from sqlmodel import select
 from thefuzz import fuzz
 from loguru import logger
 
 from app.domain.models import ProductGroup, Product
-from app.services.normalizer import volume_normalizer
+from app.services.normalizer import perfume_normalizer
 
 class MatcherService:
     """
     The Brain of the operation.
-    Decides if "Dior Sauvage EDT 100ml" is the same as "Sauvage Dior Eau De Toilette 0.1l".
+    Links products across different sites into unified 'Chains' (ProductGroups).
     """
     
-    # Threshold: Above this score, we consider it a match.
-    # 85 is conservative. 90 is strict.
-    MATCH_THRESHOLD = 85
+    # Threshold for fuzzy name matching if strict attributes don't match 100%
+    FUZZY_THRESHOLD = 90
 
-    def _clean_title(self, title: str) -> str:
+    async def find_best_match(self, session, product_data: Dict) -> Optional[ProductGroup]:
         """
-        Removes noise to help TheFuzz focus on what matters.
+        Tries to find an existing ProductGroup (Chain) for the given perfume.
+        Matches by Brand, Volume, Concentration and normalized name.
         """
-        if not title: return ""
+        # 1. Get raw product attributes
+        title = product_data.get("title", "")
+        norm = perfume_normalizer.extract_all(title)
         
-        # 1. Normalize Volume (critical!)
-        normalized = volume_normalizer.normalize_title(title)
+        brand = norm["brand"]
+        volume = norm["volume"]
+        concentration = norm["concentration"]
+        clean_name = norm["clean_name"]
+
+        if not brand or not clean_name:
+            # If we can't identify the brand or name, it's risky to link.
+            # Fallback to a very strict fuzzy search on title.
+            return await self._fuzzy_fallback(session, title)
+
+        # 2. Strict Matching Phase
+        # Search for a group that has the SAME brand, volume, concentration and a similar name.
+        # Note: We store the "Canonical Name" in ProductGroup.name
         
-        # 2. Lowercase
-        text = normalized.lower()
-        
-        # 3. Remove fluff words that confuse matching
-        garbage = [
-            "eau de toilette", "eau de parfum", "edt", "edp", 
-            "vīriešiem", "sievietēm", "for men", "for women",
-            "spray", "dāvanu komplekts", "set", "tester",
-            "only", "online", "new", "original"
-        ]
-        
-        for g in garbage:
-            text = text.replace(g, "")
+        # Build query for candidates
+        stmt = select(ProductGroup).where(
+            ProductGroup.category == "Perfume" # Optionally restrict by category
+        )
+        results = await session.execute(stmt)
+        groups = results.scalars().all()
+
+        for group in groups:
+            # For each group, we check if it matches our criteria
+            # We might want to store attributes in ProductGroup eventually, 
+            # but for now we can infer them from the group name or associated products.
+            # Actually, a better way: check the products already in this group.
             
-        # 4. Remove extra spaces
-        return " ".join(text.split())
+            # Since ProductGroup name is usually the first product's name,
+            # let's normalize the Group Name too.
+            group_norm = perfume_normalizer.extract_all(group.name)
+            
+            # Rule 1: Brand must match 100% (if present)
+            if brand and group_norm["brand"] and brand.lower() != group_norm["brand"].lower():
+                continue
+            
+            # Rule 2: Volume must match 100% (critical for chains!)
+            if volume and group_norm["volume"] and volume != group_norm["volume"]:
+                continue
+                
+            # Rule 3: Concentration must match 100%
+            if concentration and group_norm["concentration"] and concentration != group_norm["concentration"]:
+                continue
 
-    async def find_best_match(self, session, product_title: str) -> Optional[ProductGroup]:
-        """
-        Scans existing ProductGroups and tries to find a match.
-        Returns the Group if found, else None.
-        """
-        clean_input = self._clean_title(product_title)
-        
-        # Performance optimization:
-        # Instead of loading ALL groups, we could filter by first word?
-        # For now, let's load all recent groups (assuming database isn't huge yet)
-        # TODO: Optimize this when we have >10k groups.
+            # Rule 4: Name Similarity (Fuzzy)
+            score = fuzz.token_sort_ratio(clean_name.lower(), group_norm["clean_name"].lower())
+            
+            if score >= self.FUZZY_THRESHOLD:
+                logger.info(f"🔗 CHAIN LINKED! ({score}%): '{title}' joined '{group.name}'")
+                return group
+
+        return None
+
+    async def _fuzzy_fallback(self, session, title: str) -> Optional[ProductGroup]:
+        """Strict fuzzy matching as a last resort."""
         stmt = select(ProductGroup)
         results = await session.execute(stmt)
         groups = results.scalars().all()
         
-        best_score = 0
-        best_group = None
-        
         for group in groups:
-            # We match against the Group Name (which should be the "Canonical" name)
-            clean_group_name = self._clean_title(group.name)
-            
-            # Token Set Ratio is good for "out of order" words but dangerous for subsets
-            # "Versace Eros" vs "Versace" -> Set Ratio 100 (BAD)
-            # "Versace Eros" vs "Versace" -> Sort Ratio 74 (GOOD DISTINCTION)
-            
-            set_score = fuzz.token_set_ratio(clean_input, clean_group_name)
-            sort_score = fuzz.token_sort_ratio(clean_input, clean_group_name)
-            
-            # Weighted average: We value exact content (sort) more than partial (set)
-            # to prevent "Brand Name" groups from swallowing everything.
-            score = (set_score * 0.4) + (sort_score * 0.6)
-            
-            if score > best_score:
-                best_score = score
-                best_group = group
-        
-        if best_score >= self.MATCH_THRESHOLD:
-            logger.info(f"🔗 MATCH FOUND! ({best_score}%): '{product_title}' -> '{best_group.name}'")
-            return best_group
-        
-        logger.debug(f"🤷 No match for '{product_title}' (Best: {best_score}% with '{best_group.name if best_group else 'None'}')")
+            score = fuzz.token_set_ratio(title.lower(), group.name.lower())
+            if score >= 95: # Very strict
+                return group
         return None
+
+    def get_canonical_name(self, title: str) -> str:
+        """Returns a clean, standardized name for the ProductGroup."""
+        norm = perfume_normalizer.extract_all(title)
+        parts = []
+        if norm["brand"]: parts.append(norm["brand"])
+        if norm["clean_name"]: parts.append(norm["clean_name"])
+        if norm["concentration"]: parts.append(norm["concentration"])
+        if norm["volume"]: parts.append(norm["volume"])
+        
+        if not parts: return title
+        return " ".join(parts)
 
 matcher_service = MatcherService()

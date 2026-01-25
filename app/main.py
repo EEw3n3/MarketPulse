@@ -73,13 +73,13 @@ async def process_target(session, target: dict, intent: dict, group_id: int, ena
         return
 
     logger.info(f"📦 [{rule.site_name}] Attempting collection...")
-    products = await scraper_service.scrape_catalog(
-        session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent, enable_price_filter=enable_price_filter
-    )
+    # Pass site_name for UI tracking
+    site_name_ui = target.get("site_name")
     
-    # --- Filtering now happens inside scrape_catalog ---
-    # if intent and products:
-    #     content_validator.validate_items(products, intent)
+    products = await scraper_service.scrape_catalog(
+        session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent, 
+        enable_price_filter=enable_price_filter, site_name_ui=site_name_ui
+    )
     
     # Validation report remains for rule health metrics
     scraper_service.validate_dataset(products)
@@ -210,21 +210,34 @@ async def main():
                 return
 
             from app.core.registry import register_domain
+            from app.services.ui import init_dashboard
+            from urllib.parse import urlparse
+            
+            site_names = [t.get("site", urlparse(t["url"]).netloc) for t in targets]
+            db = init_dashboard(site_names)
             
             tasks = []
-            logger.info(f"🚀 Loaded {len(targets)} data sources.")
+            logger.info(f"🚀 Loaded {len(targets)} data sources. Initializing Dashboard...")
             
-            for t in targets:
-                register_domain(t["url"])
-                target_payload = {
-                    "url": t["url"],
-                    "search_term": "HardcoreMonitor", 
-                    "category": t["category"]
-                }
-                # group_id=None signals the scraper to use MatcherService
-                tasks.append(process_target_worker(target_payload, None, None))
-            
-            await asyncio.gather(*tasks)
+            from rich.live import Live
+            with Live(db.generate_layout(), refresh_per_second=4, screen=True) as live:
+                for t in targets:
+                    site_name = t.get("site", "Unknown")
+                    register_domain(t["url"])
+                    target_payload = {
+                        "url": t["url"],
+                        "search_term": "HardcoreMonitor", 
+                        "category": t["category"],
+                        "site_name": site_name # Pass site name for UI
+                    }
+                    tasks.append(process_target_worker(target_payload, None, None))
+                
+                # Update loop for Live display
+                while not all(task.done() for task in tasks if tasks):
+                    live.update(db.generate_layout())
+                    await asyncio.sleep(0.5)
+                
+                await asyncio.gather(*tasks)
         
         else:
             logger.error("Invalid mode selection.")

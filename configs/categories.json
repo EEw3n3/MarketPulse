@@ -1,31 +1,30 @@
 {
     "mens_perfume": {
-        "name": "Men's Perfume (Vīriešu smaržas)",
         "targets": [
             {
-                "site": "Douglas",
-                "url": "https://www.douglas.lv/lv/c/viriesiem/viriesu-smarzas/",
-                "category": "Perfume"
+                "url": "https://www.douglas.lv/lv/katalogs/viriesu-parfimerija/",
+                "category": "Perfume",
+                "site": "Douglas"
             },
             {
-                "site": "Notino",
-                "url": "https://www.notino.lv/smarzas-viriesiem/",
-                "category": "Perfume"
+                "url": "https://www.notino.lv/viriesu-smarzas/",
+                "category": "Perfume",
+                "site": "Notino"
             },
             {
-                "site": "220.lv",
-                "url": "https://220.lv/lv/viriesu-smarzas",
-                "category": "Perfume"
+                "url": "https://makeup.lv/categorys/3/",
+                "category": "Perfume",
+                "site": "Makeup"
             },
             {
-                "site": "Makeup.lv",
-                "url": "https://makeup.lv/categorys/3218/#o[2251][]=351309&o[2251][]=353485&o[2251][]=356137",
-                "category": "Perfume"
+                "url": "https://220.lv/lv/parfimerija-kosmetika/parfimerija-viriesiem",
+                "category": "Perfume",
+                "site": "220.lv"
             },
             {
-                "site": "1a.lv",
-                "url": "https://www.1a.lv/c/parfimerija-kosmetika/parfimerija/viriesu-smarzas/v5",
-                "category": "Perfume"
+                "url": "https://www.1a.lv/c/parfimerija-kosmetika/parfimerija/parfimerija-viriesiem/2pt",
+                "category": "Perfume",
+                "site": "1a.lv"
             }
         ]
     }
