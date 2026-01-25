@@ -44,14 +44,21 @@ class Product(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     url: str = Field(unique=True, index=True)
     title: str
-    image_url: Optional[str] = Field(default=None) # Image URL
+    image_url: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     
-    search_term: str = Field(default="unknown", index=True) # Search keyword
+    search_term: str = Field(default="unknown", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # --- Normalization (for Perfume Chains) ---
+    brand: Optional[str] = Field(default=None, index=True)
+    volume: Optional[str] = Field(default=None, index=True) 
+    concentration: Optional[str] = Field(default=None, index=True) 
+    is_available: bool = Field(default=True)
     
     # Denormalization for fast access
     last_price: Optional[Decimal] = Field(default=None)
+    old_price: Optional[Decimal] = Field(default=None) # For discount tracking
     
     # Relationship with group (price comparison)
     group_id: Optional[int] = Field(default=None, foreign_key="productgroup.id")
@@ -66,6 +73,10 @@ class PriceHistory(SQLModel, table=True):
     price: Decimal
     in_stock: bool
     parsed_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Change tracking
+    # initial, price_up, price_down, no_change, back_in_stock, out_of_stock
+    change_type: str = Field(default="initial") 
     
     product_id: Optional[int] = Field(default=None, foreign_key="product.id")
     product: Optional[Product] = Relationship(back_populates="history")

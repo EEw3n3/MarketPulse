@@ -1,77 +1,104 @@
 import re
-from typing import Optional
+from typing import Optional, Dict
 
-class VolumeNormalizer:
+class PerfumeNormalizer:
     """
-    Standardizes product volumes from titles.
-    Converts:
-    - '50 ml', '50ml', '50ML', '0.05l' -> '50ml'
-    - '100 g', '100gr' -> '100g'
+    Advanced normalizer for perfume products.
+    Extracts Brand, Volume, Concentration and removes noise like 'Vapo'.
     """
     
-    # Pre-compiled regex for performance
-    # Matches: number + optional space + unit (ml, l, g, kg, oz)
-    # Group 1: Number
-    # Group 2: Unit
-    REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|g|kg|gr|oz|мл|л|г)', re.IGNORECASE)
+    # 1. Brands (Top common, can be expanded)
+    BRANDS = [
+        "Dior", "Chanel", "Armani", "Versace", "Gucci", "Prada", "Hermes", "Guerlain",
+        "Dolce & Gabbana", "D&G", "Tom Ford", "Hugo Boss", "Boss", "Calvin Klein", "CK",
+        "Yves Saint Laurent", "YSL", "Paco Rabanne", "Givency", "Valentino", "Bvlgari",
+        "Lacoste", "Creed", "Montblanc", "Carolina Herrera", "Jean Paul Gaultier", "JPG"
+    ]
+
+    # 2. Concentrations
+    CONC_MAP = {
+        "edp": "EDP",
+        "eau de parfum": "EDP",
+        "parfīmērijas ūdens": "EDP",
+        "edt": "EDT",
+        "eau de toilette": "EDT",
+        "tualetes ūdens": "EDT",
+        "parfum": "Parfum",
+        "pure parfum": "Parfum",
+        "smaržas": "Parfum",
+        "edc": "EDC",
+        "eau de cologne": "EDC",
+        "odekolons": "EDC"
+    }
+
+    # 3. Noise to ignore
+    NOISE = [
+        r"\bvapo\b", r"\bvaporisateur\b", r"\bspray\b", r"\bnatural spray\b",
+        r"\bvīriešiem\b", r"\bmen\b", r"\bhomme\b", r"\bfor men\b"
+    ]
+
+    REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
+
+    @staticmethod
+    def extract_all(title: str) -> Dict[str, Optional[str]]:
+        """
+        Extracts all attributes from the title.
+        """
+        title_lower = title.lower()
+        
+        # 1. Volume
+        volume = PerfumeNormalizer.extract_volume(title)
+        
+        # 2. Brand
+        brand = None
+        for b in PerfumeNormalizer.BRANDS:
+            if b.lower() in title_lower:
+                brand = b
+                break
+        
+        # 3. Concentration
+        concentration = None
+        for key, value in PerfumeNormalizer.CONC_MAP.items():
+            if key in title_lower:
+                concentration = value
+                break
+        
+        # 4. Clean Name (remove volume, brand, concentration and noise)
+        clean_name = title
+        # Remove volume
+        clean_name = PerfumeNormalizer.REGEX_VOLUME.sub("", clean_name)
+        # Remove noise
+        for n in PerfumeNormalizer.NOISE:
+            clean_name = re.sub(n, "", clean_name, flags=re.IGNORECASE)
+        
+        # Final cleanup
+        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+        # Remove trailing dashes or commas
+        clean_name = re.sub(r'^[,\-\s]+|[,\-\s]+$', '', clean_name)
+
+        return {
+            "brand": brand,
+            "volume": volume,
+            "concentration": concentration,
+            "clean_name": clean_name
+        }
 
     @staticmethod
     def extract_volume(text: str) -> Optional[str]:
-        """
-        Extracts the first volume pattern found in the text and returns a standardized string.
-        Returns None if no volume is found.
-        """
-        if not text:
-            return None
-            
-        match = VolumeNormalizer.REGEX_VOLUME.search(text)
+        if not text: return None
+        match = PerfumeNormalizer.REGEX_VOLUME.search(text)
         if match:
             amount_str = match.group(1).replace(',', '.')
             unit = match.group(2).lower()
-            
             try:
                 amount = float(amount_str)
-            except ValueError:
-                return None
-
-            # Standardization logic
-            if unit in ['l', 'л']:
-                # Convert Liters to Milliliters (0.1l -> 100ml)
-                amount = amount * 1000
-                unit = 'ml'
-            elif unit in ['ml', 'ml.', 'мл']:
-                unit = 'ml'
-            elif unit in ['g', 'gr', 'г']:
-                unit = 'g'
-            elif unit in ['kg', 'кг']:
-                # Convert Kg to Grams
-                amount = amount * 1000
-                unit = 'g'
-            elif unit == 'oz':
-                # Convert fl oz to ml (approx)
-                amount = amount * 29.5735
-                unit = 'ml'
+                if unit in ['l', 'л']: amount *= 1000; unit = 'ml'
+                elif unit in ['ml', 'мл']: unit = 'ml'
+                elif unit == 'oz': amount *= 29.57; unit = 'ml'
                 
-            # Format: '50ml' (integer if no decimal needed)
-            if amount.is_integer():
-                return f"{int(amount)}{unit}"
-            else:
-                return f"{round(amount, 1)}{unit}"
-                
+                if amount.is_integer(): return f"{int(amount)}ml"
+                return f"{round(amount, 1)}ml"
+            except: return None
         return None
 
-    @staticmethod
-    def normalize_title(title: str) -> str:
-        """
-        Returns a title with localized units standardized.
-        (e.g., "Chanel 0.05l" -> "Chanel 50ml")
-        """
-        volume = VolumeNormalizer.extract_volume(title)
-        if volume:
-            # We could replace the original volume in the string, 
-            # but for now, just appending or ensuring it's known is enough.
-            # This method acts as a helper to verify we CAN normalize it.
-            return f"{title} [{volume}]"
-        return title
-
-volume_normalizer = VolumeNormalizer()
+perfume_normalizer = PerfumeNormalizer()

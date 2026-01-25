@@ -281,26 +281,36 @@ class ScraperService:
                     if link_node: product_url = urljoin(current_url, link_node)
                     
                     # Store as primitive dict first for analysis
-                    from app.services.normalizer import volume_normalizer
-                    normalized_title = volume_normalizer.normalize_title(title)
+                    from app.services.normalizer import perfume_normalizer
+                    norm = perfume_normalizer.extract_all(title)
                     
                     # --- VARIANT EXTRACTION (KILLER FEATURE) ---
-                    found_variants = self._extract_variants(card, normalized_title)
+                    found_variants = self._extract_variants(card, norm["clean_name"])
                     
+                    base_payload = {
+                        "url": product_url,
+                        "image_url": image_url,
+                        "brand": norm["brand"],
+                        "volume": norm["volume"],
+                        "concentration": norm["concentration"]
+                    }
+
                     if found_variants:
                         for v in found_variants:
+                            # Re-normalize variant title if needed or use base
+                            v_norm = perfume_normalizer.extract_all(v["title"])
                             candidates.append({
+                                **base_payload,
                                 "title": v["title"],
                                 "price": v["price"],
                                 "url": f"{product_url}?variant={v['variant_id']}" if v.get("variant_id") else product_url,
-                                "image_url": image_url
+                                "volume": v_norm["volume"] or norm["volume"]
                             })
                     else:
                          candidates.append({
-                            "title": normalized_title,
-                            "price": price_val,
-                            "url": product_url,
-                            "image_url": image_url
+                            **base_payload,
+                            "title": title,
+                            "price": price_val
                         })
                     
                     processed_cards += 1
@@ -423,21 +433,47 @@ class ScraperService:
                     title=item["title"], 
                     url=item["url"], 
                     search_term=rule.site_name,
-                    group_id=final_group_id
+                    group_id=final_group_id,
+                    brand=item.get("brand"),
+                    volume=item.get("volume"),
+                    concentration=item.get("concentration")
                 )
                 session.add(product)
                 await session.flush()
+                change_type = "initial"
             else:
-                # Update group if it was missing
-                if not product.group_id:
-                    product.group_id = final_group_id
-                    session.add(product)
+                # Update group and attributes if they were missing
+                if not product.group_id: product.group_id = final_group_id
+                if not product.brand: product.brand = item.get("brand")
+                if not product.volume: product.volume = item.get("volume")
+                if not product.concentration: product.concentration = item.get("concentration")
+                
+                # Change Detection Logic
+                change_type = "no_change"
+                if product.last_price is not None:
+                    if item["price"] < product.last_price:
+                        change_type = "price_down"
+                        product.old_price = product.last_price
+                    elif item["price"] > product.last_price:
+                        change_type = "price_up"
+                        product.old_price = product.last_price
+                
+                if not product.is_available and item["price"] > 0:
+                    change_type = "back_in_stock"
+                
+                session.add(product)
             
             product.last_price = item["price"]
+            product.is_available = True if item["price"] > 0 else False
             if item["image_url"]: product.image_url = item["image_url"]
             session.add(product)
 
-            history = PriceHistory(price=item["price"], in_stock=True, product_id=product.id)
+            history = PriceHistory(
+                price=item["price"], 
+                in_stock=product.is_available, 
+                product_id=product.id,
+                change_type=change_type
+            )
             session.add(history)
             
             final_scraped_items.append(ScrapedItem(
