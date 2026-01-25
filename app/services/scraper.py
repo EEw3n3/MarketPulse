@@ -31,7 +31,9 @@ class ScraperService:
         clean = re.sub(r'[^\d.,]', '', price_text)
         clean = clean.replace(',', '.')
         if clean.count('.') > 1: clean = clean.replace('.', '', clean.count('.') - 1)
-        try: return Decimal(clean)
+        try: 
+            val = Decimal(clean)
+            return val.quantize(Decimal("0.01"))
         except: return Decimal("0.00")
 
     def extract_clean_text(self, element: Selector) -> str:
