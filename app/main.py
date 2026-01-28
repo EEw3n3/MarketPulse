@@ -11,7 +11,7 @@ from app.services.ai_generator import ai_generator
 from app.services.scraper import scraper_service
 from app.core.registry import register_domain
 # No longer using hardcoded TARGETS
-# TARGETS = [...] 
+
 from app.services.intent import intent_service
 
 def clean_text(text: str) -> str:
