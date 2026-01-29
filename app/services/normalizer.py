@@ -21,8 +21,15 @@ class PerfumeNormalizer:
         "Kilian", "Memo Paris", "Penhaligon's", "Vilhelm Parfumerie", "Acca Kappa", "Gritti",
         "Armand Basi", "Karl Lagerfeld", "Lagerfeld", "Zarkoperfume", "Maison Margiela", "Replica",
         "Acqua Di Parma", "Moschino", "Mont Blanc", "Bvlgari", "Chopard", "Jo Malone", "Le Labo",
-        "By Kilian", "Bond No. 9", "Serge Lutens", "Frederic Malle", "Kilian Paris"
+        "By Kilian", "Bond No. 9", "Serge Lutens", "Frederic Malle", "Kilian Paris",
+        "Trussardi", "Salvatore Ferragamo", "Ferragamo", "Rue Broca", "Monotheme", "Kajal", "Genyum", "Acorelle",
+        "Elizabeth Arden", "Estee Lauder", "Clinique", "Biotherm", "Viktor & Rolf", "V&R", "Diesel", "Cacharel",
+        "Maison Alhambra", "Rasasi", "Afnan", "Al Haramain", "Swiss Arabian", "Paris Corner", "Fragrance World",
+        "Zadig & Voltaire", "Z&V", "Etro", "Missoni", "Baldessarini", "Joop!", "Nikolas de Barry"
     ]
+
+    # Dynamic brands found during session
+    DISCOVERED_BRANDS = set()
 
     # 2. Concentrations (Standardized)
     CONC_MAP = {
@@ -63,17 +70,31 @@ class PerfumeNormalizer:
         
         # 2. Brand (Strict Word Boundary Match, Longest first)
         brand = None
-        sorted_brands = sorted(PerfumeNormalizer.BRANDS, key=len, reverse=True)
+        # Combine static list with discovered brands
+        all_known_brands = list(set(PerfumeNormalizer.BRANDS) | PerfumeNormalizer.DISCOVERED_BRANDS)
+        sorted_brands = sorted(all_known_brands, key=len, reverse=True)
+        
         for b in sorted_brands:
-            # \b ensures we match word, not part of word (e.g. 'CK' in 'Black')
             pattern = rf'\b{re.escape(b.lower())}\b'
             if re.search(pattern, title_lower):
                 brand = b
                 break
         
-        # 3. Concentration (Strict Word Boundary Match, Longest first)
+        if not brand:
+            # If no brand found, try taking the first one/two words
+            words = title.split()
+            if words:
+                first_word = words[0].strip(",.- ")
+                if first_word.lower() not in PerfumeNormalizer.CONC_MAP and \
+                   not any(re.search(rf'\b{re.escape(first_word.lower())}\b', n) for n in PerfumeNormalizer.NOISE):
+                    
+                    brand = first_word
+                    # Heuristic: if first word is short and there is a second word, combine them
+                    if len(first_word) <= 3 and len(words) > 1:
+                        brand = f"{first_word} {words[1].strip(',.- ')}"
+        
+        # 4. Concentration
         concentration = None
-        # Support both EN and LV terms
         sorted_conc_keys = sorted(PerfumeNormalizer.CONC_MAP.keys(), key=len, reverse=True)
         for key in sorted_conc_keys:
             pattern = rf'\b{re.escape(key)}\b'
@@ -81,18 +102,16 @@ class PerfumeNormalizer:
                 concentration = PerfumeNormalizer.CONC_MAP[key]
                 break
         
-        # 4. Clean Name
+        # 5. Clean Name
         clean_name = title
         clean_name = PerfumeNormalizer.REGEX_VOLUME.sub("", clean_name)
         for n in PerfumeNormalizer.NOISE:
             clean_name = re.sub(n, "", clean_name, flags=re.IGNORECASE)
         
-        # Also remove brand and concentration from name if found to avoid duplicates
         if brand: 
             clean_name = re.sub(rf'\b{re.escape(brand)}\b', "", clean_name, flags=re.IGNORECASE)
         
         if concentration:
-            # Remove both the concentration code (EDP) and potential full name (Eau de Parfum)
             for key, val in PerfumeNormalizer.CONC_MAP.items():
                 if val == concentration:
                     clean_name = re.sub(rf'\b{re.escape(key)}\b', "", clean_name, flags=re.IGNORECASE)

@@ -25,8 +25,8 @@ async def inspect_lab():
         print("-" * 100)
         
         for p in products:
-            price = f"{p.last_price} €"
-            print(f"{p.brand or 'N/A':<15} | {p.volume or 'N/A':<8} | {p.concentration or 'N/A':<6} | {price:<8} | {p.title}")
+            price = f"{p.last_price} €" if p.is_available else "NAV PIEEJAMS"
+            print(f"{p.brand or 'N/A':<15} | {p.volume or 'N/A':<8} | {p.concentration or 'N/A':<6} | {price:<12} | {p.title}")
             
 if __name__ == "__main__":
     if sys.platform == 'win32':

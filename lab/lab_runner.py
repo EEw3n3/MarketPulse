@@ -40,8 +40,9 @@ async def run_lab_test(site_url: str, limit: int = 50):
         
         # 2. Get/Create rule using our AI generator
         from app.services.ai_generator import ai_generator
-        # Fetch HTML
-        html = await stealth_client.get_page(site_url)
+        # Fetch HTML using Tier 3 for complex sites
+        from app.core.browser import browser_manager
+        html = await browser_manager.get_page_content(site_url)
         if not html:
             logger.error("❌ Failed to fetch HTML in Lab mode.")
             return
@@ -71,6 +72,8 @@ async def run_lab_test(site_url: str, limit: int = 50):
         else:
             logger.error("❌ [LAB] Scraper returned 0 items.")
 
+    from app.core.browser import browser_manager
+    await browser_manager.stop()
     await stealth_client.close()
 
 async def main():
@@ -86,9 +89,9 @@ async def main():
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
     print("="*50)
     
-    await run_lab_test(target_url, limit=30)
+    await run_lab_test(target_url, limit=200)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())

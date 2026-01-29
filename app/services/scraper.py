@@ -271,7 +271,15 @@ class ScraperService:
                                 rule_updated = True
                         
                         price_text = self.extract_clean_text(price_el)
-                        price_val = self.parse_price(price_text)
+                        # SPECIAL CASE: Makeup.lv "Nav pieejams"
+                        if "pieejams" in price_text.lower() or "not available" in price_text.lower():
+                            price_val = Decimal("0.00")
+                            is_available = False
+                        else:
+                            price_val = self.parse_price(price_text)
+                            is_available = True if price_val > 0 else False
+                    else:
+                        is_available = False
 
                     # 4. IMAGE
                     image_url = None
@@ -311,13 +319,15 @@ class ScraperService:
                                 "title": v["title"],
                                 "price": v["price"],
                                 "url": f"{product_url}?variant={v['variant_id']}" if v.get("variant_id") else product_url,
-                                "volume": v_norm["volume"] or norm["volume"]
+                                "volume": v_norm["volume"] or norm["volume"],
+                                "is_available": v["price"] > 0
                             })
                     else:
                          candidates.append({
                             **base_payload,
                             "title": title,
-                            "price": price_val
+                            "price": price_val,
+                            "is_available": is_available
                         })
                     
                     processed_cards += 1
@@ -479,13 +489,13 @@ class ScraperService:
                 session.add(product)
             
             product.last_price = item["price"]
-            product.is_available = True if item["price"] > 0 else False
+            product.is_available = item["is_available"]
             if item["image_url"]: product.image_url = item["image_url"]
             session.add(product)
 
             history = PriceHistory(
                 price=item["price"], 
-                in_stock=product.is_available, 
+                in_stock=item["is_available"], 
                 product_id=product.id,
                 change_type=change_type
             )
