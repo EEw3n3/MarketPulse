@@ -38,6 +38,10 @@ class ScrapingRule(SQLModel, table=True):
     failure_count: int = Field(default=0)
     health_score: float = Field(default=1.0) # 0.0 - 1.0
 
+    # Resume capability (Checkpoints)
+    last_page_url: Optional[str] = Field(default=None)
+    items_scraped_current_run: int = Field(default=0)
+
 
 # --- 3. PRODUCT (Specific offer in store) ---
 class Product(SQLModel, table=True):
@@ -55,6 +59,7 @@ class Product(SQLModel, table=True):
     volume: Optional[str] = Field(default=None, index=True) 
     concentration: Optional[str] = Field(default=None, index=True) 
     is_available: bool = Field(default=True)
+    last_seen: datetime = Field(default_factory=datetime.utcnow)
     
     # Denormalization for fast access
     last_price: Optional[Decimal] = Field(default=None)

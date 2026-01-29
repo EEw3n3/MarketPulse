@@ -209,11 +209,20 @@ class ScraperService:
         if not rule: return []
 
         current_url = start_url
-        candidates = [] 
         page_number = 1
+        processed_cards = 0
+
+        # --- RESUME LOGIC (Checkpoint) ---
+        if rule.last_page_url and rule.last_page_url.startswith(start_url.split('?')[0]):
+            logger.info(f"🔄 Resuming from checkpoint: {rule.last_page_url}")
+            current_url = rule.last_page_url
+            processed_cards = rule.items_scraped_current_run
+            # We don't know the exact page number easily, but we can estimate
+            # Or just leave it as 1 for UI simplicity.
+        
+        candidates = [] 
         html = initial_html
         
-        processed_cards = 0
         from app.services.ui import get_dashboard
         db = get_dashboard()
 
@@ -400,9 +409,22 @@ class ScraperService:
                 current_url = next_page
                 page_number += 1
                 html = None 
+                
+                # Update Checkpoint in DB
+                rule.last_page_url = current_url
+                rule.items_scraped_current_run = len(candidates)
+                session.add(rule)
+                await session.commit()
+                
                 await asyncio.sleep(random.uniform(1.0, 2.5))
             else:
                 logger.info("⏹️ Pagination finished (or limit reached).")
+                # Reset Checkpoint
+                rule.last_page_url = None
+                rule.items_scraped_current_run = 0
+                session.add(rule)
+                await session.commit()
+                
                 if db and site_name_ui:
                     db.update_status(site_name_ui, "Finishing...", 100)
                 break
@@ -512,11 +534,12 @@ class ScraperService:
             # but usually it's better to store 0.00 and is_available=False
             price_to_save = item["price"] if item["price"] is not None else Decimal("0.00")
             
+            product.last_seen = datetime.utcnow()
             product.last_price = price_to_save
             product.is_available = item["is_available"]
             if item["image_url"]: product.image_url = item["image_url"]
             
-            # Brand auto-discovery: if normalizer failed, but we have a title
+            # Brand auto-discovery
             if not product.brand and item.get("title"):
                 from app.services.normalizer import perfume_normalizer
                 norm = perfume_normalizer.extract_all(item["title"])
@@ -524,18 +547,22 @@ class ScraperService:
 
             session.add(product)
 
-            history = PriceHistory(
-                price=item["price"], 
-                in_stock=item["is_available"], 
-                product_id=product.id,
-                change_type=change_type
-            )
-            session.add(history)
-            
-            # 4. Notify about changes
-            from app.services.notifier import notification_service
-            notification_service.report_change(product, history, rule.site_name)
-            
+            # --- DIFF-SCRAPING: Only save history if something changed ---
+            if change_type != "no_change":
+                history = PriceHistory(
+                    price=item["price"], 
+                    in_stock=item["is_available"], 
+                    product_id=product.id,
+                    change_type=change_type
+                )
+                session.add(history)
+                
+                # Notify about SIGNIFICANT changes
+                from app.services.notifier import notification_service
+                notification_service.report_change(product, history, rule.site_name)
+            else:
+                pass # Silent update of last_seen/last_price only
+
             final_scraped_items.append(ScrapedItem(
                 title=product.title, 
                 price=item["price"], 
