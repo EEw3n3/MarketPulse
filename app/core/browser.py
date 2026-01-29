@@ -29,9 +29,11 @@ class BrowserManager:
             )
             logger.info("🚜 Tier 3: Browser Engine (Chromium) started.")
 
-    async def get_page_content(self, url: str) -> str | None:
+    async def get_page_content(self, url: str, fast_mode: bool = False, disable_images: bool = True) -> str | None:
         """
         Opens the page, pretends to be human, scrolls, and returns HTML.
+        - fast_mode: Reduces pauses for pagination
+        - disable_images: Blocks image loading to save time/bandwidth
         """
         if not self.browser:
             await self.start()
@@ -40,7 +42,6 @@ class BrowserManager:
         proxy_str = proxy_manager.get_proxy()
         proxy_config = None
         if proxy_str:
-            # Convert http://user:pass@ip:port into Playwright config
             try:
                 protocol, rest = proxy_str.split("://")
                 creds, addr = rest.split("@")
@@ -51,11 +52,9 @@ class BrowserManager:
                     "password": password
                 }
             except Exception:
-                # If proxy is without password or has invalid format
                 proxy_config = {"server": proxy_str}
 
-        # 2. Create context (isolated session)
-        # Spoof User-Agent to a real one
+        # 2. Create context
         context = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={"width": 1920, "height": 1080},
@@ -64,31 +63,28 @@ class BrowserManager:
         
         page = await context.new_page()
 
+        # === OPTIMIZATION: BLOATING KILLER ===
+        if disable_images:
+            await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+
         try:
             # === TIER 4: STEALTH INJECTION ===
-            # Hide Selenium/Playwright signs
             await stealth_async(page)
             
-            logger.info(f"🚜 Loading page (Stealth Mode): {url}")
-            # Increase timeout to 60s, as we will "loaf around" like a human
+            logger.info(f"🚜 Loading page ({'Turbo' if fast_mode else 'Stealth'}): {url}")
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
             # === TIER 4: HUMAN BEHAVIOR ===
-            logger.info("🤖 Simulating human (Humanizing)...")
-            
-            # 1. Random pause before action
-            await Humanizer.smart_wait(1, 3)
-            
-            # 2. Move mouse "nowhere" to confuse trackers
-            await Humanizer.random_mouse_move(page)
-            
-            # 3. Scroll the page (this triggers product loading on Nike!)
-            if "#" in url:
-                await Humanizer.smart_wait(3, 6)
-            await Humanizer.human_scroll(page)
-            
-            # 4. Final pause to ensure JS execution
-            await Humanizer.smart_wait(2, 4)
+            if fast_mode:
+                # Minimal activity to stay alive
+                await Humanizer.smart_wait(1, 2)
+                await page.mouse.move(random.randint(0, 500), random.randint(0, 500))
+            else:
+                logger.info("🤖 Simulating human (Humanizing)...")
+                await Humanizer.smart_wait(1, 3)
+                await Humanizer.random_mouse_move(page)
+                await Humanizer.human_scroll(page)
+                await Humanizer.smart_wait(2, 4)
 
             content = await page.content()
             return content

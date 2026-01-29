@@ -72,15 +72,15 @@ class StealthClient:
                     logger.warning(f"Page not found (404): {url}")
                     return None
 
-                # BAN OR TIMEOUT ERROR
-                if response.status_code in [403, 429, 503]:
-                    logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Banning proxy and changing session...")
+                # BAN OR TIMEOUT ERROR (Include 202 for Makeup.lv)
+                if response.status_code in [202, 403, 429, 503]:
+                    logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Refreshing session...")
                     if self.current_proxy:
                         proxy_manager.ban_proxy(self.current_proxy)
                     
                     # Close current session and create new one (with new IP and browser)
                     await self.init_session()
-                    await asyncio.sleep(random.uniform(1, 3))
+                    await asyncio.sleep(random.uniform(2, 5))
                     continue
                 
                 logger.warning(f"Strange status ({response.status_code}) on {proxy_log}")

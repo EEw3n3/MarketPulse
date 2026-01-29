@@ -222,13 +222,27 @@ class ScraperService:
                 if db and site_name_ui:
                     db.update_status(site_name_ui, f"Loading Page {page_number}")
                 
+                # Use Fast Mode for pagination (after page 1)
+                is_fast = page_number > 1
+                
+                # 1. Try Stealth Client (Fastest)
                 html = await stealth_client.get_page(current_url)
-                if not html:
+                
+                # 2. Try Browser Fallback (Most Reliable)
+                if not html or "202 Accepted" in html or "captcha" in html.lower():
                     try:
                         from app.core.browser import browser_manager
-                        html = await browser_manager.get_page_content(current_url)
-                    except: pass
-            if not html: break 
+                        html = await browser_manager.get_page_content(
+                            current_url, 
+                            fast_mode=is_fast, 
+                            disable_images=True
+                        )
+                    except Exception as e:
+                        logger.error(f"Browser fallback failed: {e}")
+
+            if not html or "202 Accepted" in html:
+                logger.warning(f"⚠️ Page {page_number} blocked or empty. Stopping.")
+                break 
 
             sel = Selector(text=html)
             rule_updated = False
@@ -397,18 +411,6 @@ class ScraperService:
         valid_items = []
         
         if candidates:
-            # 1. Price Anomaly Detection (Method 1)
-            # Find the most expensive items to establish a baseline
-            all_prices = [c["price"] for c in candidates if c["price"] > 0]
-            max_price = max(all_prices) if all_prices else Decimal("0.00")
-            
-            # If item is over 50 euro, consider everything cheaper than 10% as accessories
-            # Using 10% as threshold. If phone is 1000, everything below 100 is garbage.
-            price_threshold = Decimal("0.00")
-            if enable_price_filter and max_price > Decimal("50.00"):
-                price_threshold = max_price * Decimal("0.10")
-                logger.info(f"💰 [PriceFilter] Max: {max_price}€ | Threshold: {price_threshold}€ (Dropping cheaper items)")
-
             import json
             from app.services.validator import content_validator
             from datetime import datetime
@@ -423,11 +425,6 @@ class ScraperService:
                 except: pass
 
             for item in candidates:
-                # Check 1: Price (Method 1)
-                if item["price"] < price_threshold and item["price"] > 0:
-                     logger.debug(f"📉 [PriceFilter] Drop {item['title']} ({item['price']}€ < {price_threshold}€)")
-                     continue
-                
                 # Check 2: Words (Method 2/3)
                 if intent:
                     if content_validator.is_garbage(item["title"], all_forbidden):
