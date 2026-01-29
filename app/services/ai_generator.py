@@ -45,8 +45,17 @@ class AIGenerator:
     def clean_html(self, html: str) -> str:
         try:
             soup = BeautifulSoup(html, "html.parser")
-            useless_tags = ["script", "style", "svg", "path", "noscript", "meta", "link", "iframe"]
+            useless_tags = ["script", "style", "svg", "path", "noscript", "meta", "link", "iframe", "header", "footer"]
             for element in soup(useless_tags): element.decompose()
+            
+            # AGGRESSIVE CLEANING: Remove only obvious non-content blocks
+            junk_markers = ["banner", "sidebar", "footer", "popup", "menu", "nav", "widget"]
+            for element in soup.find_all(True):
+                class_str = " ".join(element.get("class", [])).lower()
+                id_str = element.get("id", "").lower()
+                if any(marker in class_str or marker in id_str for marker in junk_markers):
+                    element.decompose()
+
             # Removing empty elements to save tokens
             for element in soup.find_all():
                 if len(element.get_text(strip=True)) == 0 and not element.find_all(): element.decompose()
@@ -80,19 +89,22 @@ class AIGenerator:
         {knowledge_base}
         
         INSTRUCTION:
-        1. Look at the HTML snippet.
-        2. Check if any patterns from the KNOWLEDGE BASE match the structure. Use them if they fit!
-        3. If no patterns match, find NEW precise selectors.
+        1. Look at the HTML snippet and find the container that holds the LARGEST number of products (this is the main catalog).
+        2. Note: The main catalog might contain special "sponsored" items or internal sliders - include them if they are part of the main grid.
+        3. AVOID selecting small "You might also like" or "Recently viewed" blocks usually found at the bottom or sides.
+        4. Choose the container CSS that captures all products in the main results list.
+        4. Check if any patterns from the KNOWLEDGE BASE match the actual product list structure. Use them if they fit!
+        5. If no patterns match, find NEW precise selectors.
         
         RETURN JSON OBJECT:
         - "site_name": Store name.
         - "emoji": Store icon.
-        - "container_css": CSS selector for product card (e.g. 'li.item').
-        - "title_css": CSS selector for Title.
-        - "price_css": CSS selector for Price.
+        - "container_css": CSS selector for product card (e.g. 'li.catalog-item'). MUST be the main catalog list.
+        - "title_css": CSS selector for Title, relative to container.
+        - "price_css": CSS selector for Price, relative to container.
         - "image_css": CSS selector for Product Image (usually img tag or its container).
-        - "next_page_css": CSS selector for Next page.
-        - "negative_keywords": LIST of strings. Words that indicate "garbage" or accessories for this SPECIFIC store/category. (e.g. for Phones: ["case", "cover", "glass", "mount"]).
+        - "next_page_css": CSS selector for Next page button or link.
+        - "negative_keywords": LIST of strings (junk words).
         
         HTML SNIPPET:
         {clean_content}

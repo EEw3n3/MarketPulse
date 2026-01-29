@@ -83,6 +83,8 @@ class BrowserManager:
             await Humanizer.random_mouse_move(page)
             
             # 3. Scroll the page (this triggers product loading on Nike!)
+            if "#" in url:
+                await Humanizer.smart_wait(3, 6)
             await Humanizer.human_scroll(page)
             
             # 4. Final pause to ensure JS execution

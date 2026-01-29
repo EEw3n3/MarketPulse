@@ -47,6 +47,10 @@ async def run_lab_test(site_url: str, limit: int = 50):
             logger.error("❌ Failed to fetch HTML in Lab mode.")
             return
 
+        with open("lab_debug.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        logger.info("📄 Lab debug HTML saved to lab_debug.html")
+
         rule = await ai_generator.get_or_create_rule(session, site_url, html)
         if not rule:
             logger.error("❌ AI failed to create a rule for this site.")
@@ -89,7 +93,7 @@ async def main():
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
     print("="*50)
     
-    await run_lab_test(target_url, limit=200)
+    await run_lab_test(target_url, limit=7000)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':

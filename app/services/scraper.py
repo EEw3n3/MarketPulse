@@ -109,43 +109,51 @@ class ScraperService:
         def clean_href(href: str | None) -> str | None:
             if not href: return None
             if href.startswith('javascript:') or href == '#': return None
-            
-            # If link is already absolute, take as is
-            if bool(urlparse(href).netloc):
-                return href
-                
-            # Otherwise join with domain root or current page
+            from urllib.parse import urljoin, urlparse
+            if bool(urlparse(href).netloc): return href
             parsed_base = urlparse(current_url)
             base_root = f"{parsed_base.scheme}://{parsed_base.netloc}"
-            
-            if href.startswith('/'):
-                return urljoin(base_root, href)
-            else:
-                return urljoin(current_url, href)
+            return urljoin(base_root, href) if href.startswith('/') else urljoin(current_url, href)
 
-        # 1. Standard rel="next"
-        link = sel.css('link[rel="next"]::attr(href), a[rel="next"]::attr(href)').get()
-        if clean_href(link): return clean_href(link)
-        
-        # 2. Text markers
-        next_markers = ['>', '»', 'Next', 'next', 'Next page', 'Siguiente', 'Dalje', 'Nākamā']
-        for marker in next_markers:
-            link = sel.xpath(f"//a[contains(text(), '{marker}')]/@href").get()
-            if clean_href(link): return clean_href(link)
+        def is_valid_pagination(href: str) -> bool:
+            if not href: return False
+            junk = ['/news/', '/product/', '/ads/', '/cart/', '/login/', '/auth/']
+            if any(j in href.lower() for j in junk): return False
+            return True
 
-        # 3. Numeric pagination
-        active_candidates = ['is-active', 'active', 'current', 'selected', 'active-page']
-        for cls in active_candidates:
-            xpath_query = f"//*[contains(@class, '{cls}')]/following-sibling::a/@href"
-            links = sel.xpath(xpath_query).getall()
-            for l in links:
-                if clean_href(l): return clean_href(l)
-            
-            xpath_li = f"//li[contains(@class, '{cls}')]/following-sibling::li/a/@href"
-            links_li = sel.xpath(xpath_li).getall()
-            for l in links_li:
-                if clean_href(l): return clean_href(l)
-        
+        # 1. NUMERIC INCREMENT (Best for Makeup.lv)
+        active_nodes = sel.xpath("//li[contains(@class, 'page') and (not(descendant::a) or contains(@class, 'active') or contains(@class, 'current'))]//text()[normalize-space()]").getall()
+        if not active_nodes:
+            active_nodes = sel.xpath("//input[@checked]/following-sibling::label//text()").getall()
+
+        current_page_num = None
+        for txt in active_nodes:
+            if txt.strip().isdigit():
+                current_page_num = int(txt.strip())
+                break
+
+        if current_page_num:
+            next_num = current_page_num + 1
+            next_num_link = sel.xpath(f"//li[contains(@class, 'page')]//a[text()='{next_num}']/@href").get()
+            if not next_num_link:
+                 next_num_link = sel.xpath(f"//a[text()='{next_num}']/@href").get()
+
+            candidate = clean_href(next_num_link)
+            if candidate and is_valid_pagination(candidate):
+                logger.info(f"🔢 Found next page by incrementing: {current_page_num} -> {next_num} ({candidate})")
+                return candidate
+
+        # 2. SIBLING LOGIC
+        active_li = sel.xpath("//li[contains(@class, 'page') and (not(descendant::a) or contains(@class, 'active'))]")
+        if not active_li:
+            active_li = sel.xpath("//input[@checked or @checked='checked']/ancestor::li")
+        if active_li:
+            next_link = active_li.xpath("./following-sibling::li[descendant::a][1]//a/@href").get()
+            candidate = clean_href(next_link)
+            if candidate and is_valid_pagination(candidate):
+                logger.info(f"⏭️ Found next page via sibling logic: {candidate}")
+                return candidate
+
         return None
 
     def _try_selectors(self, source: Selector, css_list: str) -> tuple[list[Selector], str | None]:
@@ -227,11 +235,13 @@ class ScraperService:
             
             # 1. CARDS
             cards, winner = self._try_selectors(sel, rule.container_css)
+            
             if not cards:
-                 fallback_selectors = "li.product, li.product-item, .product-item, .item, article"
+                 # Universal fallback for generic store structures
+                 fallback_selectors = "li.catalog-products-list__item, li.simple-slider-list__item, li.product-item, .product-item, .product-card, .item, article"
                  cards, winner = self._try_selectors(sel, fallback_selectors)
                  if cards and winner:
-                     logger.warning(f"🔧 Fixing container_css for {domain}: {rule.container_css} -> {winner}")
+                     logger.warning(f"🔧 [Auto-Fix] Switching container for {domain}: {rule.container_css} -> {winner}")
                      rule.container_css = winner
                      rule_updated = True
 
@@ -248,7 +258,7 @@ class ScraperService:
                     title_el, winner = self._try_selectors(card, rule.title_css)
                     title = self.extract_clean_text(title_el)
                     if not title:
-                        fallback_title = "h3, h2, .title, a.title, .name"
+                        fallback_title = ".product-details__name, .simple-slider-list__name, h3, h2, .title, a.title, .name"
                         title_el, winner = self._try_selectors(card, fallback_title)
                         title = self.extract_clean_text(title_el)
                         if title and winner:
@@ -263,7 +273,7 @@ class ScraperService:
                     if rule.price_css:
                         price_el, winner = self._try_selectors(card, rule.price_css)
                         if not price_el:
-                            fallback_price = ".price b, .price, .product-price, .item-price, .val"
+                            fallback_price = ".price_item, .simple-slider-list__price, .price b, .price, .product-price, .item-price, .val"
                             price_el, winner = self._try_selectors(card, fallback_price)
                             if price_el and winner:
                                 logger.warning(f"🔧 Fixing price_css for {domain}: {rule.price_css} -> {winner}")
@@ -272,13 +282,15 @@ class ScraperService:
                         
                         price_text = self.extract_clean_text(price_el)
                         # SPECIAL CASE: Makeup.lv "Nav pieejams"
-                        if "pieejams" in price_text.lower() or "not available" in price_text.lower():
-                            price_val = Decimal("0.00")
+                        if any(x in price_text.lower() for x in ["pieejams", "available", "нету"]):
+                            price_val = None
                             is_available = False
                         else:
                             price_val = self.parse_price(price_text)
-                            is_available = True if price_val > 0 else False
+                            # If price is 0 after parsing, it might be out of stock
+                            is_available = True if price_val and price_val > Decimal("0") else False
                     else:
+                        price_val = None
                         is_available = False
 
                     # 4. IMAGE
@@ -338,12 +350,23 @@ class ScraperService:
             
             # --- PAGINATION ---
             next_page = None
+
+            def is_url_safe(href: str) -> bool:
+                if not href: return False
+                junk = ['/news/', '/product/', '/ads/', '/cart/']
+                return not any(j in href.lower() for j in junk)
+
             if rule.next_page_css:
                 el_p, winner = self._try_selectors(sel, rule.next_page_css)
                 if el_p:
                     el = el_p[0]
                     attr = el.attrib.get('href') or el.css('a::attr(href)').get()
-                    if attr: next_page = urljoin(current_url, attr)
+                    if attr:
+                        candidate = urljoin(current_url, attr)
+                        if is_url_safe(candidate):
+                            next_page = candidate
+                        else:
+                            logger.warning(f"🚫 Rule suggested unsafe pagination: {candidate}. Falling back to smart logic.")
             
             if not next_page:
                 next_page = self._find_next_page_fallback(sel, current_url)
@@ -488,9 +511,20 @@ class ScraperService:
                 
                 session.add(product)
             
-            product.last_price = item["price"]
+            # Ensure we don't save None to Decimal column if not allowed
+            # but usually it's better to store 0.00 and is_available=False
+            price_to_save = item["price"] if item["price"] is not None else Decimal("0.00")
+            
+            product.last_price = price_to_save
             product.is_available = item["is_available"]
             if item["image_url"]: product.image_url = item["image_url"]
+            
+            # Brand auto-discovery: if normalizer failed, but we have a title
+            if not product.brand and item.get("title"):
+                from app.services.normalizer import perfume_normalizer
+                norm = perfume_normalizer.extract_all(item["title"])
+                product.brand = norm.get("brand")
+
             session.add(product)
 
             history = PriceHistory(
