@@ -73,14 +73,22 @@ class StealthClient:
                     return None
 
                 # BAN OR TIMEOUT ERROR (Include 202 for Makeup.lv)
-                if response.status_code in [202, 403, 429, 503]:
-                    logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Refreshing session...")
+                if response.status_code in [202, 429, 503]:
+                    wait_time = random.uniform(30, 60)
+                    logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Entering cooldown for {wait_time:.0f}s...")
+                    
                     if self.current_proxy:
                         proxy_manager.ban_proxy(self.current_proxy)
                     
-                    # Close current session and create new one (with new IP and browser)
+                    # Close current session and create new one
                     await self.init_session()
-                    await asyncio.sleep(random.uniform(2, 5))
+                    await asyncio.sleep(wait_time)
+                    continue
+
+                if response.status_code == 403:
+                    logger.critical(f"🚫 Hard block 403 on {proxy_log}. Changing identity...")
+                    await self.init_session()
+                    await asyncio.sleep(random.uniform(5, 10))
                     continue
                 
                 logger.warning(f"Strange status ({response.status_code}) on {proxy_log}")

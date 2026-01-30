@@ -30,8 +30,8 @@ class MatcherService:
         clean_name = norm["clean_name"]
 
         if not brand or not clean_name:
-            # If we can't identify the brand or name, it's risky to link.
-            # Fallback to a very strict fuzzy search on title.
+            # DANGER ZONE: If we don't have a reliable brand and clean name,
+            # do NOT cluster items. Fallback to strict full-title fuzzy match.
             return await self._fuzzy_fallback(session, title)
 
         # 2. Strict Matching Phase
@@ -59,15 +59,14 @@ class MatcherService:
             if brand and group_norm["brand"] and brand.lower() != group_norm["brand"].lower():
                 continue
             
-            # Rule 2: Volume must match 100% (critical for chains!)
-            if volume and group_norm["volume"] and volume != group_norm["volume"]:
-                continue
-                
-            # Rule 3: Concentration must match 100%
-            if concentration and group_norm["concentration"] and concentration != group_norm["concentration"]:
-                continue
+            # NOTE: Volume and Concentration restrictions removed to allow 
+            # different variants (EDT/EDP, 50ml/100ml) to join the same scent Chain.
+            # Filters can be applied later in the UI.
 
             # Rule 4: Name Similarity (Fuzzy)
+            if not clean_name or not group_norm["clean_name"]:
+                continue # Don't match empty names
+                
             score = fuzz.token_sort_ratio(clean_name.lower(), group_norm["clean_name"].lower())
             
             if score >= self.FUZZY_THRESHOLD:
@@ -92,12 +91,46 @@ class MatcherService:
         """Returns a clean, standardized name for the ProductGroup."""
         norm = perfume_normalizer.extract_all(title)
         parts = []
-        if norm["brand"]: parts.append(norm["brand"])
-        if norm["clean_name"]: parts.append(norm["clean_name"])
-        if norm["concentration"]: parts.append(norm["concentration"])
-        if norm["volume"]: parts.append(norm["volume"])
+        if norm["brand"]: 
+            parts.append(norm["brand"])
         
-        if not parts: return title
-        return " ".join(parts)
+        if norm["clean_name"]: 
+            # Only add clean_name if it's not already part of the brand
+            # e.g. if brand="Dior" and clean_name="Dior Sauvage" -> name="Dior Sauvage"
+            # if brand="Sauvage" and clean_name="Dior" -> name="Sauvage Dior"
+            # We want unique parts.
+            can_add = True
+            for p in parts:
+                if norm["clean_name"].lower() in p.lower() or p.lower() in norm["clean_name"].lower():
+                    can_add = False
+                    break
+            if can_add:
+                parts.append(norm["clean_name"])
+
+        if norm["concentration"]: 
+            parts.append(norm["concentration"])
+        
+        # Final cleanup: unique words in order
+        final_parts = []
+        seen = set()
+        for p in " ".join(parts).split():
+            low = p.lower().strip("-,.")
+            if low not in seen and len(low) > 1:
+                final_parts.append(p)
+                seen.add(low)
+
+        if not final_parts or len(" ".join(final_parts)) < 3:
+            # Fallback: remove only volume and leading punctuation from title
+            clean_title = perfume_normalizer.REGEX_VOLUME.sub("", title)
+            clean_title = clean_title.strip("-,. |/")
+            
+            # Check if clean_title is just a generic word
+            generics = {"man", "men", "woman", "women", "pour", "for", "eau", "de", "set"}
+            if clean_title.lower() in generics:
+                return title # Use full title to keep it separate
+                
+            return clean_title if len(clean_title) > 2 else title
+            
+        return " ".join(final_parts)
 
 matcher_service = MatcherService()

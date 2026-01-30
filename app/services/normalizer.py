@@ -25,8 +25,27 @@ class PerfumeNormalizer:
         "Trussardi", "Salvatore Ferragamo", "Ferragamo", "Rue Broca", "Monotheme", "Kajal", "Genyum", "Acorelle",
         "Elizabeth Arden", "Estee Lauder", "Clinique", "Biotherm", "Viktor & Rolf", "V&R", "Diesel", "Cacharel",
         "Maison Alhambra", "Rasasi", "Afnan", "Al Haramain", "Swiss Arabian", "Paris Corner", "Fragrance World",
-        "Zadig & Voltaire", "Z&V", "Etro", "Missoni", "Baldessarini", "Joop!", "Nikolas de Barry"
+        "Zadig & Voltaire", "Z&V", "Etro", "Missoni", "Baldessarini", "Joop!", "Nikolas de Barry",
+        "Atelier Cologne", "Houbigant", "L'Artisan Parfumeur", "Miller Harris", "Tauer Perfumes",
+        "Amouroud", "Omanlux", "Sospiro", "Teo Cabanel", "The Organic Pharmacy", "Yuni",
+        "Aedes de Venustas", "Affinessence", "Agonist", "Altaia", "Anatole Lebreton",
+        "Angela Ciampagna", "Annick Goutal", "Goutal Paris", "Areej Le Dore",
+        "Abercrombie & Fitch", "Fitch", "& Fitch", "Maurer & Wirtz", "4711", "Alfred Dunhill", "Dunhill",
+        "Cristiano Ronaldo", "David Beckham", "Antonio Banderas", "Banderas",
+        "Salvador Dali", "Elizabeth Taylor", "Sarah Jessica Parker", "SJP",
+        "Juicy Couture", "Couture", "Britney Spears", "Spears", "Katy Perry"
     ]
+
+    BRAND_ALIASES = {
+        "& Fitch": "Abercrombie & Fitch",
+        "Fitch": "Abercrombie & Fitch",
+        "Jean Paul Gaultier": "JPG",
+        "YSL": "Yves Saint Laurent",
+        "D&G": "Dolce & Gabbana",
+        "Versace": "Versace",
+        "Maison Francis Kurkdjian": "MFK",
+        "V&R": "Viktor & Rolf"
+    }
 
     # Dynamic brands found during session
     DISCOVERED_BRANDS = set()
@@ -53,7 +72,12 @@ class PerfumeNormalizer:
     # 3. Noise to ignore
     NOISE = [
         r"\bvapo\b", r"\bvaporisateur\b", r"\bspray\b", r"\bnatural spray\b",
-        r"\bvīriešiem\b", r"\bmen\b", r"\bhomme\b", r"\bfor men\b"
+        r"\bvīriešiem\b", r"\bmen\b", r"\bhomme\b", r"\bfor men\b",
+        r"\bpour\b", r"\bfor\b", r"\bwoman\b", r"\bfemale\b", r"\bsievietēm\b",
+        r"\bprocentai\b",
+        r"\bintensive\b", r"\bintense\b", r"\bset\b", r"\bkomplekts\b",
+        r"\bafter shave\b", r"\baftershave\b", r"\btester\b", r"\btestieris\b",
+        r"\bparfums\b", r"\bman\b", r"\bwomen\b", r"\bwoman\b", r"\bmen\b"
     ]
 
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
@@ -64,6 +88,9 @@ class PerfumeNormalizer:
         Extracts all attributes from the title.
         """
         title_lower = title.lower()
+        # 0. Preparation: remove only strictly annoying leading punctuation for brand search
+        # but keep symbols that might be part of the brand (like &)
+        brand_search_title = title_lower.strip("-,. |/")
         
         # 1. Volume
         volume = PerfumeNormalizer.extract_volume(title)
@@ -75,23 +102,37 @@ class PerfumeNormalizer:
         sorted_brands = sorted(all_known_brands, key=len, reverse=True)
         
         for b in sorted_brands:
-            pattern = rf'\b{re.escape(b.lower())}\b'
-            if re.search(pattern, title_lower):
+            b_low = b.lower()
+            eb = re.escape(b_low)
+            # Smart boundary: word boundary if alphanum, else match start or space
+            start_b = r'\b' if b_low[0].isalnum() else r'(?:^|\s)'
+            end_b = r'\b' if b_low[-1].isalnum() else r'(?:\s|$)'
+            pattern = f"{start_b}{eb}{end_b}"
+            if re.search(pattern, brand_search_title):
                 brand = b
                 break
+        
+        # Apply aliases
+        if brand and brand in PerfumeNormalizer.BRAND_ALIASES:
+            brand = PerfumeNormalizer.BRAND_ALIASES[brand]
         
         if not brand:
             # If no brand found, try taking the first one/two words
             words = title.split()
             if words:
                 first_word = words[0].strip(",.- ")
+                # Prevent generic words from being detected as brands via heuristic
+                forbidden_heuristics = ["man", "men", "woman", "women", "homme", "femme", "for", "pour", "the", "with", "eau", "de", "parfum"]
                 if first_word.lower() not in PerfumeNormalizer.CONC_MAP and \
+                   first_word.lower() not in forbidden_heuristics and \
                    not any(re.search(rf'\b{re.escape(first_word.lower())}\b', n) for n in PerfumeNormalizer.NOISE):
                     
                     brand = first_word
                     # Heuristic: if first word is short and there is a second word, combine them
                     if len(first_word) <= 3 and len(words) > 1:
-                        brand = f"{first_word} {words[1].strip(',.- ')}"
+                        second_word = words[1].strip(',.- ')
+                        if second_word.lower() not in forbidden_heuristics:
+                            brand = f"{first_word} {second_word}"
         
         # 4. Concentration
         concentration = None
@@ -109,7 +150,12 @@ class PerfumeNormalizer:
             clean_name = re.sub(n, "", clean_name, flags=re.IGNORECASE)
         
         if brand: 
-            clean_name = re.sub(rf'\b{re.escape(brand)}\b', "", clean_name, flags=re.IGNORECASE)
+            # Use same smart boundary for removal
+            b_low = brand.lower()
+            eb = re.escape(b_low)
+            start_b = r'\b' if b_low[0].isalnum() else r'(?:^|\s)'
+            end_b = r'\b' if b_low[-1].isalnum() else r'(?:\s|$)'
+            clean_name = re.sub(f"{start_b}{eb}{end_b}", " ", clean_name, flags=re.IGNORECASE)
         
         if concentration:
             for key, val in PerfumeNormalizer.CONC_MAP.items():
@@ -117,7 +163,21 @@ class PerfumeNormalizer:
                     clean_name = re.sub(rf'\b{re.escape(key)}\b', "", clean_name, flags=re.IGNORECASE)
 
         clean_name = re.sub(r'\s+', ' ', clean_name).strip()
-        clean_name = re.sub(r'^[,\-\s]+|[,\-\s]+$', '', clean_name)
+        
+        # Aggressive word-by-word cleanup for orphan generic words
+        generic_words = {"eau", "parfum", "edt", "edp", "pour", "for", "the", "with", "de", "man", "men", "woman", "women", "homme", "femme", "set"}
+        words = clean_name.split()
+        filtered_words = [w for w in words if w.lower().strip("-,.") not in generic_words]
+        clean_name = " ".join(filtered_words)
+
+        # If clean_name is too short or just common words, it's garbage
+        if len(clean_name) <= 2:
+            clean_name = ""
+
+        # Remove orphan hyphens/commas/pipes
+        clean_name = re.sub(r'^[,\-\|\s]+|[,\-\|\s]+$', '', clean_name)
+        # Final cleanup for punctuation artifacts (e.g. "Name - ")
+        clean_name = clean_name.strip("-,. |/")
 
         return {
             "brand": brand,

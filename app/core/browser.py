@@ -1,4 +1,5 @@
 import asyncio
+import random
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from playwright_stealth import stealth_async  # <-- IMPORTANT: Stealth patch
 from loguru import logger
@@ -76,9 +77,11 @@ class BrowserManager:
             
             # === TIER 4: HUMAN BEHAVIOR ===
             if fast_mode:
-                # Minimal activity to stay alive
-                await Humanizer.smart_wait(1, 2)
-                await page.mouse.move(random.randint(0, 500), random.randint(0, 500))
+                # Minimal activity to stay alive but more natural
+                await Humanizer.smart_wait(2, 5)
+                await page.mouse.move(random.randint(100, 800), random.randint(100, 800))
+                # Add a tiny scroll even in fast mode
+                await page.mouse.wheel(0, random.randint(100, 300))
             else:
                 logger.info("🤖 Simulating human (Humanizing)...")
                 await Humanizer.smart_wait(1, 3)

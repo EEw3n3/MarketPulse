@@ -208,6 +208,8 @@ class ScraperService:
         rule = result.scalar_one_or_none()
         if not rule: return []
 
+        candidates = [] 
+        html = initial_html
         current_url = start_url
         page_number = 1
         processed_cards = 0
@@ -217,11 +219,7 @@ class ScraperService:
             logger.info(f"🔄 Resuming from checkpoint: {rule.last_page_url}")
             current_url = rule.last_page_url
             processed_cards = rule.items_scraped_current_run
-            # We don't know the exact page number easily, but we can estimate
-            # Or just leave it as 1 for UI simplicity.
-        
-        candidates = [] 
-        html = initial_html
+            html = None # Force fresh fetch
         
         from app.services.ui import get_dashboard
         db = get_dashboard()
@@ -413,10 +411,13 @@ class ScraperService:
                 # Update Checkpoint in DB
                 rule.last_page_url = current_url
                 rule.items_scraped_current_run = len(candidates)
+                # Save progress and sleep
                 session.add(rule)
                 await session.commit()
                 
-                await asyncio.sleep(random.uniform(1.0, 2.5))
+                delay = random.uniform(3.0, 7.0)
+                logger.info(f"⏳ Sleeping for {delay:.1f}s to avoid detection...")
+                await asyncio.sleep(delay)
             else:
                 logger.info("⏹️ Pagination finished (or limit reached).")
                 # Reset Checkpoint
