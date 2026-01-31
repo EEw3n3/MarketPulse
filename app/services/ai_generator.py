@@ -42,72 +42,94 @@ class AIGenerator:
             
         return None
 
+    def simplify_html(self, soup: BeautifulSoup) -> str:
+        """
+        Reduces token usage by removing repeated sibling elements (list items).
+        Keeps structure but removes bulk.
+        """
+        for parent in soup.find_all(True):
+            # Group children by tag name to identify lists
+            children = [child for child in parent.find_all(recursive=False) if isinstance(child.name, str)]
+            if len(children) > 10:
+                # If we have many children of same tag (e.g. many LI or DIV), assume it's a list.
+                # Keep first 5 and last 1 to show structure, remove middle.
+                first_tag = children[0].name
+                # varying classes might obscure similarity, but usually lists use same tag
+                similar_children = [c for c in children if c.name == first_tag]
+                
+                if len(similar_children) > 10:
+                    # Keep first 5 and last 1
+                    # Add a marker saying items were removed
+                    for child in similar_children[5:-1]:
+                        child.decompose()
+        
+        return str(soup)
+
     def clean_html(self, html: str) -> str:
         try:
             soup = BeautifulSoup(html, "html.parser")
-            useless_tags = ["script", "style", "svg", "path", "noscript", "meta", "link", "iframe", "header", "footer"]
-            for element in soup(useless_tags): element.decompose()
             
-            # AGGRESSIVE CLEANING: Remove only obvious non-content blocks
-            junk_markers = ["banner", "sidebar", "footer", "popup", "menu", "nav", "widget"]
-            for element in soup.find_all(True):
-                class_str = " ".join(element.get("class", [])).lower()
-                id_str = element.get("id", "").lower()
-                if any(marker in class_str or marker in id_str for marker in junk_markers):
-                    element.decompose()
+            # Remove non-visual or heavy tags
+            for element in soup(["script", "style", "svg", "noscript", "meta", "link", "iframe", "head"]):
+                element.decompose()
+            
+            # Remove comments
+            from bs4 import Comment
+            for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+                comment.extract()
 
-            # Removing empty elements to save tokens
-            for element in soup.find_all():
-                if len(element.get_text(strip=True)) == 0 and not element.find_all(): element.decompose()
-            return str(soup)[:60000]
-        except Exception: return html[:30000]
+            # Smart reduction of repeated items
+            return self.simplify_html(soup)[:50000] 
+        except Exception as e: 
+            logger.error(f"HTML Cleaning error: {e}")
+            return html[:30000]
 
     async def generate_rule(self, session, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
         logger.info(f"🤖 Requesting AI help for: {url}...")
-        if error_hint:
-             logger.warning(f"💡 Using error hint: {error_hint}")
-
+        
         clean_content = self.clean_html(html_content)
         
-        # --- COLLECTIVE INTELLIGENCE: Retrieving best patterns ---
-        stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(15)
+        # --- COLLECTIVE INTELLIGENCE ---
+        stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(10)
         db_patterns = (await session.execute(stmt)).scalars().all()
         
         knowledge_base = ""
         if db_patterns:
-            knowledge_base = "\nKNOWLEDGE BASE (Patterns that often work):\n"
+            knowledge_base = "\nSuccessful patterns from other sites (try to match similar logic):\n"
             for p in db_patterns:
-                knowledge_base += f"- {p.pattern_type}: {p.css_selector} (Success count: {p.success_count})\n"
+                knowledge_base += f"- {p.pattern_type}: {p.css_selector}\n"
         
-        hint_text = f"\nCRITICAL: Previous attempt failed with error: {error_hint}. AVOID the selectors that caused this!" if error_hint else ""
+        error_context = f"\nIMPORTANT: Your previous attempt failed: {error_hint}. Do NOT use the same selectors." if error_hint else ""
         
-        # Prompt is now absolutely universal
         prompt = f"""
-        Analyze the HTML from: {url}
-        Task: Identify CSS selectors for a product catalog.
-        {hint_text}
+        Act as a Senior Web Scraper.
+        Target URL: {url}
+        
+        Task: Analyze the simplified HTML below and reverse-engineer the CSS selectors to scrape product data.
+        
+        CRITICAL RULES:
+        1. **Stability**: Prefer `data-testid`, `id`, `itemprop` or meaningful class names (e.g. 'product-card', 'price') over random hashes (e.g. 'css-1x2y3z').
+        2. **Container**: Find the REPEATING element that wraps a single product. It must appear multiple times.
+        3. **Precision**: Title, Price, and Image selectors must be RELATIVE to the Container.
+        4. **Anti-Noise**: Ignore "Recommended", "Recently Viewed", or "Cart" sidebars. Focus on the MAIN CATALOG GRID.
+        
         {knowledge_base}
+        {error_context}
         
-        INSTRUCTION:
-        1. Look at the HTML snippet and find the container that holds the LARGEST number of products (this is the main catalog).
-        2. Note: The main catalog might contain special "sponsored" items or internal sliders - include them if they are part of the main grid.
-        3. AVOID selecting small "You might also like" or "Recently viewed" blocks usually found at the bottom or sides.
-        4. Choose the container CSS that captures all products in the main results list.
-        4. Check if any patterns from the KNOWLEDGE BASE match the actual product list structure. Use them if they fit!
-        5. If no patterns match, find NEW precise selectors.
-        
-        RETURN JSON OBJECT:
-        - "site_name": Store name.
-        - "emoji": Store icon.
-        - "container_css": CSS selector for product card (e.g. 'li.catalog-item'). MUST be the main catalog list.
-        - "title_css": CSS selector for Title, relative to container.
-        - "price_css": CSS selector for Price, relative to container.
-        - "image_css": CSS selector for Product Image (usually img tag or its container).
-        - "next_page_css": CSS selector for Next page button or link.
-        - "negative_keywords": LIST of strings (junk words).
-        
-        HTML SNIPPET:
+        HTML SNIPPET (Simplified for brevity, repreated items removed):
         {clean_content}
+        
+        RETURN JSON:
+        {{
+            "site_name": "Store Name",
+            "emoji": "🛒",
+            "container_css": "distinct selector for the product card",
+            "title_css": "selector for product name inside container",
+            "price_css": "selector for price text inside container",
+            "image_css": "selector for img tag inside container",
+            "next_page_css": "selector for 'Next' button or pagination link",
+            "negative_keywords": ["sponsored", "ad", "promo"]
+        }}
         """
 
         try:
