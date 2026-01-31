@@ -87,13 +87,13 @@ async def main():
     await init_lab_db()
     
     # --- HERE YOU CAN SET THE TARGET ---
-    target_url = "https://makeup.lv/categorys/3218/"
+    target_url = "https://www.notino.lv/viriesu-smarzas/"
     
     print("\n" + "="*50)
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
     print("="*50)
     
-    await run_lab_test(target_url, limit=7000)
+    await run_lab_test(target_url, limit=20)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
