@@ -38,6 +38,9 @@ class ScrapingRule(SQLModel, table=True):
     failure_count: int = Field(default=0)
     health_score: float = Field(default=1.0) # 0.0 - 1.0
 
+    def __repr__(self) -> str:
+        return f"<ScrapingRule domain='{self.domain}' site='{self.site_name}' health={self.health_score}>"
+
     # Resume capability (Checkpoints)
     last_page_url: Optional[str] = Field(default=None)
     items_scraped_current_run: int = Field(default=0)
@@ -71,6 +74,9 @@ class Product(SQLModel, table=True):
     
     # Price history
     history: List["PriceHistory"] = Relationship(back_populates="product")
+
+    def __repr__(self) -> str:
+        return f"<Product title='{self.title[:30]}...' price={self.last_price} €>"
 
 # --- 4. PRICE HISTORY (Timeseries) ---
 class PriceHistory(SQLModel, table=True):

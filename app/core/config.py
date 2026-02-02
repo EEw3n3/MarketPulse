@@ -5,6 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
+    PROJECT_NAME: str = "MarketPulse"
+    VERSION: str = "1.2.0"
+
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///database.db"
     

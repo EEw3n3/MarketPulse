@@ -95,10 +95,23 @@ async def process_target_worker(target: dict, intent: dict, group_id: int, enabl
             except Exception as e: logger.error(f"💥 Error {target['url']}: {e}")
 
 async def main():
-    logger.info("🚀 Launching MarketPulse: Intelligence CLI")
+    from app.core.config import settings
+    
+    BANNER = rf"""
+    ___  ___           _        _  ______      _             
+    |  \/  |          | |      | | | ___ \    | |            
+    | .  . | __ _ _ __| | _____| |_| |_/ /   _| |___  ___    
+    | |\/| |/ _` | '__| |/ / _ \ __|  __/ | | | / __|/ _ \   
+    | |  | | (_| | |  |   <  __/ |_| |  | |_| | \__ \  __/   
+    \_|  |_/\__,_|_|  |_|\_\___|\__\_|   \__,_|_|___/\___|   
+                                           v{settings.VERSION}
+    """
+    
+    print(BANNER)
+    logger.info(f"🚀 Launching {settings.PROJECT_NAME}: Intelligence CLI")
     
     print("\n" + "="*50)
-    print("🤖 WELCOME TO MARKETPULSE CLI")
+    print(f"🤖 WELCOME TO {settings.PROJECT_NAME.upper()} CLI")
     print("="*50)
     print("Choose operation mode:")
     print("1. 🎯 Smart Search (Interactive Search)")
