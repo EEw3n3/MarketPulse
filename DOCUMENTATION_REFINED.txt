@@ -1,0 +1,81 @@
+UZDEVUMA NOSTĀDNE
+Šis ir kvalifikācijas darba projekts, kura tēma ir "Inteliģentas smaržu cenu uzraudzības un analīzes sistēmas izstrāde Latvijas e-komercijas segmentā". Projekta galvenais mērķis ir izveidot augsti automatizētu sistēmu, kas spēj patstāvīgi vākt, apstrādāt un analizēt datus par vīriešu parfimērijas produktiem no vadošajiem Latvijas interneta veikaliem, piemēram, Douglas, Notino, 220.lv, Makeup.lv un 1a.lv. Sistēma ir paredzēta, lai atvieglotu lietotājiem labāko piedāvājumu atrašanu un sniegtu tirgus analītiķiem datus par konkurentu cenu politiku.
+
+PRASĪBU SPECIFIKĀCIJA
+2.1. Ievades un izvades informācija
+2.1.1. Ievades informācijas apraksts
+Sistēmas darbību nodrošina trīs galvenās datu plūsmas:
+1. Mērķa resursi (Targets): Konfigurēts interneta veikalu sadaļu saraksts, kas veltīts vīriešu parfimērijai.
+2. HTML struktūra (Raw Data): Tīmekļa lapu pirmkods, kas tiek iegūts divos līmeņos:
+   - "Vieglais" HTML: Ātra ielāde, izmantojot **curl_cffi** bibliotēku, kas ļauj emulēt pārlūkprogrammas TLS pirkstu nospiedumus un apiet vienkāršas aizsardzības.
+   - "Pilnīgais" HTML (Rendered DOM): Iegūts ar **Playwright** automatizācijas rīku, emulējot reālu lietotāju, lai apstrādātu JavaScript un apietu sarežģītas pretbūtu sistēmas.
+3. Konfigurācija un vide (.env): API atslēgas darbam ar mākslīgo intelektu (OpenAI platforma), datubāzes piekļuves parametri un sērfotāja emulācijas uzstādījumi (Stealth mode).
+
+2.1.2. Izvades informācijas apraksts
+Sistēmas darba rezultātā tiek izveidoti šādi strukturēti dati:
+1. Strukturēta datubāze (PostgreSQL):
+   - Preču grupas (Product Groups): Sasaistīti identiskie produkti no dažādiem veikaliem.
+   - Preces (Products): Detalizēta informācija par katru atrasto smaržu pudeļu vienību (nosaukums, zīmols, tilpums, koncentrācija).
+   - Cenu vēsture (PriceHistory): Laika gaitā fiksēts cenu un pieejamības saraksts, kas ļauj redzēt dinamiku.
+   - Parsēšanas noteikumi (Scraping Rules): AI ģenerēti un saglabāti CSS selektori katram veikalam.
+2. Sistēmas žurnāli (Logs): Detalizēts apraksts par sistēmas darbību, kļūdām un AI pieņemtajiem lēmumiem jaunu noteikumu izveidē.
+3. Datu eksports un vizualizācija (Future scope):
+   - Excel un CSV atskaites: Spēja ģenerēt strukturētus pārskatus (.xlsx vai .csv) manuālai datu apstrādei.
+   - Google Sheets integrācija: Automātiska datu eksportēšana uz Google tabulām caur API, nodrošinot ērtu koplietošanu.
+   - Analītiskais panelis (Web UI): Interaktīva tīmekļa saskarne ar cenu vēstures grafikiem un meklēšanas funkcijām.
+
+
+2.2. Funkcionālās prasības
+Sistēmas administrators un izstrādātājs var pilnībā pārvaldīt monitoringa procesu, izmantojot šādas integrētās iespējas:
+- **Resursu pārvaldība:** Mērķa veikalu saraksta konfigurēšana un skenēšanas intensitātes iestatīšana.
+- **Sistēmas kontrole:** Darbības uzraudzība caur Docker konteineriem un asinhrono procesu vadība.
+- **Analītiskā piekļuve:** Detalizēta žurnālu analīze, lai izvērtētu jaunu datu ieguves noteikumu izveidi un AI lēmumu pamatotību.
+
+Lietotājiem sistēma nodrošina ērtu un pārskatāmu piekļuvi informācijai, apvienojot meklēšanas rīkus ar padziļinātu analītiku:
+- **Preču meklēšana un salīdzināšana:** Iespēja atrast parfimēriju pēc zīmola vai nosaukuma un salīdzināt cenas dažādos veikalos vienotā skatā.
+- **Vizuālā analīze:** Interaktīvi cenu izmaiņu grafiki tirgus tendenču izsekošanai un reālu atlaižu identificēšanai.
+- **Personalizēti paziņojumi:** Informācijas saņemšana par "Labāko cenu" un tūlītēja paziņošana par izdevīgākajiem piedāvājumiem.
+- **Inteliģentā filtrēšana:** Piedāvājumu atlase pēc tilpuma un koncentrācijas, ko nodrošina automātiskā datu normalizācija.
+
+Sistēmai ir jānodrošina:
+1. Hibrīdā ielādes dzinis (Hybrid Engine): Spēja automātiski noteikt veikala aizsardzības līmeni un pārslēgties starp ātru **curl_cffi** klientu un pilnu **Playwright** pārlūka emulāciju.
+2. AI balstīta noteikumu ģenerēšana (AI Generator): Prasme pašai analizēt HTML kodu ar GPT modeļa palīdzību, lai atrastu preces cenu, nosaukumu un citus datus.
+3. Inteliģenta produktu sasaiste (Chaining): Spēja saprast, ka prece ar dažādiem nosaukumiem dažādos veikalos ir viens un tas pats produkts, un apvienot tos kopējā grupā pēc zīmola, tilpuma (ml) un veida (EDT/EDP).
+4. Cenu izmaiņu fiksēšana: Katrā skenēšanas reizē sistēmai jāsalīdzina jaunie dati ar iepriekšējiem un jāpiefiksē: jauni produkti, cenas izmaiņas (atlaides vai kāpums), kā arī preces pazušana no noliktavas.
+5. Pašārstēšanās (Self-Healing): Ja vietnes dizains mainās un dati vairs netiek lasīti, sistēmai automātiski jāizdzēš vecie noteikumi un jāģenerē jauni bez cilvēka iejaukšanās.
+
+2.3. Nefunkcionālās prasības
+- Veiktspēja: Asinhrona datu apstrāde, kas ļauj apstrādāt tūkstošiem preču īsā laikā. Tīmekļa saskarnes ātrdarbība, nodrošinot tūlītēju datu un grafiku ielādi.
+- Lietojamība: Intuitīvs un responsīvs UI dizains, kas ir pielāgots lietošanai gan datoros, gan mobilajās ierīcēs. Skaidra un pārskatāma datu vizualizācija (grafiki, tabulas).
+- Uzticamība: Stabila 24/7 darbība. Datu dublēšana un noturība pret kļūdām skenēšanas procesā.
+- Datu precizitāte: Augsta precizitāte cenu un tilpumu identificēšanā, izmantojot AI validācijas slāni.
+
+PROGRAMMATŪRAS PRODUKTA MODELĒŠANA UN PROJEKTĒŠANA
+3.1. ER datu modelis (Entity-Relationship)
+Datu bāzes struktūra nodrošina mērogojamību pārejai no CLI rīka uz pilnvērtīgu tīmekļa platformu, ietverot lietotāju pārvaldības un personalizācijas slāņus:
+
+Lietotāju un paziņojumu būtības:
+User (Lietotājs): Glabā informāciju par reģistrētajiem lietotājiem (e-pasts, parole, loma). Nodrošina autorizāciju un piekļuvi personalizētiem datiem.
+Watchlist (Sekošanas saraksts): Kalpo kā saite starp lietotāju un produktu grupām. Ļauj lietotājiem iestatīt cenu sliekšņus, pie kuriem saņemt paziņojumus.
+Notification (Paziņojums): Fiksē izsūtītos brīdinājumus par cenu kritumiem vai preces pieejamības izmaiņām.
+
+Produktu un analītikas būtības:
+ProductGroup (Produktu grupa): Sistēmas centrālais ieraksts, kas apvieno identiskas preces no dažādiem veikaliem. Satur normalizētu nosaukumu, zīmolu, tilpumu un koncentrāciju.
+Product (Prece): Konkrēta veikala (Douglas, Notino u.c.) piedāvājums, kas piesaistīts attiecīgajai produktu grupai.
+PriceHistory (Cenu vēsture): Laikā rindoti datu punkti katrai precei, kas ļauj veidot cenu svārstību grafikus un aprēķināt vidējo tirgus cenu.
+
+Tehniskās konfigurācijas būtības:
+ScrapingRule (Parsēšanas noteikums): Datu ieguves instrukcijas konkrētam domēnam, ietverot selektorus un veiktspējas metrikas (health_score).
+SharedPattern (Globālie paraugi): AI uzkrātā zināšanu bāze par veiksmīgākajiem selektoru paraugiem, kas paātrina jaunu veikalu pievienošanu.
+
+
+
+3.2. Darba algoritma apraksts (Process Flow)
+Sistēmas darba cikls sastāv no šādiem soļiem:
+1. Cikla sākums: Sistēma sāk apstaigāt sarakstā esošos veikalus.
+2. Datu iegūšana: Lapas ielāde un pārbaude, vai sistēma jau zina, kā šo lapu lasīt (vai ir ScrapingRule). Ja nē — AI izveido jaunu noteikumu.
+3. Parsēšana un apstrāde: Visu preču atrašana lapā, informācijas (zīmols, cena, ml) izvilkšana un attīrīšana.
+4. Sasaiste un salīdzināšana: Jauniegūto datu salīdzināšana ar "primārajiem" datiem (iepriekšējo skenēšanu). Jaunās cenas piesaiste vēsturei un produkta piesaiste esošai grupai (ķēdei).
+5. Analītika un paziņojumi: Cenu analīze un salīdzināšana ar lietotāju iestatītajiem sliekšņiem (Watchlist). Automatizēta paziņojumu izsūtīšana, ja fiksēts cenu kritums.
+6. Kvalitātes pārbaude: Ja rezultāti šķiet aizdomīgi (piemēram, nav atrasta neviena cena), tiek aktivizēts pašārstēšanās process.
+7. Cikla beigas: Atjaunota informācija par tirgu un lietotāju informēšana par izmaiņām.
