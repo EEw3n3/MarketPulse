@@ -30,13 +30,26 @@ async def inspect():
             print("No rule found for notino.lv.")
 
         # Check products
-        stmt = select(Product).options(selectinload(Product.price_history)).limit(5)
+        stmt = select(Product).options(selectinload(Product.history)).order_by(Product.id.desc()).limit(20)
         products = (await session.execute(stmt)).scalars().all()
         
-        print(f"\n--- PRODUCTS SAMPLE ({len(products)}) ---")
+        print(f"\n📊 LAB RESULTS: {len(products)} PRODUCTS FOUND")
+        print(f"{'ID':<4} | {'BRAND/SHOP':<15} | {'PRICE':<10} | {'DATE':<19} | {'TITLE'}")
+        print("-" * 110)
+        
         for p in products:
-            latest_price = p.price_history[-1].price if p.price_history else 0
-            print(f"[{p.id}] {p.title[:50]}... | Price: {latest_price} | Hash: {p.url_hash[:10]}")
+            latest_price_rec = p.history[-1] if p.history else None
+            price_display = f"{latest_price_rec.price:>8.2f} €" if latest_price_rec else "---"
+            date_display = latest_price_rec.parsed_at.strftime("%Y-%m-%d %H:%M:%S") if latest_price_rec else "---"
+            title_short = (p.title[:50] + '...') if len(p.title) > 50 else p.title
+            
+            # Using brand as 'STORE' equivalent for lab context
+            shop_display = (p.brand or "Unknown")[:15]
+            
+            print(f"{p.id:<4} | {shop_display:<15} | {price_display:<10} | {date_display:<19} | {title_short}")
+        
+        print("-" * 110)
+        print(f"✅ Lab inspection finished.")
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
