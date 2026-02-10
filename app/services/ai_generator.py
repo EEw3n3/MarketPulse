@@ -125,6 +125,7 @@ class AIGenerator:
             "emoji": "🛒",
             "container_css": "distinct selector for the product card",
             "title_css": "selector for product name inside container",
+            "brand_css": "selector for brand name inside container (often above title)",
             "price_css": "selector for price text inside container",
             "image_css": "selector for img tag inside container",
             "next_page_css": "selector for 'Next' button or pagination link",
@@ -144,19 +145,68 @@ class AIGenerator:
             
             if not data.get("container_css") or not data.get("title_css"): return None
             
+            domain = urlparse(url).netloc.replace("www.", "")
+            
             return ScrapingRule(
-                domain=urlparse(url).netloc.replace("www.", ""),
+                domain=domain,
                 site_name=data.get("site_name", "Unknown"),
                 emoji=data.get("emoji", "🛒"),
                 container_css=data.get("container_css"),
                 title_css=data.get("title_css"),
+                brand_css=data.get("brand_css"), # New field
                 price_css=data.get("price_css"),
                 image_css=data.get("image_css"),
                 next_page_css=data.get("next_page_css"),
-                negative_keywords=json.dumps(data.get("negative_keywords", []))
+                negative_keywords=json.dumps(data.get("negative_keywords", [])),
+                # Special logic for deep scraping
+                use_detail_page=(domain == "notino.lv")
             )
         except Exception as e:
             logger.error(f"AI error: {e}")
             return None
+
+    async def generate_detail_rule(self, url: str, html_content: str) -> dict:
+        """
+        Analyzes a single product page to find how variants (volumes/prices) are structured.
+        """
+        logger.info(f"🧠 AI Deep Analysis for product page: {url}...")
+        clean_content = self.clean_html(html_content)
+        
+        prompt = f"""
+        Act as a Senior Web Scraper.
+        Target Product URL: {url}
+        
+        Task: Analyze the product page HTML and find where different variants (e.g., volumes like 30ml, 50ml, 100ml) and their prices are located.
+        
+        CRITICAL RULES:
+        1. **Variant Container**: Find the CSS selector for the element that wraps EACH variant option (e.g. a list item or a div in a grid).
+        2. **Variant Name**: Selector (relative to container) for the text describing the variant (e.g. "50 ml").
+        3. **Variant Price**: Selector (relative to container) for the price of this specific variant.
+        4. **Stability**: Prefer `data-testid` or semantic classes.
+        
+        HTML SNIPPET:
+        {clean_content}
+        
+        RETURN JSON ONLY:
+        {{
+            "variant_container_css": "selector for the repeated variant element",
+            "variant_name_css": "selector for volume/name relative to container",
+            "variant_price_css": "selector for price relative to container"
+        }}
+        """
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[{"role": "system", "content": "You are a professional web scraping expert."}, 
+                          {"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            data = json.loads(response.choices[0].message.content)
+            logger.success(f"📌 AI Detail Rule generated: {data}")
+            return data
+        except Exception as e:
+            logger.error(f"AI Detail Analysis error: {e}")
+            return {}
 
 ai_generator = AIGenerator()

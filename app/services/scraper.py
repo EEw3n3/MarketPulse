@@ -199,6 +199,77 @@ class ScraperService:
                 logger.debug(f"JSON Variant parse error: {e}")
         
         return []
+    
+    async def scrape_product_details(self, url: str, rule: ScrapingRule, session=None) -> list[dict]:
+        """
+        Fetches the product page and extracts all available variants (volumes/prices).
+        Uses AI to learn the structure if not already known.
+        """
+        logger.info(f"🔍 Deep dive: {url}")
+        
+        # Sites like Notino block StealthClient on detail pages, use Browser directly
+        html = None
+        if "notino.lv" in url:
+            from app.core.browser import browser_manager
+            html = await browser_manager.get_page_content(url, fast_mode=True)
+        else:
+            html = await stealth_client.get_page(url)
+            if not html or "captcha" in html.lower() or "403" in str(html):
+                 from app.core.browser import browser_manager
+                 html = await browser_manager.get_page_content(url, fast_mode=True)
+             
+        if not html: return []
+        
+        # --- SELF-LEARNING PHASE: If we don't have detail selectors, ask AI ---
+        if not rule.detail_variant_selector and session:
+            logger.warning(f"🧠 [Autonomous] Learning detail structure for {rule.domain}...")
+            from app.services.ai_generator import ai_generator
+            detail_data = await ai_generator.generate_detail_rule(url, html)
+            
+            if detail_data.get("variant_container_css"):
+                rule.detail_variant_selector = detail_data.get("variant_container_css")
+                rule.detail_variant_name_css = detail_data.get("variant_name_css")
+                rule.detail_variant_price_css = detail_data.get("variant_price_css")
+                session.add(rule)
+                await session.commit()
+                logger.success(f"🧠 [Autonomous] Saved detail rules for {rule.domain}")
+
+        sel = Selector(text=html)
+        variants = []
+        
+        # 1. Use AI-generated or manual selectors
+        v_selector = rule.detail_variant_selector
+        if v_selector:
+            nodes = sel.css(v_selector)
+            for node in nodes:
+                # Use learned selectors or fallbacks
+                name_css = rule.detail_variant_name_css or ".volume, .name, [data-testid*='name']"
+                price_css = rule.detail_variant_price_css or ".price, [data-testid*='price']"
+                
+                v_title = self.extract_clean_text(node.css(name_css))
+                v_price_text = self.extract_clean_text(node.css(price_css))
+                v_price = self.parse_price(v_price_text)
+                
+                if v_title and v_price > 0:
+                    variants.append({
+                        "title_suffix": v_title,
+                        "price": v_price,
+                        "is_available": True
+                    })
+        
+        # 2. Universal Fallback: If no variants, try single main price
+        if not variants:
+            price_sel = rule.detail_variant_price_css or rule.price_css or "[data-testid*='price'], .price"
+            main_price_text = self.extract_clean_text(sel.css(price_sel))
+            main_price = self.parse_price(main_price_text)
+            if main_price > 0:
+                variants.append({
+                    "title_suffix": "",
+                    "price": main_price,
+                    "is_available": True
+                })
+                
+        return variants
 
     async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True, site_name_ui: str = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
@@ -288,6 +359,12 @@ class ScraperService:
                             rule_updated = True
                     
                     if not title: continue
+                    
+                    # 2.5 BRAND (Added for accuracy)
+                    brand = None
+                    if rule.brand_css:
+                        brand_el, _ = self._try_selectors(card, rule.brand_css)
+                        brand = self.extract_clean_text(brand_el)
 
                     # 3. PRICE
                     price_val = Decimal("0.00")
@@ -328,39 +405,58 @@ class ScraperService:
                     if not link_node: link_node = card.css("*::attr(href)").get()
                     if link_node: product_url = urljoin(current_url, link_node)
                     
-                    # Store as primitive dict first for analysis
-                    from app.services.normalizer import perfume_normalizer
-                    norm = perfume_normalizer.extract_all(title)
+                    # --- VARIANT EXTRACTION (LISTING OR DETAIL PAGE) ---
+                    final_variants = []
                     
-                    # --- VARIANT EXTRACTION (KILLER FEATURE) ---
-                    found_variants = self._extract_variants(card, norm["clean_name"])
-                    
-                    base_payload = {
-                        "url": product_url,
-                        "image_url": image_url,
-                        "brand": norm["brand"],
-                        "volume": norm["volume"],
-                        "concentration": norm["concentration"]
-                    }
-
-                    if found_variants:
-                        for v in found_variants:
-                            # Re-normalize variant title if needed or use base
-                            v_norm = perfume_normalizer.extract_all(v["title"])
-                            candidates.append({
-                                **base_payload,
-                                "title": v["title"],
-                                "price": v["price"],
-                                "url": f"{product_url}?variant={v['variant_id']}" if v.get("variant_id") else product_url,
-                                "volume": v_norm["volume"] or norm["volume"],
-                                "is_available": v["price"] > 0
+                    if rule.use_detail_page:
+                        # Deep scraping: fetch the actual product page
+                        # To avoid being too fast, we add a small delay
+                        await asyncio.sleep(random.uniform(1.5, 3.0))
+                        details = await self.scrape_product_details(product_url, rule, session=session)
+                        logger.debug(f"📊 Variants found for {title}: {len(details)}")
+                        for d in details:
+                            full_title = f"{title} {d['title_suffix']}".strip()
+                            final_variants.append({
+                                "title": full_title,
+                                "price": d["price"],
+                                "is_available": d["is_available"],
+                                "url": product_url
                             })
                     else:
-                         candidates.append({
-                            **base_payload,
-                            "title": title,
-                            "price": price_val,
-                            "is_available": is_available
+                        # Standard extraction (listing JSON or just the card)
+                        listing_variants = self._extract_variants(card, norm["clean_name"])
+                        if listing_variants:
+                            for v in listing_variants:
+                                final_variants.append({
+                                    "title": v["title"],
+                                    "price": v["price"],
+                                    "is_available": v["price"] > 0,
+                                    "url": f"{product_url}?variant={v['variant_id']}" if v.get("variant_id") else product_url
+                                })
+                        else:
+                             final_variants.append({
+                                "title": title,
+                                "price": price_val,
+                                "is_available": is_available,
+                                "url": product_url
+                            })
+
+                    # --- ADD TO CANDIDATES ---
+                    from app.services.normalizer import perfume_normalizer
+                    for fv in final_variants:
+                        v_norm = perfume_normalizer.extract_all(fv["title"])
+                        # Get better norm for base title if we don't have it
+                        base_norm = perfume_normalizer.extract_all(title)
+                        
+                        candidates.append({
+                            "url": fv["url"],
+                            "image_url": image_url,
+                            "brand": brand or v_norm["brand"] or base_norm["brand"],
+                            "volume": v_norm["volume"] or base_norm["volume"],
+                            "concentration": v_norm["concentration"] or base_norm["concentration"],
+                            "title": fv["title"],
+                            "price": fv["price"],
+                            "is_available": fv["is_available"]
                         })
                     
                     processed_cards += 1
@@ -470,8 +566,11 @@ class ScraperService:
         from app.domain.models import ProductGroup
 
         for item in valid_items:
-            # 1. Check if product exists by URL
-            stmt = select(Product).where(Product.url == item["url"])
+            # 1. Check if product exists by URL + Volume (to support variants)
+            stmt = select(Product).where(
+                Product.url == item["url"],
+                Product.volume == item["volume"]
+            )
             product = (await session.execute(stmt)).scalar_one_or_none()
             
             # 2. Determine Group ID

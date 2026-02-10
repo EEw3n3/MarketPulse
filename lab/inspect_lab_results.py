@@ -30,7 +30,7 @@ async def inspect():
             print("No rule found for notino.lv.")
 
         # Check products
-        stmt = select(Product).options(selectinload(Product.history)).order_by(Product.id.desc()).limit(20)
+        stmt = select(Product).options(selectinload(Product.history)).order_by(Product.id.desc()).limit(50)
         products = (await session.execute(stmt)).scalars().all()
         
         print(f"\n📊 LAB RESULTS: {len(products)} PRODUCTS FOUND")

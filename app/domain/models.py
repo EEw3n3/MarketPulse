@@ -24,9 +24,16 @@ class ScrapingRule(SQLModel, table=True):
     container_css: str
     title_css: str
     price_css: Optional[str] = Field(default=None)
-    image_css: Optional[str] = Field(default=None) # NEW: For images
+    image_css: Optional[str] = Field(default=None)
+    brand_css: Optional[str] = Field(default=None) # Added for better brand accuracy
     stock_css: Optional[str] = Field(default=None)
     next_page_css: Optional[str] = Field(default=None)
+    
+    # Detail Page Scraping (Deep Dive)
+    use_detail_page: bool = Field(default=False)
+    detail_variant_selector: Optional[str] = Field(default=None) # CSS for the container of each variant
+    detail_variant_name_css: Optional[str] = Field(default=None) # CSS for the name of the variant (e.g. 50ml)
+    detail_variant_price_css: Optional[str] = Field(default=None) # CSS for the price of the specific variant
 
     # Contextual filter
     negative_keywords: Optional[str] = Field(default="[]") # JSON list of strings
@@ -49,7 +56,7 @@ class ScrapingRule(SQLModel, table=True):
 # --- 3. PRODUCT (Specific offer in store) ---
 class Product(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    url: str = Field(unique=True, index=True)
+    url: str = Field(index=True)
     title: str
     image_url: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
