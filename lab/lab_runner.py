@@ -93,7 +93,7 @@ async def main():
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
     print("="*50)
     
-    await run_lab_test(target_url, limit=20)
+    await run_lab_test(target_url, limit=40)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
