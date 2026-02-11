@@ -1,6 +1,8 @@
 import json
 from urllib.parse import urlparse
-from openai import AsyncOpenAI
+# from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 from bs4 import BeautifulSoup
 from loguru import logger
 from sqlmodel import select, desc
@@ -9,7 +11,8 @@ from app.domain.models import ScrapingRule, SharedPattern
 
 class AIGenerator:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        # self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
     async def get_or_create_rule(self, session, url: str, html_content: str, force_refresh: bool = False, error_hint: str = None) -> ScrapingRule:
 
@@ -65,7 +68,7 @@ class AIGenerator:
         
         return str(soup)
 
-    def clean_html(self, html: str) -> str:
+    def clean_html(self, html: str, limit: int = 0) -> str:
         try:
             soup = BeautifulSoup(html, "html.parser")
             
@@ -78,8 +81,17 @@ class AIGenerator:
             for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
                 comment.extract()
 
-            # Smart reduction of repeated items
-            return self.simplify_html(soup)[:50000] 
+            cleaned = self.simplify_html(soup)
+            
+            # If explicit limit is set (e.g. for Detail Page), use it
+            if limit > 0:
+                if len(cleaned) > limit:
+                    logger.warning(f"⚠️ Truncating HTML from {len(cleaned)} to {limit} chars for AI safety.")
+                    return cleaned[:limit]
+            
+            # Default soft limit for everything else (Catalog)
+            return cleaned[:150000]
+            
         except Exception as e: 
             logger.error(f"HTML Cleaning error: {e}")
             return html[:30000]
@@ -87,7 +99,8 @@ class AIGenerator:
     async def generate_rule(self, session, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
         logger.info(f"🤖 Requesting AI help for: {url}...")
         
-        clean_content = self.clean_html(html_content)
+        # Use strict limit for Detail Page to avoid 429 and timeouts
+        clean_content = self.clean_html(html_content) # Default soft limit (150k)
         
         # --- COLLECTIVE INTELLIGENCE ---
         stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(10)
@@ -112,6 +125,7 @@ class AIGenerator:
         2. **Container**: Find the REPEATING element that wraps a single product. It must appear multiple times.
         3. **Precision**: Title, Price, and Image selectors must be RELATIVE to the Container.
         4. **Anti-Noise**: Ignore "Recommended", "Recently Viewed", or "Cart" sidebars. Focus on the MAIN CATALOG GRID.
+        5. **Variants**: Check if price has a prefix like "sākot no", "from", "ab". This indicates multiple options. Return this keyword.
         
         {knowledge_base}
         {error_context}
@@ -129,18 +143,29 @@ class AIGenerator:
             "price_css": "selector for price text inside container",
             "image_css": "selector for img tag inside container",
             "next_page_css": "selector for 'Next' button or pagination link",
+            "detail_trigger_text": "text pattern that indicates multiple variants (e.g. 'sākot', 'from', 'ab'). If none, null.",
             "negative_keywords": ["sponsored", "ad", "promo"]
         }}
         """
 
         try:
-            response = await self.client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=[{"role": "system", "content": "You are a professional web scraping expert."}, 
-                          {"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+            # response = await self.client.chat.completions.create(
+            #     model=settings.OPENAI_MODEL,
+            #     messages=[{"role": "system", "content": "You are a professional web scraping expert."}, 
+            #               {"role": "user", "content": prompt}],
+            #     response_format={"type": "json_object"}
+            # )
+            # data = json.loads(response.choices[0].message.content)
+
+            response = await self.client.aio.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
             )
-            data = json.loads(response.choices[0].message.content)
+            cleaned_text = response.text.replace('```json', '').replace('```', '').strip()
+            data = json.loads(cleaned_text)
             logger.success(f"🤖 AI generated: {data}")
             
             if not data.get("container_css") or not data.get("title_css"): return None
@@ -159,7 +184,8 @@ class AIGenerator:
                 next_page_css=data.get("next_page_css"),
                 negative_keywords=json.dumps(data.get("negative_keywords", [])),
                 # Special logic for deep scraping
-                use_detail_page=(domain == "notino.lv")
+                use_detail_page=(domain == "notino.lv"),
+                detail_trigger_text=data.get("detail_trigger_text")
             )
         except Exception as e:
             logger.error(f"AI error: {e}")
@@ -170,7 +196,8 @@ class AIGenerator:
         Analyzes a single product page to find how variants (volumes/prices) are structured.
         """
         logger.info(f"🧠 AI Deep Analysis for product page: {url}...")
-        clean_content = self.clean_html(html_content)
+        # Use strict limit for Detail Page to avoid 429 and timeouts
+        clean_content = self.clean_html(html_content, limit=50000)
         
         prompt = f"""
         Act as a Senior Web Scraper.
@@ -196,13 +223,23 @@ class AIGenerator:
         """
 
         try:
-            response = await self.client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=[{"role": "system", "content": "You are a professional web scraping expert."}, 
-                          {"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+            # response = await self.client.chat.completions.create(
+            #     model=settings.OPENAI_MODEL,
+            #     messages=[{"role": "system", "content": "You are a professional web scraping expert."}, 
+            #               {"role": "user", "content": prompt}],
+            #     response_format={"type": "json_object"}
+            # )
+            # data = json.loads(response.choices[0].message.content)
+
+            response = await self.client.aio.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
             )
-            data = json.loads(response.choices[0].message.content)
+            cleaned_text = response.text.replace('```json', '').replace('```', '').strip()
+            data = json.loads(cleaned_text)
             logger.success(f"📌 AI Detail Rule generated: {data}")
             return data
         except Exception as e:

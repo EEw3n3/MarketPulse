@@ -1,4 +1,5 @@
-openai
+# openai
+google-genai
 curl_cffi==0.7.0b4
 parsel
 pydantic

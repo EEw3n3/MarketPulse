@@ -82,15 +82,20 @@ class BrowserManager:
             await self.start()
 
         # 2. Use existing or create new context
-        local_context = context if context else await self.get_context()
+        # If context is passed, we use it (and don't close it later).
+        # If not, we create a local one (and close it later).
+        local_context = context
+        if not local_context:
+            local_context = await self.get_context()
         
-        page = await local_context.new_page()
-
-        # === OPTIMIZATION: BLOATING KILLER ===
-        if disable_images:
-            await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-
+        page = None  # To ensure we can safely close it in finally block
         try:
+            page = await local_context.new_page()
+
+            # === OPTIMIZATION: BLOATING KILLER ===
+            if disable_images:
+                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+
             # === TIER 4: STEALTH INJECTION ===
             await stealth_async(page)
             
@@ -128,10 +133,18 @@ class BrowserManager:
             logger.error(f"❌ Browser error: {e}")
             return None
         finally:
-            await page.close()
-            # If we didn't provide a context, we should close the one we created locally
-            if not context:
-                await local_context.close()
+            if page:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+            
+            # If we didn't provide a context (so we created a local one), we must close it.
+            if not context and local_context:
+                try:
+                    await local_context.close()
+                except Exception:
+                    pass
 
     async def stop(self):
         if self.browser:

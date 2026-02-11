@@ -31,6 +31,7 @@ class ScrapingRule(SQLModel, table=True):
     
     # Detail Page Scraping (Deep Dive)
     use_detail_page: bool = Field(default=False)
+    detail_trigger_text: Optional[str] = Field(default=None) # Keywords (comma-sep) that trigger deep dive (e.g. "sākot,from")
     detail_variant_selector: Optional[str] = Field(default=None) # CSS for the container of each variant
     detail_variant_name_css: Optional[str] = Field(default=None) # CSS for the name of the variant (e.g. 50ml)
     detail_variant_price_css: Optional[str] = Field(default=None) # CSS for the price of the specific variant

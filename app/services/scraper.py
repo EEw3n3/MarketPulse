@@ -421,7 +421,16 @@ class ScraperService:
                         if not link_node: link_node = card.css("*::attr(href)").get()
                         if link_node: product_url = urljoin(current_url, link_node)
 
-                        if rule.use_detail_page:
+                        perform_deep_dive = rule.use_detail_page
+                        if perform_deep_dive and rule.detail_trigger_text:
+                            card_text = card.xpath('string(.)').get().lower()
+                            keywords = [k.strip().lower() for k in rule.detail_trigger_text.split(',')]
+                            # If NONE of the keywords are found, skip deep dive
+                            if not any(k in card_text for k in keywords):
+                                perform_deep_dive = False
+                                logger.info(f"⚡ Fast-track: No trigger '{rule.detail_trigger_text}' found. Skipping deep dive.")
+
+                        if perform_deep_dive:
                             # --- SEQUENTIAL DEEP SCRAPING ---
                             # Fresh context for EVERY product to bypass session tracking
                             # Human delay between individual products
