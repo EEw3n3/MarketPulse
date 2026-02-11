@@ -51,7 +51,7 @@ async def run_lab_test(site_url: str, limit: int = 50):
             f.write(html)
         logger.info("📄 Lab debug HTML saved to lab_debug.html")
 
-        rule = await ai_generator.get_or_create_rule(session, site_url, html, force_refresh=True)
+        rule = await ai_generator.get_or_create_rule(session, site_url, html)
         if not rule:
             logger.error("❌ AI failed to create a rule for this site.")
             return

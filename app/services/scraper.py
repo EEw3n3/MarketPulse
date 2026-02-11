@@ -428,7 +428,7 @@ class ScraperService:
                             # If NONE of the keywords are found, skip deep dive
                             if not any(k in card_text for k in keywords):
                                 perform_deep_dive = False
-                                logger.info(f"⚡ Fast-track: No trigger '{rule.detail_trigger_text}' found. Skipping deep dive.")
+                                logger.debug(f"⚡ Fast-track: No trigger '{rule.detail_trigger_text}' found. Skipping deep dive.")
 
                         if perform_deep_dive:
                             # --- SEQUENTIAL DEEP SCRAPING ---
