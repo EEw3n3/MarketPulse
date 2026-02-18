@@ -64,7 +64,7 @@ async def run_lab_test(site_url: str, limit: int = 50):
             start_url=site_url,
             initial_html=html,
             max_items=limit,
-            enable_price_filter=False # In lab, we want to see everything
+            enable_price_filter=False # In lab, we want to see everything (yes)
         )
         
         # 4. Result Analysis
