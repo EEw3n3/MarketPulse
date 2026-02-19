@@ -211,12 +211,14 @@ class ScraperService:
         html = None
         if "notino.lv" in url:
             from app.core.browser import browser_manager
-            html = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context)
+            resp = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context)
+            html = resp["html"] if resp else None
         else:
             html = await stealth_client.get_page(url)
-            if not html or "captcha" in html.lower() or "403" in str(html):
+            if not html or "captcha" in html.lower() or "403" in str(html) or "202 Accepted" in str(html):
                  from app.core.browser import browser_manager
-                 html = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context)
+                 resp = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context)
+                 html = resp["html"] if resp else None
              
         if not html: return []
         
@@ -316,6 +318,7 @@ class ScraperService:
         current_url = start_url
         page_number = 1
         processed_cards = 0
+        next_click_selector = None # For JS Pagination
 
         # --- RESUME LOGIC (Checkpoint) ---
         if rule.last_page_url and rule.last_page_url.startswith(start_url.split('?')[0]):
@@ -327,32 +330,35 @@ class ScraperService:
         from app.services.ui import get_dashboard
         db = get_dashboard()
 
-        while processed_cards < max_items and current_url:
-            if not html:
-                if db and site_name_ui:
-                    db.update_status(site_name_ui, f"Loading Page {page_number}")
-                
-                # Use Fast Mode for pagination (after page 1)
-                is_fast = page_number > 1
-                
-                # 1. Try Stealth Client (Fastest)
-                html = await stealth_client.get_page(current_url)
-                
-                # 2. Try Browser Fallback (Most Reliable)
-                if not html or "202 Accepted" in html or "captcha" in html.lower():
-                    try:
-                        from app.core.browser import browser_manager
-                        html = await browser_manager.get_page_content(
-                            current_url, 
-                            fast_mode=is_fast, 
-                            disable_images=True
-                        )
-                    except Exception as e:
-                        logger.error(f"Browser fallback failed: {e}")
+        while processed_cards < max_items:
+            # Check if we have a valid URL or a pending click
+            if not current_url and not next_click_selector:
+                break
 
-            if not html or "202 Accepted" in html:
-                logger.warning(f"⚠️ Page {page_number} blocked or empty. Stopping.")
+            if db and site_name_ui:
+                db.update_status(site_name_ui, f"Loading Page {page_number}")
+            
+            # --- FETCH PAGE ---
+            # Now we delegate everything to scrape_page which handles clicks/browser internally
+            page_response = await self.scrape_page(
+                current_url, 
+                rule=rule, 
+                # passing None context for now to keep sessions isolated per page load if needed, 
+                # or pass 'browser_context' if we want persistent session (better for pagination)
+                click_selector=next_click_selector
+            )
+            
+            if not page_response or not page_response.get("html"):
+                logger.warning(f"⚠️ Page {page_number} failed to load.")
                 break 
+
+            html = page_response["html"]
+            # Important: Update URL because a click might have changed it!
+            if page_response.get("url"):
+                current_url = page_response["url"]
+            
+            # Reset click selector for next iteration
+            next_click_selector = None 
 
             sel = Selector(text=html)
             rule_updated = False
@@ -477,27 +483,72 @@ class ScraperService:
                 logger.debug("🚜 Finished processing catalog page.")
             
             # --- PAGINATION ---
-            next_page = None
-
-            def is_url_safe(href: str) -> bool:
-                if not href: return False
-                junk = ['/news/', '/product/', '/ads/', '/cart/']
-                return not any(j in href.lower() for j in junk)
-
-            if rule.next_page_css:
-                el_p, winner = self._try_selectors(sel, rule.next_page_css)
-                if el_p:
-                    el = el_p[0]
-                    attr = el.attrib.get('href') or el.css('a::attr(href)').get()
-                    if attr:
-                        candidate = urljoin(current_url, attr)
-                        if is_url_safe(candidate):
-                            next_page = candidate
-                        else:
-                            logger.warning(f"🚫 Rule suggested unsafe pagination: {candidate}. Falling back to smart logic.")
+            # --- PAGINATION (Hybrid: Link vs Click) ---
+            next_page_link = None
             
-            if not next_page:
-                next_page = self._find_next_page_fallback(sel, current_url)
+            # 1. Try Rule-based selector
+            if rule.next_page_css:
+                # Try finding HREF first (Standard link)
+                try: 
+                    el_list = sel.css(rule.next_page_css)
+                    if el_list:
+                        el = el_list[0]
+                        href = el.attrib.get('href') or el.css('a::attr(href)').get()
+                        
+                        if href and not href.startswith('#') and not href.startswith('javascript'):
+                             next_page_link = urljoin(current_url, href)
+                        else:
+                             # JS BUTTON DETECTED!
+                             # If we found the element but no valid href, assume it needs a CLICK.
+                             logger.info(f"⏭️ JS Pagination detected (No href). Will click {rule.next_page_css}...")
+                             next_click_selector = rule.next_page_css
+                             # We don't change 'current_url' variable, but next scrape_page call will use 'click_selector'
+                             # Increment page count logic handled below
+                except Exception as e:
+                    logger.debug(f"Pagination check failed: {e}")
+
+            # 2. Fallback logic (only if no click selector found)
+            if not next_page_link and not next_click_selector:
+                 # Check for fallback links
+                 fallback = self._find_next_page_fallback(sel, current_url)
+                 if fallback: next_page_link = fallback
+
+            # --- DECISION ---
+            if next_page_link and next_page_link != current_url:
+                # Case A: Standard URL Navigation
+                current_url = next_page_link
+                page_number += 1
+                html = None # Reset HTML for next loop
+                
+                # Checkpoint
+                rule.last_page_url = current_url
+                rule.items_scraped_current_run = processed_cards
+                session.add(rule)
+                await session.commit()
+                
+                logger.info(f"➡️ Navigating to Page {page_number}: {current_url}")
+                await asyncio.sleep(random.uniform(2.0, 5.0))
+
+            elif next_click_selector:
+                # Case B: JS Click Navigation
+                # current_url remains same (base), but action changes
+                page_number += 1
+                html = None
+                
+                logger.info(f"👆 Clicking to Page {page_number}...")
+                await asyncio.sleep(random.uniform(2.0, 5.0))
+                
+            else:
+                # Case C: End of Road
+                logger.info("⏹️ Pagination finished (or limit reached).")
+                # Reset Checkpoint
+                rule.last_page_url = None
+                rule.items_scraped_current_run = 0
+                session.add(rule)
+                await session.commit()
+                if db and site_name_ui:
+                    db.update_status(site_name_ui, "Finishing...", 100)
+                break
 
             if rule_updated:
                 session.add(rule)
@@ -509,33 +560,6 @@ class ScraperService:
                 progress = min(100, int((len(candidates) / max_items) * 100))
                 db.update_status(site_name_ui, f"Scanning (Found {len(candidates)} items)", progress)
                 db.update_log(site_name_ui, f"Page {page_number}: Found {len(cards)} cards")
-
-            if next_page and next_page != current_url and len(candidates) < max_items:
-                current_url = next_page
-                page_number += 1
-                html = None 
-                
-                # Update Checkpoint in DB
-                rule.last_page_url = current_url
-                rule.items_scraped_current_run = len(candidates)
-                # Save progress and sleep
-                session.add(rule)
-                await session.commit()
-                
-                delay = random.uniform(3.0, 7.0)
-                logger.info(f"⏳ Sleeping for {delay:.1f}s to avoid detection...")
-                await asyncio.sleep(delay)
-            else:
-                logger.info("⏹️ Pagination finished (or limit reached).")
-                # Reset Checkpoint
-                rule.last_page_url = None
-                rule.items_scraped_current_run = 0
-                session.add(rule)
-                await session.commit()
-                
-                if db and site_name_ui:
-                    db.update_status(site_name_ui, "Finishing...", 100)
-                break
         
         # --- PHASE 2: FILTERING AND ANALYSIS (Methods 1, 2, 3) ---
         valid_items = []
@@ -722,9 +746,39 @@ class ScraperService:
             "is_available": is_available
         })
 
-    async def scrape_page(self, url: str):
+    async def scrape_page(self, url: str, rule: ScrapingRule = None, browser_context=None, click_selector: str = None):
+        """
+        Fetches HTML content using Stealth Browser.
+        Supports click_selector for JS pagination.
+        """
+        fast_mode = True 
+        try:
+             # Logic to adjust speed based on rule can go here
+             pass
+        except: pass
+        
+        # If click_selector is present, we MUST use browser_manager
+        if click_selector:
+             from app.core.browser import browser_manager
+             return await browser_manager.get_page_content(
+                url, 
+                fast_mode=fast_mode, 
+                context=browser_context, 
+                click_selector=click_selector
+             )
+
+        # Otherwise try stealth client (fast) first, but return dict format
         html = await stealth_client.get_page(url)
-        return {"html": html} if html else None
+        if html and "202 Accepted" not in html:
+            return {"html": html, "url": url}
+            
+        # Fallback to browser
+        from app.core.browser import browser_manager
+        return await browser_manager.get_page_content(
+            url, 
+            fast_mode=fast_mode, 
+            context=browser_context
+        )
 
     async def close(self):
         if 'app.core.browser' in sys.modules:

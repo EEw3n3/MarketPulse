@@ -42,10 +42,13 @@ async def run_lab_test(site_url: str, limit: int = 50):
         from app.services.ai_generator import ai_generator
         # Fetch HTML using Tier 3 for complex sites
         from app.core.browser import browser_manager
-        html = await browser_manager.get_page_content(site_url)
-        if not html:
+        response = await browser_manager.get_page_content(site_url)
+        
+        if not response or not response.get("html"):
             logger.error("❌ Failed to fetch HTML in Lab mode.")
             return
+            
+        html = response["html"]
 
         with open("lab_debug.html", "w", encoding="utf-8") as f:
             f.write(html)
@@ -93,7 +96,7 @@ async def main():
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
     print("="*50)
     
-    await run_lab_test(target_url, limit=40)
+    await run_lab_test(target_url, limit=120)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':

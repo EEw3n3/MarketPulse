@@ -71,41 +71,48 @@ class BrowserManager:
         )
         return context
 
-    async def get_page_content(self, url: str, fast_mode: bool = False, disable_images: bool = True, context: BrowserContext = None) -> str | None:
+    async def get_page_content(self, url: str, fast_mode: bool = False, disable_images: bool = True, context: BrowserContext = None, click_selector: str = None) -> dict | None:
         """
-        Opens the page, pretends to be human, scrolls, and returns HTML.
-        - fast_mode: Reduces pauses for pagination
-        - disable_images: Blocks image loading to save time/bandwidth
-        - context: Optional existing context to reuse browser session
+        Opens the page, potentially clicks a selector, and returns HTML + Final URL.
+        - click_selector: CSS selector to click after loading (e.g. "next page" button)
         """
         if not self.browser:
             await self.start()
 
-        # 2. Use existing or create new context
-        # If context is passed, we use it (and don't close it later).
-        # If not, we create a local one (and close it later).
+        # ... (context creation logic remains same) ...
         local_context = context
         if not local_context:
             local_context = await self.get_context()
         
-        page = None  # To ensure we can safely close it in finally block
+        page = None 
         try:
             page = await local_context.new_page()
 
-            # === OPTIMIZATION: BLOATING KILLER ===
             if disable_images:
                 await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
 
-            # === TIER 4: STEALTH INJECTION ===
             await stealth_async(page)
             
-            # Staggered start to avoid hitting the server at the exact same ms in parallel batches
             if fast_mode: 
                 await asyncio.sleep(random.uniform(0.5, 2.0))
 
             logger.info(f"🚜 Loading page ({'Turbo' if fast_mode else 'Stealth'}): {url}")
             response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
+            # === CLICK LOGIC ===
+            if click_selector:
+                logger.info(f"👆 Clicking element: {click_selector}")
+                try:
+                    await page.wait_for_selector(click_selector, timeout=5000)
+                    await page.click(click_selector)
+                    # Wait for navigation or AJAX
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=8000)
+                    except: 
+                        await asyncio.sleep(3.0) # Fallback wait
+                except Exception as e:
+                    logger.warning(f"⚠️ Click failed for {click_selector}: {e}")
+
             status = response.status if response else "Unknown"
             logger.debug(f"🌐 Response status: {status} for {url}")
 
@@ -122,12 +129,29 @@ class BrowserManager:
                 await Humanizer.human_scroll(page)
                 await Humanizer.smart_wait(2, 4)
 
+            # === INTERACTIVE ACTIONS (e.g. Pagination Click) ===
+            # If we need to perform actions before capturing content
+            # Accepts a dict: {"action": "click", "selector": ".btn"}
+            
+            # Since we can't easily pass complex objects, we'll rely on the caller to handle complex flows
+            # But for simple pagination clicks, we can add a helper arg in future.
+            
+            # Wait for any dynamic content
+            try:
+                if fast_mode:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                else:
+                    await page.wait_for_load_state("domcontentloaded")
+            except: pass
+
+            final_url = page.url
             content = await page.content()
             
             if len(content) < 30000:
                 logger.warning(f"⚠️ Unusual HTML length: {len(content)} bytes. Head: {content[:200].replace('\n', ' ')}")
             
-            return content
+            # Return both content and the final URL (in case redirects or clicks happened)
+            return {"html": content, "url": final_url}
 
         except Exception as e:
             logger.error(f"❌ Browser error: {e}")

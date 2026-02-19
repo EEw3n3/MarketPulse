@@ -83,14 +83,24 @@ class AIGenerator:
 
             cleaned = self.simplify_html(soup)
             
-            # If explicit limit is set (e.g. for Detail Page), use it
+            # If explicit limit is set (e.g. for Detail Page), use straightforward truncation
             if limit > 0:
                 if len(cleaned) > limit:
-                    logger.warning(f"⚠️ Truncating HTML from {len(cleaned)} to {limit} chars for AI safety.")
+                    logger.warning(f"⚠️ Truncating Detail HTML from {len(cleaned)} to {limit}")
                     return cleaned[:limit]
             
-            # Default soft limit for everything else (Catalog)
-            return cleaned[:150000]
+            # SMART TRUNCATION FOR CATALOGS
+            # We need the TOP (headers, first items) and the BOTTOM (pagination).
+            # The middle is repetitive product cards, so we can cut it safely.
+            MAX_TOTAL = 150000
+            if len(cleaned) > MAX_TOTAL:
+                keep_size = MAX_TOTAL // 2
+                head = cleaned[:keep_size]
+                tail = cleaned[-keep_size:]
+                logger.info(f"✂️ Smart Truncation: Keeping first {keep_size} and last {keep_size} chars. Dropped middle.")
+                return head + "\n... [MIDDLE CONTENT REMOVED] ...\n" + tail
+            
+            return cleaned
             
         except Exception as e: 
             logger.error(f"HTML Cleaning error: {e}")
@@ -99,8 +109,8 @@ class AIGenerator:
     async def generate_rule(self, session, url: str, html_content: str, error_hint: str = None) -> ScrapingRule:
         logger.info(f"🤖 Requesting AI help for: {url}...")
         
-        # Use strict limit for Detail Page to avoid 429 and timeouts
-        clean_content = self.clean_html(html_content) # Default soft limit (150k)
+        # Use smart cleaning
+        clean_content = self.clean_html(html_content) 
         
         # --- COLLECTIVE INTELLIGENCE ---
         stmt = select(SharedPattern).order_by(desc(SharedPattern.success_count)).limit(10)
@@ -127,10 +137,17 @@ class AIGenerator:
         4. **Anti-Noise**: Ignore "Recommended", "Recently Viewed", or "Cart" sidebars. Focus on the MAIN CATALOG GRID.
         5. **Variants**: Check if price has a prefix like "sākot no", "from", "ab". This indicates multiple options. Return this keyword.
         
+        PAGINATION STRATEGY (CRITICAL):
+        - Find the 'Next Page' button or link.
+        - Look for `rel="next"`, `aria-label="Next"`, `aria-label="Nākamā"`.
+        - Look for text like "Next", ">", "»", "Nākamā".
+        - Ensure it is a CLICKABLE element (a tag or button).
+        - NOT the disabled button.
+        
         {knowledge_base}
         {error_context}
         
-        HTML SNIPPET (Simplified for brevity, repreated items removed):
+        HTML SNIPPET (Smartly truncated - Head and Tail preserved):
         {clean_content}
         
         RETURN JSON:
@@ -142,8 +159,8 @@ class AIGenerator:
             "brand_css": "selector for brand name inside container (often above title)",
             "price_css": "selector for price text inside container",
             "image_css": "selector for img tag inside container",
-            "next_page_css": "selector for 'Next' button or pagination link",
-            "detail_trigger_text": "text pattern that indicates multiple variants (e.g. 'sākot', 'from', 'ab'). If none, null.",
+            "next_page_css": "robust selector for 'Next' button",
+            "detail_trigger_text": "text pattern that indicates multiple variants (e.g. 'sākot', 'from'). If none, null.",
             "negative_keywords": ["sponsored", "ad", "promo"]
         }}
         """
@@ -165,27 +182,34 @@ class AIGenerator:
                 )
             )
             cleaned_text = response.text.replace('```json', '').replace('```', '').strip()
-            data = json.loads(cleaned_text)
-            logger.success(f"🤖 AI generated: {data}")
+            parsed_response = json.loads(cleaned_text)
+            logger.success(f"🤖 AI generated: {parsed_response}")
             
-            if not data.get("container_css") or not data.get("title_css"): return None
+            # Ensure we have a dict, sometimes AI returns a list of one dict
+            if isinstance(parsed_response, list) and len(parsed_response) > 0:
+                parsed_response = parsed_response[0]
+
+            if not isinstance(parsed_response, dict):
+                 raise ValueError(f"AI returned invalid structure: {type(parsed_response)} (Expected dict)")
+
+            if not parsed_response.get("container_css") or not parsed_response.get("title_css"): return None
             
             domain = urlparse(url).netloc.replace("www.", "")
             
             return ScrapingRule(
                 domain=domain,
-                site_name=data.get("site_name", "Unknown"),
-                emoji=data.get("emoji", "🛒"),
-                container_css=data.get("container_css"),
-                title_css=data.get("title_css"),
-                brand_css=data.get("brand_css"), # New field
-                price_css=data.get("price_css"),
-                image_css=data.get("image_css"),
-                next_page_css=data.get("next_page_css"),
-                negative_keywords=json.dumps(data.get("negative_keywords", [])),
+                site_name=parsed_response.get("site_name", "Unknown Shop"),
+                emoji=parsed_response.get("emoji", "🛒"),
+                container_css=parsed_response.get("container_css") or "div", # Safe default
+                title_css=parsed_response.get("title_css") or "h1",
+                brand_css=parsed_response.get("brand_css"), # New field
+                price_css=parsed_response.get("price_css"),
+                image_css=parsed_response.get("image_css"),
+                next_page_css=parsed_response.get("next_page_css"),
+                negative_keywords=json.dumps(parsed_response.get("negative_keywords", [])),
                 # Special logic for deep scraping
                 use_detail_page=(domain == "notino.lv"),
-                detail_trigger_text=data.get("detail_trigger_text")
+                detail_trigger_text=parsed_response.get("detail_trigger_text")
             )
         except Exception as e:
             logger.error(f"AI error: {e}")
