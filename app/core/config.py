@@ -20,6 +20,10 @@ class Settings:
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.0-pro")
     
+    # Scraping Config
+    DEFAULT_TARGET_COUNT: int = 20
+    MAX_CONCURRENT_SCRAPES: int = 3
+    
     # Check that key is loaded
     def validate(self):
         if not self.GOOGLE_API_KEY:

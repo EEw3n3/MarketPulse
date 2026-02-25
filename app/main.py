@@ -19,7 +19,7 @@ def clean_text(text: str) -> str:
     return text.encode('utf-8', 'ignore').decode('utf-8').strip()
 
 
-TARGET_COUNT = 20 
+# TARGET_COUNT relocated to settings.DEFAULT_TARGET_COUNT
 
 async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     """
@@ -77,7 +77,7 @@ async def process_target(session, target: dict, intent: dict, group_id: int, ena
     site_name_ui = target.get("site_name")
     
     products = await scraper_service.scrape_catalog(
-        session, url, html, max_items=TARGET_COUNT, group_id=group_id, intent=intent, 
+        session, url, html, max_items=settings.DEFAULT_TARGET_COUNT, group_id=group_id, intent=intent, 
         enable_price_filter=enable_price_filter, site_name_ui=site_name_ui
     )
     
@@ -85,8 +85,8 @@ async def process_target(session, target: dict, intent: dict, group_id: int, ena
     scraper_service.validate_dataset(products)
 
 # Semaphore for limiting concurrent tasks
-MAX_CONCURRENT_SCRAPES = 3
-scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
+# Max scrapes controlled by settings
+scrape_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SCRAPES)
 
 async def process_target_worker(target: dict, intent: dict, group_id: int, enable_price_filter: bool = True):
     async with scrape_semaphore:
@@ -178,8 +178,9 @@ async def main():
             limit_input = clean_text(input("🔢 Item limit (default 10): "))
             limit = int(limit_input) if limit_input.isdigit() else 10
             
-            global TARGET_COUNT
-            TARGET_COUNT = limit
+            # Items limit logic
+            # global TARGET_COUNT -> now handled via settings instance if needed, 
+            # but we use local 'limit' for this specific run
 
             # Creating group for mode 2
             from app.domain.models import ProductGroup
