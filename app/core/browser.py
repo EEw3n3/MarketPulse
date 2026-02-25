@@ -71,10 +71,11 @@ class BrowserManager:
         )
         return context
 
-    async def get_page_content(self, url: str, fast_mode: bool = False, disable_images: bool = True, context: BrowserContext = None, click_selector: str = None) -> dict | None:
+    async def get_page_content(self, url: str, fast_mode: bool = False, disable_images: bool = True, context: BrowserContext = None, click_selector: str = None, verified_domain: bool = False) -> dict | None:
         """
         Opens the page, potentially clicks a selector, and returns HTML + Final URL.
         - click_selector: CSS selector to click after loading (e.g. "next page" button)
+        - verified_domain: if True, skip humanizing delays (saves 3-5s per verified domain page)
         """
         if not self.browser:
             await self.start()
@@ -93,7 +94,7 @@ class BrowserManager:
 
             await stealth_async(page)
             
-            if fast_mode: 
+            if fast_mode and not verified_domain: 
                 await asyncio.sleep(random.uniform(0.5, 2.0))
 
             logger.info(f"🚜 Loading page ({'Turbo' if fast_mode else 'Stealth'}): {url}")
@@ -117,8 +118,11 @@ class BrowserManager:
             logger.debug(f"🌐 Response status: {status} for {url}")
 
             # === TIER 4: HUMAN BEHAVIOR ===
-            if fast_mode:
-                # Wait longer for heavy JS sites like Notino
+            if verified_domain:
+                # Verified domains: no anti-bot, skip humanizing. Just wait for JS render.
+                await asyncio.sleep(random.uniform(0.3, 0.7))
+            elif fast_mode:
+                # Unknown domain in Turbo mode: minimal human sim
                 await asyncio.sleep(random.uniform(3.0, 5.0))
                 await page.mouse.move(random.randint(100, 800), random.randint(100, 800))
                 await page.mouse.wheel(0, random.randint(100, 300))

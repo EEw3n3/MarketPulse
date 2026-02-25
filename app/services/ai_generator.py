@@ -37,6 +37,28 @@ class AIGenerator:
         
         if new_rule:
             new_rule.domain = domain 
+            
+            # --- VERIFIED OVERRIDES: Hand-verified selectors for known domains ---
+            # These are ground-truth selectors confirmed by manual HTML inspection.
+            # They override any AI guesses to guarantee correctness.
+            VERIFIED_DETAIL_RULES = {
+                "douglas.lv": {
+                    "use_detail_page": True,
+                    "detail_trigger_text": None,   # ALL products need deep dive — no trigger filtering
+                    "detail_variant_selector": "fieldset.items div.item",
+                    "detail_variant_name_css": "span.name",
+                    "detail_variant_price_css": "div.price span.now",
+                },
+                "notino.lv": {
+                    "use_detail_page": True,
+                }
+            }
+            if domain in VERIFIED_DETAIL_RULES:
+                override = VERIFIED_DETAIL_RULES[domain]
+                for field, value in override.items():
+                    setattr(new_rule, field, value)
+                logger.success(f"🔩 Applied VERIFIED selectors for {domain}")
+            
             session.add(new_rule)
             await session.commit()
             await session.refresh(new_rule)
@@ -208,7 +230,7 @@ class AIGenerator:
                 next_page_css=parsed_response.get("next_page_css"),
                 negative_keywords=json.dumps(parsed_response.get("negative_keywords", [])),
                 # Special logic for deep scraping
-                use_detail_page=(domain == "notino.lv"),
+                use_detail_page=bool(parsed_response.get("detail_trigger_text") or domain == "notino.lv"),
                 detail_trigger_text=parsed_response.get("detail_trigger_text")
             )
         except Exception as e:
@@ -264,6 +286,15 @@ class AIGenerator:
             )
             cleaned_text = response.text.replace('```json', '').replace('```', '').strip()
             data = json.loads(cleaned_text)
+            
+            # Ensure we have a dict, sometimes AI returns a list of one dict
+            if isinstance(data, list) and len(data) > 0:
+                data = data[0]
+            
+            if not isinstance(data, dict):
+                logger.error(f"AI returned invalid structure: {type(data)}")
+                return {}
+
             logger.success(f"📌 AI Detail Rule generated: {data}")
             return data
         except Exception as e:

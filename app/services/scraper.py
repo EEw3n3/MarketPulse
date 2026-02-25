@@ -209,15 +209,18 @@ class ScraperService:
         
         # Sites like Notino block StealthClient on detail pages, use Browser directly
         html = None
+        VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv"}
+        is_verified = any(d in url for d in VERIFIED_FAST_DOMAINS)
+        
         if "notino.lv" in url:
             from app.core.browser import browser_manager
-            resp = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context)
+            resp = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context, verified_domain=False)
             html = resp["html"] if resp else None
         else:
             html = await stealth_client.get_page(url)
             if not html or "captcha" in html.lower() or "403" in str(html) or "202 Accepted" in str(html):
                  from app.core.browser import browser_manager
-                 resp = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context)
+                 resp = await browser_manager.get_page_content(url, fast_mode=True, context=browser_context, verified_domain=is_verified)
                  html = resp["html"] if resp else None
              
         if not html: return []
@@ -232,22 +235,26 @@ class ScraperService:
                 rule.detail_variant_selector = detail_data.get("variant_container_css")
                 rule.detail_variant_name_css = detail_data.get("variant_name_css")
                 rule.detail_variant_price_css = detail_data.get("variant_price_css")
+                
+                # Update rule in session
                 session.add(rule)
                 await session.commit()
                 logger.success(f"🧠 [Autonomous] Saved detail rules for {rule.domain}")
+            else:
+                # If AI failed to find variants, set a marker so we don't try again in this run
+                rule.detail_variant_selector = "SKIP"
+                session.add(rule)
+                await session.commit()
 
         sel = Selector(text=html)
         variants = []
         
         # 1. Use AI-generated or manual selectors
         v_selector = rule.detail_variant_selector
-        if v_selector:
+        if v_selector and v_selector != "SKIP":
             nodes = sel.css(v_selector)
             if not nodes:
                 logger.debug(f"⚠️ Selector {v_selector} found 0 nodes on {url}. HTML length: {len(html)}")
-                # If we expected variants but found none, maybe the selector is stale
-                if "notino" in url and "pd-price" not in html:
-                     logger.warning(f"🚩 Might be blocked or layout changed on {url}")
 
             for node in nodes:
                 # Use learned selectors or fallbacks
@@ -264,32 +271,43 @@ class ScraperService:
                         "price": v_price,
                         "is_available": True
                     })
+            
+            # --- SELF-HEALING: If selector exists but finds nothing, it's stale/wrong ---
+            if not variants and nodes:
+                # If we found nodes but no valid data inside, the internal selectors (name/price) are wrong
+                pass
+            elif not nodes and v_selector != "SKIP":
+                logger.warning(f"🚩 Selector {v_selector} is useless for {rule.domain}. Disabling Deep Dive for this run.")
+                rule.detail_variant_selector = "SKIP"
+                if session:
+                    session.add(rule)
+                    await session.commit()
         
-        # 2. IF 0 VARIANTS: Try one-time AI learning (without updating global rule if it flaps)
-        if not variants and session:
-            logger.warning(f"🤔 No variants found with stored rule for {url}. Trying one-time AI assist...")
-            from app.services.ai_generator import ai_generator
-            try:
-                one_time_data = await ai_generator.generate_detail_rule(url, html)
-                v_selector = one_time_data.get("variant_container_css")
-                if v_selector:
-                    nodes = sel.css(v_selector)
-                    for node in nodes:
-                        name_css = one_time_data.get("variant_name_css") or ".volume, .name"
-                        price_css = one_time_data.get("variant_price_css") or ".price"
-                        name_el, _ = self._try_selectors(node, name_css)
-                        price_el, _ = self._try_selectors(node, price_css)
-                        name_text = self.extract_clean_text(name_el)
-                        price_text = self.extract_clean_text(price_el)
-                        p_val = self.parse_price(price_text)
-                        if name_text:
-                            variants.append({
-                                "title_suffix": name_text,
-                                "price": p_val,
-                                "is_available": p_val > 0
-                            })
-            except Exception as e:
-                logger.error(f"AI Fallback failed: {e}")
+        # 2. IF 0 VARIANTS: Try one-time AI learning (disabled because it causes infinite loops)
+        # if not variants and session:
+        #    logger.warning(f"🤔 No variants found with stored rule for {url}. Trying one-time AI assist...")
+        #    from app.services.ai_generator import ai_generator
+        #    try:
+        #        one_time_data = await ai_generator.generate_detail_rule(url, html)
+        #        v_selector = one_time_data.get("variant_container_css")
+        #        if v_selector:
+        #            nodes = sel.css(v_selector)
+        #            for node in nodes:
+        #                name_css = one_time_data.get("variant_name_css") or ".volume, .name"
+        #                price_css = one_time_data.get("variant_price_css") or ".price"
+        #                name_el, _ = self._try_selectors(node, name_css)
+        #                price_el, _ = self._try_selectors(node, price_css)
+        #                name_text = self.extract_clean_text(name_el)
+        #                price_text = self.extract_clean_text(price_el)
+        #                p_val = self.parse_price(price_text)
+        #                if name_text:
+        #                    variants.append({
+        #                        "title_suffix": name_text,
+        #                        "price": p_val,
+        #                        "is_available": p_val > 0
+        #                    })
+        #    except Exception as e:
+        #        logger.error(f"AI Fallback failed: {e}")
 
         # 3. Universal Fallback: If no variants, try single main price
         if not variants:
@@ -313,7 +331,8 @@ class ScraperService:
         rule = result.scalar_one_or_none()
         if not rule: return []
 
-        candidates = [] 
+        candidates = []
+        deep_dive_queue = []  # Per-page queue for concurrent deep dives
         html = initial_html
         current_url = start_url
         page_number = 1
@@ -385,24 +404,28 @@ class ScraperService:
                 for card in cards:
                     if processed_cards >= max_items: break
                     try:
-                        # 2. TITLE
+                        # 2.5 BRAND — extract first so we can clean it from title
+                        brand = None
+                        if rule.brand_css:
+                            brand_el, _ = self._try_selectors(card, rule.brand_css)
+                            brand = self.extract_clean_text(brand_el)
+
+                        # 2. TITLE — strip brand prefix if it bleeds in (e.g. Douglas.lv nests .brand_caps inside .name)
                         title_el, winner = self._try_selectors(card, rule.title_css)
                         title = self.extract_clean_text(title_el)
+                        if brand and title and title.upper().startswith(brand.upper()):
+                            title = title[len(brand):].strip()
                         if not title:
                             fallback_title = ".product-details__name, .simple-slider-list__name, h3, h2, .title, a.title, .name"
                             title_el, winner = self._try_selectors(card, fallback_title)
                             title = self.extract_clean_text(title_el)
+                            if brand and title and title.upper().startswith(brand.upper()):
+                                title = title[len(brand):].strip()
                             if title and winner:
                                 rule.title_css = winner
                                 rule_updated = True
                         
                         if not title: continue
-                        
-                        # 2.5 BRAND
-                        brand = None
-                        if rule.brand_css:
-                            brand_el, _ = self._try_selectors(card, rule.brand_css)
-                            brand = self.extract_clean_text(brand_el)
 
                         # 3. PRICE (Listing)
                         price_val = Decimal("0.00")
@@ -428,7 +451,10 @@ class ScraperService:
                         if link_node: product_url = urljoin(current_url, link_node)
 
                         perform_deep_dive = rule.use_detail_page
-                        if perform_deep_dive and rule.detail_trigger_text:
+                        # --- CRITICAL: Check if Deep Dive was disabled mid-run by self-healing ---
+                        if rule.detail_variant_selector == "SKIP":
+                            perform_deep_dive = False
+                        elif perform_deep_dive and rule.detail_trigger_text:
                             card_text = card.xpath('string(.)').get().lower()
                             keywords = [k.strip().lower() for k in rule.detail_trigger_text.split(',')]
                             # If NONE of the keywords are found, skip deep dive
@@ -437,32 +463,13 @@ class ScraperService:
                                 logger.debug(f"⚡ Fast-track: No trigger '{rule.detail_trigger_text}' found. Skipping deep dive.")
 
                         if perform_deep_dive:
-                            # --- SEQUENTIAL DEEP SCRAPING ---
-                            # Fresh context for EVERY product to bypass session tracking
-                            # Human delay between individual products
-                            await asyncio.sleep(random.uniform(4.5, 8.5))
-                            
-                            logger.info(f"🔍 Deep dive (Fresh Start): {product_url}")
-                            # PASS context=None to force fresh context
-                            details = await self.scrape_product_details(product_url, rule, session=session, browser_context=None)
-                            
-                            from app.services.normalizer import perfume_normalizer
-                            base_norm = perfume_normalizer.extract_all(title)
-                            
-                            for d in details:
-                                full_title = f"{title} {d['title_suffix']}".strip()
-                                v_norm = perfume_normalizer.extract_all(full_title)
-                                
-                                candidates.append({
-                                    "url": product_url,
-                                    "image_url": image_url,
-                                    "brand": brand or v_norm["brand"] or base_norm["brand"],
-                                    "volume": v_norm["volume"] or base_norm["volume"],
-                                    "concentration": v_norm["concentration"] or base_norm["concentration"],
-                                    "title": full_title,
-                                    "price": d["price"],
-                                    "is_available": d["is_available"]
-                                })
+                            # --- PHASE 1: Collect deep-dive job (no blocking IO here) ---
+                            deep_dive_queue.append({
+                                "url": product_url,
+                                "title": title,
+                                "brand": brand,
+                                "image_url": image_url,
+                            })
                         else:
                             # Standard mode: process variants from card JSON if available
                             from app.services.normalizer import perfume_normalizer
@@ -479,6 +486,44 @@ class ScraperService:
                     except Exception as e:
                         logger.debug(f"Error parsing card: {e}")
                         continue
+
+                # --- PHASE 2: SEQUENTIAL DEEP DIVES (concurrent = 429 without proxy rotation) ---
+                if deep_dive_queue:
+                    VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv"}
+                    domain_key = urlparse(current_url).netloc.replace("www.", "")
+                    # Verified domains: 1.2s fixed delay (safe under ~1.7 req/s rate limit)
+                    # Unknown/risky: full human simulation
+                    if domain_key in VERIFIED_FAST_DOMAINS:
+                        def delay_fn(): return random.uniform(1.0, 1.5)
+                    else:
+                        def delay_fn(): return random.uniform(4.5, 8.5)
+
+                    logger.info(f"🔍 Sequential deep dives: {len(deep_dive_queue)} products")
+                    for job in deep_dive_queue:
+                        await asyncio.sleep(delay_fn())
+                        url = job["url"]
+                        title = job["title"]
+                        brand = job["brand"]
+                        image_url = job["image_url"]
+                        logger.info(f"🔍 Deep dive: {url}")
+                        details = await self.scrape_product_details(url, rule, session=session, browser_context=None)
+                        from app.services.normalizer import perfume_normalizer
+                        base_norm = perfume_normalizer.extract_all(title)
+                        for d in details:
+                            full_title = f"{title} {d['title_suffix']}".strip()
+                            v_norm = perfume_normalizer.extract_all(full_title)
+                            candidates.append({
+                                "url": url,
+                                "image_url": image_url,
+                                "brand": brand or v_norm["brand"] or base_norm["brand"],
+                                "volume": v_norm["volume"] or base_norm["volume"],
+                                "concentration": v_norm["concentration"] or base_norm["concentration"],
+                                "title": full_title,
+                                "price": d["price"],
+                                "is_available": d["is_available"]
+                            })
+                    deep_dive_queue.clear()
+
             finally:
                 logger.debug("🚜 Finished processing catalog page.")
             

@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+import time
 from loguru import logger
 from sqlmodel import SQLModel, create_engine, Session, select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -32,6 +33,7 @@ async def run_lab_test(site_url: str, limit: int = 50):
     await stealth_client.init_session()
     
     async with async_session() as session:
+        t_start = time.time()
         logger.info(f"🧪 [LAB TEST] Starting validation for: {site_url}")
         
         # 1. We need to register the domain for rule generation
@@ -67,15 +69,16 @@ async def run_lab_test(site_url: str, limit: int = 50):
             start_url=site_url,
             initial_html=html,
             max_items=limit,
-            enable_price_filter=False # In lab, we want to see everything (yes)
+            enable_price_filter=False
         )
         
         # 4. Result Analysis
         if items:
+            elapsed = time.time() - t_start
+            rate = len(items) / (elapsed / 60)
             logger.success(f"✅ [LAB] Success! Collected {len(items)} items.")
-            # Basic stats
-            brands_found = [i.title for i in items if "Dior" in i.title or "Chanel" in i.title] # Just an example check
             logger.info(f"📊 Quality Check: Items with recognized patterns - {len(items)}")
+            logger.info(f"⏱️  Total time: {elapsed:.1f}s ({elapsed/60:.1f} min) | Rate: {rate:.0f} items/min")
         else:
             logger.error("❌ [LAB] Scraper returned 0 items.")
 
@@ -90,7 +93,7 @@ async def main():
     await init_lab_db()
     
     # --- HERE YOU CAN SET THE TARGET ---
-    target_url = "https://www.notino.lv/viriesu-smarzas/"
+    target_url = "https://www.douglas.lv/lv/katalogs/smarzas/viriesu-smarzas/smarzas/"
     
     print("\n" + "="*50)
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
