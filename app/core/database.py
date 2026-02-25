@@ -4,11 +4,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 import os
 
-# Get database URL
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://market_user:market_password@localhost:5432/market_pulse_db")
+from app.core.config import settings
 
-# Create engine
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+# Create engine using URL from settings
+engine = create_async_engine(settings.DATABASE_URL, echo=False, future=True)
 
 # Create session factory (better to do this globally once)
 async_session_maker = sessionmaker(
@@ -16,6 +15,7 @@ async_session_maker = sessionmaker(
 )
 
 async def init_db():
+    from app.domain.models import Product, ProductGroup, ScrapingRule, PriceHistory, SharedPattern
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 

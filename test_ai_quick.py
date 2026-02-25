@@ -26,7 +26,8 @@ async def run_quick_test():
     # 1. Get HTML
     logger.info("🚜 Getting HTML...")
     await browser_manager.start()
-    html_content = await browser_manager.get_page_content(TEST_URL)
+    html_data = await browser_manager.get_page_content(TEST_URL)
+    html_content = html_data["html"] if html_data else None
     await browser_manager.stop()
     
     if not html_content:

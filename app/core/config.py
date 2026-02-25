@@ -10,7 +10,7 @@ class Settings:
     VERSION: str = "1.2.0"
 
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///database.db"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///database.db")
     
     # OpenAI
     # OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")

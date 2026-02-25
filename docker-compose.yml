@@ -29,6 +29,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
       # Передача ключа OpenAI из твоего локального .env
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
       # Если используешь прокси, добавь переменную сюда тоже
       - PROXY_LIST=${PROXY_LIST}
     depends_on:

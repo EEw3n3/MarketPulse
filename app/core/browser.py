@@ -148,7 +148,8 @@ class BrowserManager:
             content = await page.content()
             
             if len(content) < 30000:
-                logger.warning(f"⚠️ Unusual HTML length: {len(content)} bytes. Head: {content[:200].replace('\n', ' ')}")
+                short_head = content[:200].replace("\n", " ")
+                logger.warning(f"⚠️ Unusual HTML length: {len(content)} bytes. Head: {short_head}")
             
             # Return both content and the final URL (in case redirects or clicks happened)
             return {"html": content, "url": final_url}
