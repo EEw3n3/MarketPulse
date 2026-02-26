@@ -13,9 +13,9 @@ class StealthClient:
     MAX_RETRIES = 5  # Number of attempts to bypass protection
 
     def __init__(self):
-        self.session = None # Store session here
-        self.current_browser = None
-        self.current_proxy = None
+        self.session: AsyncSession | None = None # Store session here
+        self.current_browser: str | None = None
+        self.current_proxy: str | None = None
 
     async def init_session(self):
         """
@@ -40,10 +40,10 @@ class StealthClient:
             },
             timeout=30
         )
-        proxy_log = "Direct" if not self.current_proxy else f"Proxy {self.current_proxy.split('@')[-1]}"
+        proxy_log = "Direct" if self.current_proxy is None else f"Proxy {self.current_proxy.split('@')[-1]}"
         logger.info(f"🔌 New Stealth session created: {self.current_browser} | {proxy_log}")
 
-    async def get_page(self, url: str):
+    async def get_page(self, url: str) -> str | None:
         """
         Fetches the HTML content of a given URL using the active stealth session.
         Implements automatic retry logic, proxy rotation, and error handling for common bot blocks.
@@ -57,7 +57,7 @@ class StealthClient:
             attempt += 1
             
             # Form proxy log for current request
-            proxy_log = "Direct" if not self.current_proxy else f"Proxy {self.current_proxy.split('@')[-1]}"
+            proxy_log = "Direct" if self.current_proxy is None else f"Proxy {self.current_proxy.split('@')[-1]}"
             logger.info(f"🕵️‍♂️ [Attempt {attempt}/{self.MAX_RETRIES}] {self.current_browser} | {proxy_log} | Target: {url}")
             
             try:

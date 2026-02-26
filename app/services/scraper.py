@@ -338,6 +338,7 @@ class ScraperService:
         page_number = 1
         processed_cards = 0
         next_click_selector = None # For JS Pagination
+        next_page_link = None # Initialize for reset logic visibility
 
         # --- RESUME LOGIC (Checkpoint) ---
         if rule.last_page_url and rule.last_page_url.startswith(start_url.split('?')[0]):
@@ -606,6 +607,16 @@ class ScraperService:
                 db.update_status(site_name_ui, f"Scanning (Found {len(candidates)} items)", progress)
                 db.update_log(site_name_ui, f"Page {page_number}: Found {len(cards)} cards")
         
+        # Reset Checkpoint if we finished successfully (reached limit or end)
+        # We check processed_cards vs max_items because if we resume at EXACTLY the limit, 
+        # the loop is skipped and we must clear the checkpoint to avoid a zombie state.
+        if processed_cards >= max_items or (page_number > 1 and not next_page_link and not next_click_selector):
+            rule.last_page_url = None
+            rule.items_scraped_current_run = 0
+            session.add(rule)
+            await session.commit()
+            logger.info(f"🏁 Checkpoint reset for {domain} (Reached limit or end).")
+
         # --- PHASE 2: FILTERING AND ANALYSIS (Methods 1, 2, 3) ---
         valid_items = []
         
@@ -791,7 +802,7 @@ class ScraperService:
             "is_available": is_available
         })
 
-    async def scrape_page(self, url: str, rule: ScrapingRule = None, browser_context=None, click_selector: str = None):
+    async def scrape_page(self, url: str, rule: ScrapingRule | None = None, browser_context=None, click_selector: str | None = None) -> dict | None:
         """
         Fetches HTML content using Stealth Browser.
         Supports click_selector for JS pagination.

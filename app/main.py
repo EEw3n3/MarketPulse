@@ -12,6 +12,7 @@ from app.services.scraper import scraper_service
 from app.core.registry import register_domain
 # No longer using hardcoded TARGETS
 
+from app.core.config import settings
 from app.services.intent import intent_service
 
 def clean_text(text: str) -> str:
@@ -30,7 +31,8 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
     if force_browser:
         logger.warning(f"🚜 [Tier 3] Forced browser launch for {url}...")
         try:
-            html = await browser_manager.get_page_content(url)
+            resp = await browser_manager.get_page_content(url)
+            html = resp["html"] if resp else None
             if html and len(html) > 1000:
                 logger.success(f"✅ [Tier 3] Browser rendered the page! ({len(html)} bytes)")
                 return html
@@ -53,7 +55,7 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
 
 from app.services.validator import content_validator
 
-async def process_target(session, target: dict, intent: dict, group_id: int, enable_price_filter: bool = True):
+async def process_target(session, target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True):
     url = target["url"]
     search_term = target["search_term"]
 
@@ -88,14 +90,13 @@ async def process_target(session, target: dict, intent: dict, group_id: int, ena
 # Max scrapes controlled by settings
 scrape_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SCRAPES)
 
-async def process_target_worker(target: dict, intent: dict, group_id: int, enable_price_filter: bool = True):
+async def process_target_worker(target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True):
     async with scrape_semaphore:
         async with async_session() as session:
             try: await process_target(session, target, intent, group_id, enable_price_filter)
             except Exception as e: logger.error(f"💥 Error {target['url']}: {e}")
 
 async def main():
-    from app.core.config import settings
     
     BANNER = rf"""
     ___  ___           _        _  ______      _             
@@ -166,7 +167,7 @@ async def main():
             for t in dynamic_targets: register_domain(t["url"])
 
             # 4. Launch parallel parsing and pass group_id
-            tasks = [process_target_worker(target, intent, group_id, enable_price_filter=True) for target in dynamic_targets]
+            tasks = [asyncio.create_task(process_target_worker(target, intent, group_id, enable_price_filter=True)) for target in dynamic_targets]
             await asyncio.gather(*tasks)
 
         elif choice == "2":
@@ -244,7 +245,7 @@ async def main():
                         "category": t["category"],
                         "site_name": site_name # Pass site name for UI
                     }
-                    tasks.append(process_target_worker(target_payload, None, None))
+                    tasks.append(asyncio.create_task(process_target_worker(target_payload, None, None)))
                 
                 # Update loop for Live display
                 while not all(task.done() for task in tasks if tasks):

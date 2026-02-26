@@ -19,8 +19,10 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
+from typing import AsyncGenerator
+
 # Decorator turns the generator function into a context manager
 @asynccontextmanager
-async def async_session() -> AsyncSession:
+async def async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session

@@ -1,16 +1,15 @@
 import asyncio
 import random
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 from playwright_stealth import stealth_async  # <-- IMPORTANT: Stealth patch
 from loguru import logger
-from app.core.config import settings
 from app.core.proxy import proxy_manager
 from app.core.humanizer import Humanizer # <-- Our new module
 
 class BrowserManager:
-    def __init__(self):
-        self.playwright = None
-        self.browser = None
+    def __init__(self) -> None:
+        self.playwright: Playwright | None = None
+        self.browser: Browser | None = None
         self.lock = asyncio.Lock()
 
     async def start(self):
@@ -34,6 +33,8 @@ class BrowserManager:
         """Creates and returns a new browser context with stealth and human-like settings."""
         if not self.browser:
             await self.start()
+            
+        assert self.browser is not None, "Browser Engine failed to start."
             
         proxy_str = proxy_manager.get_proxy()
         proxy_config = None
@@ -71,7 +72,15 @@ class BrowserManager:
         )
         return context
 
-    async def get_page_content(self, url: str, fast_mode: bool = False, disable_images: bool = True, context: BrowserContext = None, click_selector: str = None, verified_domain: bool = False) -> dict | None:
+    async def get_page_content(
+        self, 
+        url: str, 
+        fast_mode: bool = False, 
+        disable_images: bool = True, 
+        context: BrowserContext | None = None, 
+        click_selector: str | None = None, 
+        verified_domain: bool = False
+    ) -> dict | None:
         """
         Opens the page, potentially clicks a selector, and returns HTML + Final URL.
         - click_selector: CSS selector to click after loading (e.g. "next page" button)
@@ -79,13 +88,15 @@ class BrowserManager:
         """
         if not self.browser:
             await self.start()
+            
+        assert self.browser is not None, "Browser Engine failed to start."
 
         # ... (context creation logic remains same) ...
         local_context = context
         if not local_context:
             local_context = await self.get_context()
         
-        page = None 
+        page: Page | None = None 
         try:
             page = await local_context.new_page()
 
@@ -109,7 +120,7 @@ class BrowserManager:
                     # Wait for navigation or AJAX
                     try:
                         await page.wait_for_load_state("networkidle", timeout=8000)
-                    except: 
+                    except Exception: 
                         await asyncio.sleep(3.0) # Fallback wait
                 except Exception as e:
                     logger.warning(f"⚠️ Click failed for {click_selector}: {e}")
@@ -146,7 +157,8 @@ class BrowserManager:
                     await page.wait_for_load_state("networkidle", timeout=5000)
                 else:
                     await page.wait_for_load_state("domcontentloaded")
-            except: pass
+            except Exception:
+                pass
 
             final_url = page.url
             content = await page.content()

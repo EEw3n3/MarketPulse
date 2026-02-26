@@ -30,7 +30,10 @@ async def clear_lab_data():
             # We also clear product groups as they are linked to products
             await session.execute(text("DELETE FROM productgroup"))
             
-            logger.warning("🧹 Lab database cleared: Products, Groups, and History DELETED.")
+            # Reset checkpoints for all rules
+            await session.execute(text("UPDATE scrapingrule SET last_page_url = NULL, items_scraped_current_run = 0"))
+            
+            logger.warning("🧹 Lab database cleared: Products, Groups, History DELETED and Checkpoints RESET.")
             logger.success("💾 KEEPING ScrapingRules (Selectors) intact.")
             
     await engine.dispose()
