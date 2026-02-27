@@ -200,14 +200,240 @@ class ScraperService:
         
         return []
     
+    async def _scrape_network_variants(self, url: str) -> list[dict]:
+        """
+        Navigates to the page, clicks variants, and intercepts JSON payloads
+        to perfectly extract price and volume data.
+        """
+        import json
+        from playwright.async_api import async_playwright
+        from app.core.browser import browser_manager
+        from app.core.constants import COOKIE_ACCEPT_BUTTONS, OUT_OF_STOCK_PHRASES, MEASUREMENT_UNITS
+        
+        logger.info(f"🕷️ [Network Intercept] Deep dive: {url}")
+        variants = []
+        
+        context = await browser_manager.get_context()
+        page = await context.new_page()
+        
+        intercepted_requests = {"luigisbox": [], "detail": []}
+        
+        async def handle_request(request):
+            try:
+                req_url = request.url
+                if request.method in ["POST", "PUT"]:
+                    # СТРОГОЕ ПРАВИЛО ДЛЯ ЦЕНЫ: collector-lv.notino.luigisbox.com/events
+                    if "collector-lv.notino.luigisbox.com/events" in req_url:
+                        post_data = request.post_data_json
+                        if post_data:
+                            intercepted_requests["luigisbox"].append(post_data)
+                    # ПРАВИЛО ДЛЯ ОБЪЕМА И НАЛИЧИЯ: detail api
+                    elif "/api/tracking/web/view/detail" in req_url:
+                        post_data = request.post_data_json
+                        if post_data:
+                            intercepted_requests["detail"].append(post_data)
+            except Exception:
+                pass
+                
+        page.on("request", handle_request)
+        
+        try:
+            # Block images for speed
+            await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            # Auto-accept cookies so they don't block our clicks
+            cookie_selectors = COOKIE_ACCEPT_BUTTONS
+            
+            # Wait up to 3 seconds for cookie banner to load, Notino is slow with React
+            await asyncio.sleep(1.0)
+            
+            for btn_sel in cookie_selectors:
+                cookie_btn = page.locator(btn_sel).first
+                if await cookie_btn.is_visible(timeout=1000):
+                    await cookie_btn.click(force=True)
+                    await asyncio.sleep(0.5)
+                    break
+            
+            await asyncio.sleep(0.5) # Wait for initial trackers 
+            
+            # Find and click variants
+            variant_els = await page.locator("div[data-testid*='variant'], span[class*='variant'], .pd-variant-label").all()
+            if not variant_els:
+                variant_els = await page.locator("div:has-text(' ml'), button:has-text(' ml')").all()
+                
+            # Phase 1: Click all variants to force network traffic
+            dom_variants_map = {}
+            import re
+            for i, el in enumerate(variant_els):
+                if await el.is_visible():
+                    try:
+                        text = await el.inner_text()
+                        vol = ""
+                        units_pattern = '|'.join(MEASUREMENT_UNITS)
+                        m_vol = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', text, re.IGNORECASE)
+                        if m_vol:
+                            vol = m_vol.group(1).lower().replace(' ', '')
+                            unit_match = m_vol.group(2).lower()
+                            vol = vol.replace(unit_match, f' {unit_match}')
+                            
+                            text_lower = text.lower()
+                            is_avail = not any(phrase in text_lower for phrase in OUT_OF_STOCK_PHRASES)
+                            
+                            if vol not in dom_variants_map or dom_variants_map[vol]["price"] == 0.0:
+                                dom_variants_map[vol] = {
+                                    "price": 0.0,
+                                    "available": is_avail
+                                }
+                            
+                        # Re-attempt if cookies block the very first click
+                        if i == 0:
+                            for btn_sel in cookie_selectors:
+                                btn = page.locator(btn_sel).first
+                                if await btn.is_visible(timeout=100):
+                                    await btn.click(force=True)
+                                    await asyncio.sleep(0.5)
+                        
+                        await el.click(timeout=1500, force=True)
+                        # 0.8s is a sweet spot: lets React update the screen price and bypasses strict analytics drop
+                        await asyncio.sleep(0.8)
+                        
+                        # Perfect Fallback: Read visually updated price directly from the screen
+                        if vol and dom_variants_map[vol]["price"] == 0.0 and dom_variants_map[vol]["available"]:
+                            try:
+                                main_price = await page.locator("[data-testid='price-component']").first.inner_text(timeout=500)
+                                p_val = self.parse_price(main_price) if hasattr(self, 'parse_price') else 0.0
+                                if not p_val:
+                                    m_pr = re.search(r'(\d+[,.]\d+)', main_price)
+                                    if m_pr: p_val = float(m_pr.group(1).replace(',', '.'))
+                                if p_val:
+                                    dom_variants_map[vol]["price"] = p_val
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                        
+            # Wait for any straggler network requests to land
+            await asyncio.sleep(1.0)
+            
+            variants_map = {}
+            
+            # Phase 2: Parse all /detail payloads for Volume and Availability
+            for req_data in intercepted_requests["detail"]:
+                code = req_data.get("code")
+                if code:
+                    size = req_data.get("size")
+                    sizeUnit = req_data.get("sizeUnit")
+                    is_available = req_data.get("stockQuantity") != "outOfStock"
+                    if size and sizeUnit:
+                        variants_map[code] = {
+                            "volume": f"{size} {sizeUnit}",
+                            "available": is_available
+                        }
+                        
+            # Phase 3: Parse all luigisbox payloads for Price
+            for req_data in intercepted_requests["luigisbox"]:
+                events = req_data.get("events", [])
+                for event in events:
+                    event_data = event.get("data", {})
+                    
+                    products = list(event_data.get("products", []))
+                    if "related_to" in event_data:
+                        products.extend(event_data["related_to"].get("products", []))
+                         
+                    for p in products:
+                        p_code = p.get("product_code")
+                        # Match prices ONLY to variants we saw in /detail
+                        if p_code and p_code in variants_map:
+                            p_discount = p.get("discount_price")
+                            p_full = p.get("full_price")
+                            
+                            # Strict Rule 1 and 3: Use discount_price, fallback to full_price
+                            found_price = p_discount if p_discount is not None else p_full
+                            if found_price is not None:
+                                variants_map[p_code]["price"] = found_price
+                                
+            # Phase 4: Assemble Final Deduplicated List
+            seen_volumes = set()
+            for code, data in variants_map.items():
+                if "price" in data and data["price"] != 0.0 and data["price"] is not None:
+                    vol = data["volume"].lower().replace(' ', '')
+                    vol = vol.replace('ml', ' ml').replace('g', ' g')
+                    if vol not in seen_volumes:
+                        seen_volumes.add(vol)
+                        variants.append({
+                            "title_suffix": vol,
+                            "price": Decimal(str(data["price"])).quantize(Decimal("0.01")),
+                            "is_available": data["available"]
+                        })
+                        
+            # Add missing DOM variants (e.g., out of stock ones that network ignored, or network failed prices)
+            for vol, dom_data in dom_variants_map.items():
+                if vol not in seen_volumes:
+                    seen_price = dom_data.get("price")
+                    if seen_price is None or seen_price == 0.0:
+                        continue # Skip completely invalid DOM prices
+                        
+                    seen_volumes.add(vol)
+                    variants.append({
+                        "title_suffix": vol,
+                        "price": Decimal(str(seen_price)).quantize(Decimal("0.01")),
+                        "is_available": dom_data.get("available", True)
+                    })
+                    
+            # Phase 5: Single Product Fallback (No buttons)
+            import re
+            if not variants:
+                try:
+                    price_text = await page.locator("[data-testid='price-component']").first.inner_text(timeout=2000)
+                    price_val = self.parse_price(price_text) if hasattr(self, 'parse_price') else 0.0
+                    if not price_val:
+                        m_pr = re.search(r'(\d+[,.]\d+)', price_text)
+                        if m_pr: price_val = float(m_pr.group(1).replace(',', '.'))
+                        
+                    full_text = await page.evaluate("document.body.innerText")
+                    units_pattern = '|'.join(MEASUREMENT_UNITS)
+                    m_vol = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', full_text, re.IGNORECASE)
+                    vol = ""
+                    if m_vol:
+                        vol = m_vol.group(1).lower().replace(' ', '')
+                        unit_match = m_vol.group(2).lower()
+                        vol = vol.replace(unit_match, f' {unit_match}')
+                        
+                    if price_val:
+                        variants.append({
+                            "title_suffix": vol,
+                            "price": Decimal(str(price_val)).quantize(Decimal("0.01")),
+                            "is_available": True
+                        })
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Network intercept failed for {url}: {e}")
+        finally:
+            await page.close()
+            
+        return variants
+
+    
     async def scrape_product_details(self, url: str, rule: ScrapingRule, session=None, browser_context=None) -> list[dict]:
         """
         Fetches the product page and extracts all available variants (volumes/prices).
-        Uses AI to learn the structure if not already known.
+        Uses AI to learn the structure if not already known, or Network Interception for known advanced sites.
         """
         logger.info(f"🔍 Deep dive: {url}")
         
         # Sites like Notino block StealthClient on detail pages, use Browser directly
+        # AND Notino has complex variants that are perfectly exposed in network analytics.
+        if "notino.lv" in url:
+             logger.info("⚡ Notino detected. Using Universal Network Interceptor (BFF).")
+             network_variants = await self._scrape_network_variants(url)
+             if network_variants:
+                 logger.success(f"🎯 Network intercept extracted {len(network_variants)} variants flawlessly.")
+                 return network_variants
+             else:
+                 logger.warning("Network intercept returned 0 variants. Falling back to DOM parsing.")
+
         html = None
         VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv"}
         is_verified = any(d in url for d in VERIFIED_FAST_DOMAINS)
@@ -490,39 +716,50 @@ class ScraperService:
 
                 # --- PHASE 2: SEQUENTIAL DEEP DIVES (concurrent = 429 without proxy rotation) ---
                 if deep_dive_queue:
-                    VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv"}
+                    VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv", "notino.lv"}
                     domain_key = urlparse(current_url).netloc.replace("www.", "")
-                    # Verified domains: 1.2s fixed delay (safe under ~1.7 req/s rate limit)
-                    # Unknown/risky: full human simulation
+                    # Verified domains: 0.5s-1.0s delay
                     if domain_key in VERIFIED_FAST_DOMAINS:
-                        def delay_fn(): return random.uniform(1.0, 1.5)
+                        def delay_fn(): return random.uniform(0.5, 1.0)
                     else:
-                        def delay_fn(): return random.uniform(4.5, 8.5)
+                        def delay_fn(): return random.uniform(3.0, 5.0)
 
-                    logger.info(f"🔍 Sequential deep dives: {len(deep_dive_queue)} products")
-                    for job in deep_dive_queue:
-                        await asyncio.sleep(delay_fn())
-                        url = job["url"]
-                        title = job["title"]
-                        brand = job["brand"]
-                        image_url = job["image_url"]
-                        logger.info(f"🔍 Deep dive: {url}")
-                        details = await self.scrape_product_details(url, rule, session=session, browser_context=None)
-                        from app.services.normalizer import perfume_normalizer
-                        base_norm = perfume_normalizer.extract_all(title)
-                        for d in details:
-                            full_title = f"{title} {d['title_suffix']}".strip()
-                            v_norm = perfume_normalizer.extract_all(full_title)
-                            candidates.append({
-                                "url": url,
-                                "image_url": image_url,
-                                "brand": brand or v_norm["brand"] or base_norm["brand"],
-                                "volume": v_norm["volume"] or base_norm["volume"],
-                                "concentration": v_norm["concentration"] or base_norm["concentration"],
-                                "title": full_title,
-                                "price": d["price"],
-                                "is_available": d["is_available"]
-                            })
+                    logger.info(f"🔍 Concurrent deep dives: {len(deep_dive_queue)} products")
+                    
+                    semaphore = asyncio.Semaphore(5) # Allow 5 concurrent Playwright deep dives
+                    
+                    async def process_job(job):
+                        async with semaphore:
+                            await asyncio.sleep(delay_fn())
+                            url = job["url"]
+                            title = job["title"]
+                            brand = job["brand"]
+                            image_url = job["image_url"]
+                            details = await self.scrape_product_details(url, rule, session=session, browser_context=None)
+                            from app.services.normalizer import perfume_normalizer
+                            base_norm = perfume_normalizer.extract_all(title)
+                            
+                            results = []
+                            for d in details:
+                                full_title = f"{title} {d['title_suffix']}".strip()
+                                v_norm = perfume_normalizer.extract_all(full_title)
+                                results.append({
+                                    "url": url,
+                                    "image_url": image_url,
+                                    "brand": brand or v_norm["brand"] or base_norm["brand"],
+                                    "volume": v_norm["volume"] or base_norm["volume"],
+                                    "concentration": v_norm["concentration"] or base_norm["concentration"],
+                                    "title": full_title,
+                                    "price": d["price"],
+                                    "is_available": d["is_available"]
+                                })
+                            return results
+
+                    tasks = [process_job(job) for job in deep_dive_queue]
+                    completed = await asyncio.gather(*tasks)
+                    for res in completed:
+                        candidates.extend(res)
+                        
                     deep_dive_queue.clear()
 
             finally:

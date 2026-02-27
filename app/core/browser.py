@@ -6,7 +6,40 @@ from loguru import logger
 from app.core.proxy import proxy_manager
 from app.core.humanizer import Humanizer # <-- Our new module
 
-class BrowserManager:
+class NetworkInterceptor:
+    def __init__(self):
+        self.intercepted_responses = []
+        self.intercepted_requests = []
+
+    async def handle_response(self, response):
+        try:
+            if "application/json" in response.headers.get("content-type", "").lower():
+                url = response.url
+                # Мы убрали фильтр на слова tracking, events, чтобы ловить те самые Payload, о которых ты говорил
+                junk = ['google', 'facebook', 'hotjar', 'metrics', 'clarity', 'trustpilot', 'doubleclick', 'ads']
+                if any(j in url.lower() for j in junk):
+                    return
+                json_data = await response.json()
+                self.intercepted_responses.append({"url": url, "data": json_data})
+        except Exception as e:
+            pass
+
+    async def handle_request(self, request):
+        try:
+            url = request.url
+            junk = ['google', 'facebook', 'hotjar', 'metrics', 'clarity', 'trustpilot', 'doubleclick', 'ads']
+            if any(j in url.lower() for j in junk):
+                return
+            
+            if request.method in ["POST", "PUT", "PATCH"]:
+                post_data = request.post_data_json
+                if post_data:
+                    self.intercepted_requests.append({"url": url, "data": post_data})
+        except Exception as e:
+            pass
+
+
+class BrowserManager:                                                                                                                                                                                                               
     def __init__(self) -> None:
         self.playwright: Playwright | None = None
         self.browser: Browser | None = None
@@ -79,7 +112,8 @@ class BrowserManager:
         disable_images: bool = True, 
         context: BrowserContext | None = None, 
         click_selector: str | None = None, 
-        verified_domain: bool = False
+        verified_domain: bool = False,
+        intercept_traffic: bool = False
     ) -> dict | None:
         """
         Opens the page, potentially clicks a selector, and returns HTML + Final URL.
@@ -103,6 +137,12 @@ class BrowserManager:
             if disable_images:
                 await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
 
+            interceptor = None
+            if intercept_traffic:
+                interceptor = NetworkInterceptor()
+                page.on("response", interceptor.handle_response)
+                page.on("request", interceptor.handle_request)
+
             await stealth_async(page)
             
             if fast_mode and not verified_domain: 
@@ -110,6 +150,30 @@ class BrowserManager:
 
             logger.info(f"🚜 Loading page ({'Turbo' if fast_mode else 'Stealth'}): {url}")
             response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            # === AUTO-CONSENT (Cookies) ===
+            try:
+                cookie_selectors = [
+                    "button:has-text('Piekrītu')",
+                    "button:has-text('Apstiprināt')",
+                    "button:has-text('Piekrist visiem')",
+                    "button:has-text('Pieņemt')",
+                    "button:has-text('Pieņemt visu')",
+                    "button:has-text('Accept')",
+                    "button:has-text('Allow all')",
+                    "button:has-text('I agree')",
+                    "#onetrust-accept-btn-handler",
+                    ".cookie-consent-accept"
+                ]
+                for btn_sel in cookie_selectors:
+                    btn = page.locator(btn_sel).first
+                    if await btn.is_visible(timeout=500):
+                        await btn.click()
+                        logger.info(f"🍪 Auto-accepted cookies using: {btn_sel}")
+                        await asyncio.sleep(0.5)
+                        break
+            except Exception:
+                pass
             
             # === CLICK LOGIC ===
             if click_selector:
@@ -167,8 +231,15 @@ class BrowserManager:
                 short_head = content[:200].replace("\n", " ")
                 logger.warning(f"⚠️ Unusual HTML length: {len(content)} bytes. Head: {short_head}")
             
+            result = {"html": content, "url": final_url}
+            if intercept_traffic and interceptor:
+                result["network_data"] = {
+                    "requests": interceptor.intercepted_requests,
+                    "responses": interceptor.intercepted_responses
+                }
+            
             # Return both content and the final URL (in case redirects or clicks happened)
-            return {"html": content, "url": final_url}
+            return result
 
         except Exception as e:
             logger.error(f"❌ Browser error: {e}")
