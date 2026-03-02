@@ -681,6 +681,7 @@ class ScraperService:
             try:
                 for card in cards:
                     if processed_cards >= max_items: break
+                    processed_cards += 1
                     try:
                         # 2.5 BRAND — extract first so we can clean it from title
                         brand = None
@@ -704,6 +705,14 @@ class ScraperService:
                                 rule_updated = True
                         
                         if not title: continue
+                        
+                        # --- HARD FILTER (BLACKLIST) ---
+                        # We drop non-perfume items entirely here so they never reach the DB or trigger Deep Dives
+                        BLACKLIST = ["dezodorant", "miniatūra", "antiperspirant", "antiseptiķis", "difuzors", "želeja", "losjons", "balzams", "krēms", "aftershave", "after shave", "body lotion", "shower gel", "komplekts"]
+                        lower_title = title.lower()
+                        if any(b in lower_title for b in BLACKLIST):
+                            logger.debug(f"🗑️ Skipping noisy item matching blacklist: {title}")
+                            continue
 
                         # 3. PRICE (Listing)
                         price_val = Decimal("0.00")
@@ -759,8 +768,6 @@ class ScraperService:
                             else:
                                 self._add_candidate(candidates, title, price_val, is_available, product_url, image_url, brand, norm)
                         
-                        processed_cards += 1
-
                     except Exception as e:
                         logger.debug(f"Error parsing card: {e}")
                         continue
@@ -823,6 +830,10 @@ class ScraperService:
             finally:
                 logger.debug("🚜 Finished processing catalog page.")
             
+            if processed_cards >= max_items:
+                logger.info(f"🛑 Reached max_items limit ({max_items}). Stopping pagination.")
+                break
+
             # --- PAGINATION ---
             # --- PAGINATION (Hybrid: Link vs Click) ---
             next_page_link = None

@@ -77,7 +77,9 @@ class PerfumeNormalizer:
         r"\bprocentai\b",
         r"\bintensive\b", r"\bintense\b", r"\bset\b", r"\bkomplekts\b",
         r"\bafter shave\b", r"\baftershave\b", r"\btester\b", r"\btestieris\b",
-        r"\bparfums\b", r"\bman\b", r"\bwomen\b", r"\bwoman\b", r"\bmen\b"
+        r"\bparfums\b", r"\bman\b", r"\bwomen\b", r"\bwoman\b", r"\bmen\b",
+        r"\bdezodorants\b", r"\bminiatūra\b", r"\bantiperspirants\b", r"\bantiseptiķis\b", 
+        r"\baroma difuzors\b", r"\bdezodorants-zīmulis\b", r"\bdušas želeja\b"
     ]
 
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)

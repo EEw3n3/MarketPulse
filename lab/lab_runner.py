@@ -93,7 +93,12 @@ async def main():
     await init_lab_db()
     
     # --- HERE YOU CAN SET THE TARGET ---
-    target_url = "https://www.douglas.lv/lv/katalogs/smarzas/viriesu-smarzas/smarzas/?filter=10:107"
+    # Tested Enterprise URLs for Reference:
+    # url_makeup = "https://makeup.lv/categorys/3218/"
+    # url_notino = "https://www.notino.lv/viriesu-smarzas/"
+    # url_douglas = "https://www.douglas.lv/lv/katalogs/smarzas/viriesu-smarzas/smarzas/?filter=10:107"
+    
+    target_url = "https://makeup.lv/categorys/3218/"
     
     print("\n" + "="*50)
     print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
