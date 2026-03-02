@@ -451,6 +451,57 @@ class ScraperService:
              
         if not html: return []
         
+        if "douglas.lv" in url:
+            logger.info("⚡ Douglas detected. Parsing Tealium JSON payloads directly from SSR HTML.")
+            try:
+                import json
+                import html as html_lib
+                import re
+                
+                tealium_matches = re.finditer(r'data-tealium-info-view.*?=.*?(\[.*?\]|{.*?})', html, re.DOTALL)
+                douglas_variants = []
+                seen_vols = set()
+                
+                for match in tealium_matches:
+                    text_match = match.group(1)
+                    text_unescaped = html_lib.unescape(text_match)
+                    try:
+                        data = json.loads(text_unescaped)
+                        
+                        p_price_list = data.get("primary_product_price", [])
+                        v_name_list = data.get("primary_product_variant_name", [])
+                        stock_list = data.get("primary_product_availability_status", [])
+                        
+                        for i in range(len(p_price_list)):
+                            p_price_str = str(p_price_list[i]) if p_price_list else "0"
+                            p_price = self.parse_price(p_price_str)
+                            
+                            p_vol = str(v_name_list[i]) if len(v_name_list) > i and v_name_list[i] else ""
+                            p_stock = str(stock_list[i]).lower() if len(stock_list) > i and stock_list[i] else ""
+                            
+                            if p_price > 0 and p_vol not in seen_vols:
+                                is_avail = True
+                                if "out of stock" in p_stock or "nav pieejams" in p_stock or "soon back" in p_stock or "drīz tirdzniecībā" in p_stock:
+                                    is_avail = False
+                                    
+                                seen_vols.add(p_vol)
+                                douglas_variants.append({
+                                    "title_suffix": p_vol,
+                                    "price": p_price,
+                                    "is_available": is_avail
+                                })
+                    except Exception as e:
+                        logger.debug(f"Douglas Tealium JSON parse error: {e}")
+                        continue
+                        
+                if douglas_variants:
+                    logger.success(f"🎯 Douglas Tealium extracted {len(douglas_variants)} variants natively.")
+                    return douglas_variants
+                else:
+                    logger.warning("Douglas Tealium parsing yielded 0 variants. Falling back to DOM parsing.")
+            except Exception as e:
+                logger.error(f"Douglas specific scrape error: {e}")
+        
         # --- SELF-LEARNING PHASE: If we don't have detail selectors, ask AI ---
         if not rule.detail_variant_selector and session:
             logger.warning(f"🧠 [Autonomous] Learning detail structure for {rule.domain}...")
@@ -718,15 +769,22 @@ class ScraperService:
                 if deep_dive_queue:
                     VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv", "notino.lv"}
                     domain_key = urlparse(current_url).netloc.replace("www.", "")
-                    # Verified domains: 0.5s-1.0s delay
+                    
+                    # Prevent 429 Too Many Requests by limiting concurrency strictly
+                    concurrent_limit = 5
                     if domain_key in VERIFIED_FAST_DOMAINS:
-                        def delay_fn(): return random.uniform(0.5, 1.0)
+                        if domain_key == "douglas.lv":
+                            def delay_fn(): return random.uniform(1.5, 3.0)
+                            concurrent_limit = 2  # Douglas anti-bot is very sensitive
+                        else:
+                            def delay_fn(): return random.uniform(0.5, 1.0)
                     else:
                         def delay_fn(): return random.uniform(3.0, 5.0)
+                        concurrent_limit = 3
 
-                    logger.info(f"🔍 Concurrent deep dives: {len(deep_dive_queue)} products")
+                    logger.info(f"🔍 Concurrent deep dives: {len(deep_dive_queue)} products (limit {concurrent_limit})")
                     
-                    semaphore = asyncio.Semaphore(5) # Allow 5 concurrent Playwright deep dives
+                    semaphore = asyncio.Semaphore(concurrent_limit) # Control burst load
                     
                     async def process_job(job):
                         async with semaphore:
