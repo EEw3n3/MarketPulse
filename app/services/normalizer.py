@@ -85,9 +85,10 @@ class PerfumeNormalizer:
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
 
     @staticmethod
-    def extract_all(title: str) -> Dict[str, Optional[str]]:
+    def extract_all(title: str, explicit_brand: Optional[str] = None) -> Dict[str, Optional[str]]:
         """
         Extracts all attributes from the title.
+        If explicit_brand is passed, skips heuristic brand detection.
         """
         title_lower = title.lower()
         # 0. Preparation: remove only strictly annoying leading punctuation for brand search
@@ -118,8 +119,8 @@ class PerfumeNormalizer:
         if brand and brand in PerfumeNormalizer.BRAND_ALIASES:
             brand = PerfumeNormalizer.BRAND_ALIASES[brand]
         
-        if not brand:
-            # If no brand found, fallback to parsing first words
+        if not brand and not explicit_brand:
+            # If no brand found AND no explicit brand given, fallback to parsing first words
             words = title.split()
             if words:
                 first_word = words[0].strip(",.- ")
@@ -147,6 +148,10 @@ class PerfumeNormalizer:
                         second_word = words[1].strip(',.- ')
                         if second_word.lower() not in forbidden_heuristics:
                             brand = f"{first_word} {second_word}"
+
+        # If explicit_brand was passed and we couldn't find it in the string, use it
+        if not brand and explicit_brand:
+            brand = explicit_brand
         
         # 4. Concentration
         concentration = None
@@ -179,7 +184,7 @@ class PerfumeNormalizer:
         clean_name = re.sub(r'\s+', ' ', clean_name).strip()
         
         # Aggressive word-by-word cleanup for orphan generic words
-        generic_words = {"eau", "parfum", "edt", "edp", "pour", "for", "the", "with", "de", "man", "men", "woman", "women", "homme", "femme", "set"}
+        generic_words = {"eau", "parfum", "edt", "edp", "pour", "for", "de", "man", "men", "woman", "women", "homme", "femme", "set"}
         words = clean_name.split()
         filtered_words = [w for w in words if w.lower().strip("-,.") not in generic_words]
         clean_name = " ".join(filtered_words)

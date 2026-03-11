@@ -23,7 +23,7 @@ class MatcherService:
         # 1. Get raw product attributes
         title = product_data.get("title", "")
         explicit_brand = product_data.get("brand")
-        norm = perfume_normalizer.extract_all(title)
+        norm = perfume_normalizer.extract_all(title, explicit_brand=explicit_brand)
         
         # Use explicit brand if normalizer didn't find one in the title
         brand = explicit_brand or norm["brand"]
@@ -91,7 +91,7 @@ class MatcherService:
 
     def get_canonical_name(self, title: str, brand: Optional[str] = None) -> str:
         """Returns a clean, standardized name for the ProductGroup."""
-        norm = perfume_normalizer.extract_all(title)
+        norm = perfume_normalizer.extract_all(title, explicit_brand=brand)
         final_brand = brand or norm["brand"]
         
         parts = []

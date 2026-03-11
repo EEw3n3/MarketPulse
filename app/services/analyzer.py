@@ -58,15 +58,40 @@ class PriceAnalyzer:
         priced_products = [p for p in products if p.last_price and p.last_price > 0]
         if not priced_products: return None
         
-        best_offer = min(priced_products, key=lambda p: p.last_price)
-        avg_price = sum(p.last_price for p in priced_products) / len(priced_products)
+        # Group by volume
+        volumes_data = {}
+        for p in priced_products:
+            vol_key = p.volume if p.volume else "Unknown"
+            if vol_key not in volumes_data:
+                volumes_data[vol_key] = []
+            volumes_data[vol_key].append(p)
+
+        volume_stats = {}
+        max_bucket_size = 0 # Track the maximum number of competing items in any single volume bucket for scoring
+
+        for vol, items in volumes_data.items():
+            best_offer = min(items, key=lambda p: p.last_price)
+            avg_price = sum(p.last_price for p in items) / len(items)
+            
+            # Identify store visually (using search_term or a predefined mapping if available)
+            # In our current setup, search_term holds the store domain.
+            
+            volume_stats[vol] = {
+                "count": len(items),
+                "best_price": best_offer.last_price,
+                "best_store": best_offer.search_term,
+                "avg_price": round(avg_price, 2)
+            }
+            if len(items) > max_bucket_size:
+                max_bucket_size = len(items)
         
+        first_p = products[0]
         return {
             "group_id": group_id,
-            "best_price": best_offer.last_price,
-            "best_store": best_offer.search_term, # In our case search_term currently holds store name from rule
-            "avg_group_price": round(avg_price, 2),
-            "savings": round(avg_price - best_offer.last_price, 2)
+            "name": first_p.group.name if first_p.group else "Unknown",
+            "category": first_p.group.category if first_p.group else "Perfume",
+            "volumes": volume_stats,
+            "score": max_bucket_size # Primary sort metric: how much competitive data we have
         }
 
 price_analyzer = PriceAnalyzer()

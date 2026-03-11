@@ -270,20 +270,33 @@ async def main():
 
         from sqlalchemy.orm import selectinload
         async with async_session() as session:
-            # Show top 15 most recently formed product groups
-            groups_stmt = select(ProductGroup).options(selectinload(ProductGroup.products)).order_by(ProductGroup.created_at.desc()).limit(15)
+            # Fetch a larger pool of recent groups to find the best chains
+            groups_stmt = select(ProductGroup).options(selectinload(ProductGroup.products)).order_by(ProductGroup.created_at.desc()).limit(200)
             results = await session.execute(groups_stmt)
             groups = results.scalars().all()
 
+            # First, analyze all recently created groups
+            all_analyses = []
             for g in groups:
                 analysis = await price_analyzer.analyze_group(session, g.id)
                 if analysis:
-                    print(f"\n💎 REPORT: {g.name}")
-                    print(f"   Category:   {g.category}")
-                    print(f"   Count:      {len(g.products)} items")
-                    print(f"   Avg. price: {float(analysis['avg_group_price']):.2f} €")
-                    print(f"   Best:       {float(analysis['best_price']):.2f} € ({analysis['best_store']})")
-                    print(f"{'—' * 60}")
+                    all_analyses.append(analysis)
+
+            # Sort groups by the new 'score' metric (max items in a single volume bucket)
+            sorted_analyses = sorted(all_analyses, key=lambda a: a.get("score", 0), reverse=True)[:15]
+
+            for analysis in sorted_analyses:
+                print(f"\n💎 REPORT: {analysis['name']}")
+                print(f"   Category:   {analysis['category']}")
+                print(f"   Volumes:")
+                
+                # Sort volumes alphabetically (or by size if possible, string sort is fine for now)
+                for vol, stats in sorted(analysis["volumes"].items()):
+                    print(f"     - {vol}:")
+                    print(f"          Count: {stats['count']} items")
+                    print(f"          Avg:   {float(stats['avg_price']):.2f} €")
+                    print(f"          Best:  {float(stats['best_price']):.2f} € ({stats['best_store']})")
+                print(f"{'—' * 60}")
 
     finally:
         await stealth_client.close()

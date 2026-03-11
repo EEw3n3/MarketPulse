@@ -72,8 +72,14 @@ class StealthClient:
                     logger.warning(f"Page not found (404): {url}")
                     return None
 
-                # BAN OR TIMEOUT ERROR (Include 202 for Makeup.lv)
-                if response.status_code in [202, 429, 503]:
+                # 202 ACCEPTED (Makeup.lv / Cloudflare / Qrator JS Challenge)
+                # Immediately drop to Browser (Tier 3) without wasting time on cooldowns
+                if response.status_code == 202:
+                    logger.warning(f"🛡️ JS Challenge (202) detected on {proxy_log}. Falling back to browser...")
+                    return None
+
+                # BAN OR TIMEOUT ERROR
+                if response.status_code in [429, 503]:
                     wait_time = random.uniform(30, 60)
                     logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Entering cooldown for {wait_time:.0f}s...")
                     

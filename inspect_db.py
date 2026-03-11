@@ -1,49 +1,47 @@
 import asyncio
-import sys
 from sqlmodel import select
-from app.core.database import init_db, async_session
-from app.domain.models import Product, PriceHistory
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+import sys
+import os
 
-async def inspect_database():
-    # Initialization (in case tables are not created, though they should be)
-    await init_db()
-    
+# Ensure the root project directory is in PYTHONPATH so absolute imports work
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+from app.domain.models import Product
+
+# Connect to the main production database
+MAIN_DB_URL = "sqlite+aiosqlite:///database.db"
+engine = create_async_engine(MAIN_DB_URL, echo=False)
+
+async def inspect():
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with async_session() as session:
-        # 1. Query all products
-        statement = select(Product).order_by(Product.created_at.desc())
-        results = await session.execute(statement)
-        products = results.scalars().all()
+        # Check products, ordered by store name (search_term) and then ID
+        stmt = select(Product).order_by(Product.search_term, Product.id.asc())
+        products = (await session.execute(stmt)).scalars().all()
         
-        if not products:
-            print("\n❌ Database empty. Start scraping first (main.py).")
-            return
-
-        print(f"\n📊 TOTAL IN DB: {len(products)} PRODUCTS")
-        print(f"{'ID':<4} | {'STORE':<15} | {'PRICE':<10} | {'DATE':<19} | {'TITLE'}")
-        print("-" * 100)
+        print(f"\n📊 MARKET PULSE DATABASE: {len(products)} PRODUCTS FOUND")
+        
+        # ID | STORE | BRAND | TITLE | VOLUME | PRICE 
+        print(f"{'ID':<4} | {'STORE':<12} | {'BRAND':<15} | {'TITLE':<50} | {'VOLUME':<8} | {'PRICE'}")
+        print("-" * 115)
         
         for p in products:
-            # 2. Get latest actual price for each product
-            # (since history may contain many records)
-            hist_stmt = select(PriceHistory).where(PriceHistory.product_id == p.id).order_by(PriceHistory.parsed_at.desc()).limit(1)
-            hist_res = await session.execute(hist_stmt)
-            latest_price_rec = hist_res.scalar_one_or_none()
+            store_display = (p.search_term or "Unknown")[:12]
+            brand_display = (p.brand or "Unknown")[:15]
             
-            price_display = f"{latest_price_rec.price:>8.2f} €" if latest_price_rec else "---"
-            date_display = latest_price_rec.parsed_at.strftime("%Y-%m-%d %H:%M:%S") if latest_price_rec else "---"
-            title_short = (p.title[:50] + '...') if len(p.title) > 50 else p.title
+            # Truncate title if it's too long to keep the table clean
+            title_short = (p.title[:47] + '...') if len(p.title) > 50 else p.title
             
-            print(f"{p.id:<4} | {p.search_term:<15} | {price_display:<10} | {date_display:<19} | {title_short}")
+            vol_display = (p.volume or "---")[:8]
+            price_display = f"{p.last_price:>7.2f} €" if p.last_price else "---"
+            
+            print(f"{p.id:<4} | {store_display:<12} | {brand_display:<15} | {title_short:<50} | {vol_display:<8} | {price_display}")
         
-        print("-" * 100)
-        print(f"✅ Inspection finished. Total records: {len(products)}")
+        print("-" * 115)
+        print(f"✅ Inspection complete.")
 
 if __name__ == "__main__":
-    # Windows/Docker specific event loop setting
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
-    try:
-        asyncio.run(inspect_database())
-    except KeyboardInterrupt:
-        pass
+    asyncio.run(inspect())
