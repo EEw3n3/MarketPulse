@@ -27,21 +27,23 @@ class DashboardManager:
         )
         
         # Split body into columns/rows based on number of sites
-        # Assuming 5 sites, we can do 2 columns: 3 on left, 2 on right
         self.layout["body"].split_row(
             Layout(name="col1"),
             Layout(name="col2")
         )
         
-        self.layout["col1"].split_column(
-            Layout(name=sites[0]),
-            Layout(name=sites[1]),
-            Layout(name=sites[2])
-        )
-        self.layout["col2"].split_column(
-            Layout(name=sites[3]),
-            Layout(name=sites[4])
-        )
+        col1_items = []
+        col2_items = []
+        for i, site_name in enumerate(sites):
+            if i % 2 == 0:
+                col1_items.append(Layout(name=site_name))
+            else:
+                col2_items.append(Layout(name=site_name))
+                
+        if col1_items:
+            self.layout["col1"].split_column(*col1_items)
+        if col2_items:
+            self.layout["col2"].split_column(*col2_items)
 
     def update_log(self, site: str, message: str):
         """Adds a new log message to a specific site's panel."""

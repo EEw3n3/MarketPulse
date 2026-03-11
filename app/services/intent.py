@@ -1,14 +1,12 @@
 import json
-# from openai import AsyncOpenAI
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from loguru import logger
 from app.core.config import settings
 
 class IntentService:
     def __init__(self):
-        # self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
     async def parse_user_query(self, query: str) -> dict:
         """
@@ -43,8 +41,13 @@ class IntentService:
             # )
             # data = json.loads(response.choices[0].message.content)
 
-            generation_config = genai.GenerationConfig(response_mime_type="application/json")
-            response = await self.model.generate_content_async(prompt, generation_config=generation_config)
+            response = await self.client.aio.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
+            )
             cleaned_text = response.text.replace('```json', '').replace('```', '').strip()
             data = json.loads(cleaned_text)
             logger.success(f"🎯 Intent defined: {data['search_term']} ({data['category']})")

@@ -208,6 +208,11 @@ async def main():
 
         elif choice == "3":
             # --- MODE 3: HARDCORE MONITOR ---
+            # Remove default stdout logger to avoid corrupting rich UI
+            import sys
+            logger.remove()
+            logger.add("hardcore_monitor.log", rotation="5 MB")
+            
             logger.warning("☠️  STARTING HARDCORE MARKET MONITOR")
             logger.info("Subject: Men's Perfume (Vīriešu smaržas)")
             

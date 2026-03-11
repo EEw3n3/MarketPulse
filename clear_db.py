@@ -8,6 +8,7 @@ async def clear_database():
     from app.domain.models import Product, PriceHistory, ProductGroup
     
     logger.warning("🗑️ Cleaning up dynamic data (Products, History, Groups)...")
+    await init_db()
     
     async with async_session() as session:
         # Delete only specific data models
