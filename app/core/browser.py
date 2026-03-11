@@ -47,20 +47,21 @@ class BrowserManager:
 
     async def start(self):
         """Starts Playwright and the browser"""
-        if not self.playwright:
-            self.playwright = await async_playwright().start()
-            # Running in headless=True for the server, but with arguments hiding it
-            self.browser = await self.playwright.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled", # Hides "controlled by automation"
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu" 
-                ]
-            )
-            logger.info("🚜 Tier 3: Browser Engine (Chromium) started.")
+        async with self.lock:
+            if not self.playwright:
+                self.playwright = await async_playwright().start()
+                # Running in headless=True for the server, but with arguments hiding it
+                self.browser = await self.playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled", # Hides "controlled by automation"
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu" 
+                    ]
+                )
+                logger.info("🚜 Tier 3: Browser Engine (Chromium) started.")
 
     async def get_context(self) -> BrowserContext:
         """Creates and returns a new browser context with stealth and human-like settings."""
@@ -259,9 +260,12 @@ class BrowserManager:
                     pass
 
     async def stop(self):
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
+        async with self.lock:
+            if self.browser:
+                await self.browser.close()
+                self.browser = None
+            if self.playwright:
+                await self.playwright.stop()
+                self.playwright = None
 
 browser_manager = BrowserManager()

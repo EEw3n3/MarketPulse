@@ -772,6 +772,12 @@ class ScraperService:
                         logger.debug(f"Error parsing card: {e}")
                         continue
 
+                items_completed_overall = processed_cards - len(deep_dive_queue)
+                if db and site_name_ui:
+                    progress_pct = round((items_completed_overall / max_items) * 100, 1)
+                    mode_text = "Parsing" if len(deep_dive_queue) == 0 else "Found"
+                    db.update_status(site_name_ui, f"{mode_text}: {items_completed_overall}/{max_items}", progress=progress_pct)
+
                 # --- PHASE 2: SEQUENTIAL DEEP DIVES (concurrent = 429 without proxy rotation) ---
                 if deep_dive_queue:
                     VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv", "notino.lv"}
@@ -821,9 +827,13 @@ class ScraperService:
                             return results
 
                     tasks = [process_job(job) for job in deep_dive_queue]
-                    completed = await asyncio.gather(*tasks)
-                    for res in completed:
+                    for f in asyncio.as_completed(tasks):
+                        res = await f
                         candidates.extend(res)
+                        items_completed_overall += 1
+                        if db and site_name_ui:
+                            progress_pct = round((items_completed_overall / max_items) * 100, 1)
+                            db.update_status(site_name_ui, f"Deep Diving: {items_completed_overall}/{max_items}", progress=progress_pct)
                         
                     deep_dive_queue.clear()
 
@@ -985,7 +995,7 @@ class ScraperService:
                         final_group_id = match.id
                     else:
                         # Create NEW Group (Chain)
-                        canonical = matcher_service.get_canonical_name(item["title"])
+                        canonical = matcher_service.get_canonical_name(item["title"], brand=item.get("brand"))
                         new_group = ProductGroup(name=canonical, category="Perfume")
                         session.add(new_group)
                         await session.flush() # Get ID

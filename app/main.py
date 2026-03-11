@@ -94,7 +94,7 @@ async def process_target_worker(target: dict, intent: dict | None, group_id: int
     async with scrape_semaphore:
         async with async_session() as session:
             try: await process_target(session, target, intent, group_id, enable_price_filter)
-            except Exception as e: logger.error(f"💥 Error {target['url']}: {e}")
+            except Exception as e: logger.exception(f"💥 Error {target['url']}: {e}")
 
 async def main():
     
@@ -270,8 +270,8 @@ async def main():
 
         from sqlalchemy.orm import selectinload
         async with async_session() as session:
-            # Added selectinload option so products load immediately (fix MissingGreenlet)
-            groups_stmt = select(ProductGroup).options(selectinload(ProductGroup.products)).order_by(ProductGroup.created_at.desc()).limit(1)
+            # Show top 15 most recently formed product groups
+            groups_stmt = select(ProductGroup).options(selectinload(ProductGroup.products)).order_by(ProductGroup.created_at.desc()).limit(15)
             results = await session.execute(groups_stmt)
             groups = results.scalars().all()
 
@@ -281,15 +281,18 @@ async def main():
                     print(f"\n💎 REPORT: {g.name}")
                     print(f"   Category:   {g.category}")
                     print(f"   Count:      {len(g.products)} items")
-                    print(f"   Avg. price: {analysis['avg_group_price']} €")
-                    print(f"   Best:       {analysis['best_price']} € ({analysis['best_store']})")
+                    print(f"   Avg. price: {float(analysis['avg_group_price']):.2f} €")
+                    print(f"   Best:       {float(analysis['best_price']):.2f} € ({analysis['best_store']})")
                     print(f"{'—' * 60}")
 
     finally:
         await stealth_client.close()
         await browser_manager.stop()
+        # Give Windows ProactorEventLoop time to cleanly close Playwright pipes
+        await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        # Playwright and other subprocess-based async tasks require ProactorEventLoop on Windows
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())

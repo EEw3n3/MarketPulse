@@ -22,11 +22,13 @@ class MatcherService:
         """
         # 1. Get raw product attributes
         title = product_data.get("title", "")
+        explicit_brand = product_data.get("brand")
         norm = perfume_normalizer.extract_all(title)
         
-        brand = norm["brand"]
-        volume = norm["volume"]
-        concentration = norm["concentration"]
+        # Use explicit brand if normalizer didn't find one in the title
+        brand = explicit_brand or norm["brand"]
+        volume = norm.get("volume") or product_data.get("volume")
+        concentration = norm.get("concentration") or product_data.get("concentration")
         clean_name = norm["clean_name"]
 
         if not brand or not clean_name:
@@ -87,18 +89,16 @@ class MatcherService:
                 return group
         return None
 
-    def get_canonical_name(self, title: str) -> str:
+    def get_canonical_name(self, title: str, brand: Optional[str] = None) -> str:
         """Returns a clean, standardized name for the ProductGroup."""
         norm = perfume_normalizer.extract_all(title)
+        final_brand = brand or norm["brand"]
+        
         parts = []
-        if norm["brand"]: 
-            parts.append(norm["brand"])
+        if final_brand: 
+            parts.append(final_brand)
         
         if norm["clean_name"]: 
-            # Only add clean_name if it's not already part of the brand
-            # e.g. if brand="Dior" and clean_name="Dior Sauvage" -> name="Dior Sauvage"
-            # if brand="Sauvage" and clean_name="Dior" -> name="Sauvage Dior"
-            # We want unique parts.
             can_add = True
             for p in parts:
                 if norm["clean_name"].lower() in p.lower() or p.lower() in norm["clean_name"].lower():

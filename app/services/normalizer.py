@@ -110,7 +110,7 @@ class PerfumeNormalizer:
             start_b = r'\b' if b_low[0].isalnum() else r'(?:^|\s)'
             end_b = r'\b' if b_low[-1].isalnum() else r'(?:\s|$)'
             pattern = f"{start_b}{eb}{end_b}"
-            if re.search(pattern, brand_search_title):
+            if re.search(pattern, title_lower):
                 brand = b
                 break
         
@@ -119,16 +119,28 @@ class PerfumeNormalizer:
             brand = PerfumeNormalizer.BRAND_ALIASES[brand]
         
         if not brand:
-            # If no brand found, try taking the first one/two words
+            # If no brand found, fallback to parsing first words
             words = title.split()
             if words:
                 first_word = words[0].strip(",.- ")
                 # Prevent generic words from being detected as brands via heuristic
                 forbidden_heuristics = ["man", "men", "woman", "women", "homme", "femme", "for", "pour", "the", "with", "eau", "de", "parfum"]
-                if first_word.lower() not in PerfumeNormalizer.CONC_MAP and \
-                   first_word.lower() not in forbidden_heuristics and \
-                   not any(re.search(rf'\b{re.escape(first_word.lower())}\b', n) for n in PerfumeNormalizer.NOISE):
+                is_valid = True
+                
+                for key in PerfumeNormalizer.CONC_MAP.keys():
+                    if first_word.lower() == key:
+                        is_valid = False
+                        break
+                        
+                if first_word.lower() in forbidden_heuristics:
+                    is_valid = False
                     
+                for n in PerfumeNormalizer.NOISE:
+                    if re.search(rf'\b{re.escape(first_word.lower())}\b', n, re.IGNORECASE):
+                        is_valid = False
+                        break
+                        
+                if is_valid:
                     brand = first_word
                     # Heuristic: if first word is short and there is a second word, combine them
                     if len(first_word) <= 3 and len(words) > 1:
