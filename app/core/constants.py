@@ -51,7 +51,7 @@ VERIFIED_FAST_DOMAINS: set[str] = {
 # Used in scrape_catalog() when scheduling deep dives.
 DOMAIN_DEEP_DIVE_CONFIG: dict[str, dict] = {
     "douglas.lv": {"concurrent": 2, "delay_min": 1.5, "delay_max": 3.0},
-    "notino.lv":  {"concurrent": 1, "delay_min": 0.5, "delay_max": 1.0},
+    "notino.lv":  {"concurrent": 5, "delay_min": 0.5, "delay_max": 1.0},
     "1a.lv":      {"concurrent": 3, "delay_min": 0.5, "delay_max": 1.0},
     "220.lv":     {"concurrent": 3, "delay_min": 0.5, "delay_max": 1.0},
     "makeup.lv":  {"concurrent": 2, "delay_min": 1.0, "delay_max": 2.0},

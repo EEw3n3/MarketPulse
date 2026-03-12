@@ -9,42 +9,42 @@ class PerfumeNormalizer:
     
     # 1. Brands (Top common, can be expanded)
     BRANDS = [
-        "Dior", "Chanel", "Armani", "Versace", "Gucci", "Prada", "Hermes", "Guerlain",
+        "Dior", "Chanel", "Giorgio Armani", "Armani", "Versace", "Gucci", "Prada", "Hermes", "Guerlain",
         "Dolce & Gabbana", "D&G", "Tom Ford", "Hugo Boss", "Boss", "Calvin Klein", "CK",
         "Yves Saint Laurent", "YSL", "Paco Rabanne", "Rabanne", "Givenchy", "Valentino", "Bvlgari",
         "Lacoste", "Creed", "Montblanc", "Carolina Herrera", "Jean Paul Gaultier", "JPG",
         "Jimmy Choo", "Police", "Azzaro", "Kenzo", "Lalique", "Issey Miyake", "Narciso Rodriguez",
         "Marlies Moller", "Shiseido", "Elizabeth Arden", "David Beckham", "Jaguar", "Rochas",
-        "Tiziana Terenzi", "Lattafa", "Armaf", "Dsquared2", "Nasomatto", "V Canto", "Amouage", 
+        "Tiziana Terenzi", "Lattafa", "Armaf", "Dsquared2", "Nasomatto", "V Canto", "Amouage",
         "Mancera", "Montale", "Byredo", "Xerjoff", "Initio", "Roja", "Maison Francis Kurkdjian", "MFK",
         "Diptyque", "Rasasi", "Afnan", "Al Haramain", "Escentric Molecules", "Juliette Has A Gun",
         "Kilian", "Memo Paris", "Penhaligon's", "Vilhelm Parfumerie", "Acca Kappa", "Gritti",
         "Armand Basi", "Karl Lagerfeld", "Lagerfeld", "Zarkoperfume", "Maison Margiela", "Replica",
-        "Acqua Di Parma", "Moschino", "Mont Blanc", "Bvlgari", "Chopard", "Jo Malone", "Le Labo",
+        "Acqua Di Parma", "Moschino", "Mont Blanc", "Chopard", "Jo Malone", "Le Labo",
         "By Kilian", "Bond No. 9", "Serge Lutens", "Frederic Malle", "Kilian Paris",
         "Trussardi", "Salvatore Ferragamo", "Ferragamo", "Rue Broca", "Monotheme", "Kajal", "Genyum", "Acorelle",
-        "Elizabeth Arden", "Estee Lauder", "Clinique", "Biotherm", "Viktor & Rolf", "V&R", "Diesel", "Cacharel",
-        "Maison Alhambra", "Rasasi", "Afnan", "Al Haramain", "Swiss Arabian", "Paris Corner", "Fragrance World",
+        "Estee Lauder", "Clinique", "Biotherm", "Viktor & Rolf", "V&R", "Diesel", "Cacharel",
+        "Maison Alhambra", "Swiss Arabian", "Paris Corner", "Fragrance World",
         "Zadig & Voltaire", "Z&V", "Etro", "Missoni", "Baldessarini", "Joop!", "Nikolas de Barry",
         "Atelier Cologne", "Houbigant", "L'Artisan Parfumeur", "Miller Harris", "Tauer Perfumes",
         "Amouroud", "Omanlux", "Sospiro", "Teo Cabanel", "The Organic Pharmacy", "Yuni",
         "Aedes de Venustas", "Affinessence", "Agonist", "Altaia", "Anatole Lebreton",
         "Angela Ciampagna", "Annick Goutal", "Goutal Paris", "Areej Le Dore",
         "Abercrombie & Fitch", "Fitch", "& Fitch", "Maurer & Wirtz", "4711", "Alfred Dunhill", "Dunhill",
-        "Cristiano Ronaldo", "David Beckham", "Antonio Banderas", "Banderas",
-        "Salvador Dali", "Elizabeth Taylor", "Sarah Jessica Parker", "SJP",
+        "Cristiano Ronaldo", "Antonio Banderas", "Banderas",
+        "Salvador Dali", "Elizabeth Taylor", "Elizabeth Arden", "Sarah Jessica Parker", "SJP",
         "Juicy Couture", "Couture", "Britney Spears", "Spears", "Katy Perry"
     ]
 
     BRAND_ALIASES = {
+        # Aliases map SHORT/ABBREV → LONG canonical form
         "& Fitch": "Abercrombie & Fitch",
         "Fitch": "Abercrombie & Fitch",
-        "Jean Paul Gaultier": "JPG",
+        "JPG": "Jean Paul Gaultier",       # JPG → full name (was reversed!)
         "YSL": "Yves Saint Laurent",
         "D&G": "Dolce & Gabbana",
-        "Versace": "Versace",
-        "Maison Francis Kurkdjian": "MFK",
-        "V&R": "Viktor & Rolf"
+        "MFK": "Maison Francis Kurkdjian", # MFK → full name (was reversed!)
+        "V&R": "Viktor & Rolf",
     }
 
     # Dynamic brands found during session
@@ -88,70 +88,68 @@ class PerfumeNormalizer:
     def extract_all(title: str, explicit_brand: Optional[str] = None) -> Dict[str, Optional[str]]:
         """
         Extracts all attributes from the title.
-        If explicit_brand is passed, skips heuristic brand detection.
+        If explicit_brand is passed, it takes PRIORITY over heuristic brand detection.
+        Heuristic detection is only used to determine what text to strip from the title.
         """
         title_lower = title.lower()
         # 0. Preparation: remove only strictly annoying leading punctuation for brand search
         # but keep symbols that might be part of the brand (like &)
         brand_search_title = title_lower.strip("-,. |/")
-        
+
         # 1. Volume
         volume = PerfumeNormalizer.extract_volume(title)
-        
-        # 2. Brand (Strict Word Boundary Match, Longest first)
-        brand = None
-        # Combine static list with discovered brands
+
+        # 2. Brand detection — heuristic scan to find what's in the title
+        #    (used primarily to strip brand text from clean_name)
         all_known_brands = list(set(PerfumeNormalizer.BRANDS) | PerfumeNormalizer.DISCOVERED_BRANDS)
         sorted_brands = sorted(all_known_brands, key=len, reverse=True)
-        
+
+        brand_in_title: Optional[str] = None  # what was found literally in the title
         for b in sorted_brands:
             b_low = b.lower()
             eb = re.escape(b_low)
-            # Smart boundary: word boundary if alphanum, else match start or space
             start_b = r'\b' if b_low[0].isalnum() else r'(?:^|\s)'
             end_b = r'\b' if b_low[-1].isalnum() else r'(?:\s|$)'
-            pattern = f"{start_b}{eb}{end_b}"
-            if re.search(pattern, title_lower):
-                brand = b
+            if re.search(f"{start_b}{eb}{end_b}", title_lower):
+                brand_in_title = b
                 break
-        
-        # Apply aliases
-        if brand and brand in PerfumeNormalizer.BRAND_ALIASES:
-            brand = PerfumeNormalizer.BRAND_ALIASES[brand]
-        
-        if not brand and not explicit_brand:
-            # If no brand found AND no explicit brand given, fallback to parsing first words
+
+        # Apply aliases (short → long canonical form) on the in-title detection
+        brand_in_title_canonical = brand_in_title
+        if brand_in_title and brand_in_title in PerfumeNormalizer.BRAND_ALIASES:
+            brand_in_title_canonical = PerfumeNormalizer.BRAND_ALIASES[brand_in_title]
+
+        # 3. Determine the AUTHORITATIVE brand:
+        #    explicit_brand > detected-in-title > heuristic first-word
+        if explicit_brand:
+            # explicit_brand wins unconditionally — caller knows best
+            brand = explicit_brand
+        elif brand_in_title_canonical:
+            brand = brand_in_title_canonical
+        else:
+            # Heuristic: first word as brand (only when no explicit and nothing found)
+            brand = None
             words = title.split()
             if words:
                 first_word = words[0].strip(",.- ")
-                # Prevent generic words from being detected as brands via heuristic
-                forbidden_heuristics = ["man", "men", "woman", "women", "homme", "femme", "for", "pour", "the", "with", "eau", "de", "parfum"]
-                is_valid = True
-                
-                for key in PerfumeNormalizer.CONC_MAP.keys():
-                    if first_word.lower() == key:
-                        is_valid = False
-                        break
-                        
-                if first_word.lower() in forbidden_heuristics:
-                    is_valid = False
-                    
-                for n in PerfumeNormalizer.NOISE:
-                    if re.search(rf'\b{re.escape(first_word.lower())}\b', n, re.IGNORECASE):
-                        is_valid = False
-                        break
-                        
+                forbidden_heuristics = {
+                    "man", "men", "woman", "women", "homme", "femme",
+                    "for", "pour", "the", "with", "eau", "de", "parfum"
+                }
+                is_valid = (
+                    first_word.lower() not in forbidden_heuristics
+                    and first_word.lower() not in PerfumeNormalizer.CONC_MAP
+                    and not any(
+                        re.search(rf'\b{re.escape(first_word.lower())}\b', noise, re.IGNORECASE)
+                        for noise in PerfumeNormalizer.NOISE
+                    )
+                )
                 if is_valid:
                     brand = first_word
-                    # Heuristic: if first word is short and there is a second word, combine them
                     if len(first_word) <= 3 and len(words) > 1:
                         second_word = words[1].strip(',.- ')
                         if second_word.lower() not in forbidden_heuristics:
                             brand = f"{first_word} {second_word}"
-
-        # If explicit_brand was passed and we couldn't find it in the string, use it
-        if not brand and explicit_brand:
-            brand = explicit_brand
         
         # 4. Concentration
         concentration = None
@@ -161,25 +159,51 @@ class PerfumeNormalizer:
             if re.search(pattern, title_lower):
                 concentration = PerfumeNormalizer.CONC_MAP[key]
                 break
-        
+
         # 5. Clean Name
         clean_name = title
         clean_name = PerfumeNormalizer.REGEX_VOLUME.sub("", clean_name)
-        for n in PerfumeNormalizer.NOISE:
-            clean_name = re.sub(n, "", clean_name, flags=re.IGNORECASE)
-        
-        if brand: 
-            # Use same smart boundary for removal
-            b_low = brand.lower()
+        # Save pre-noise state as fallback (e.g. "Pour Homme" must survive noise removal)
+        _before_noise = re.sub(r'\s+', ' ', clean_name).strip()
+        for noise_pat in PerfumeNormalizer.NOISE:
+            clean_name = re.sub(noise_pat, "", clean_name, flags=re.IGNORECASE)
+
+        # Strip the brand text that actually appears in the title.
+        # We use brand_in_title (raw detected form) for removal, NOT the explicit_brand,
+        # because if the caller passed explicit_brand the brand text may not be in the title at all.
+        if brand_in_title:
+            b_low = brand_in_title.lower()
             eb = re.escape(b_low)
             start_b = r'\b' if b_low[0].isalnum() else r'(?:^|\s)'
             end_b = r'\b' if b_low[-1].isalnum() else r'(?:\s|$)'
             clean_name = re.sub(f"{start_b}{eb}{end_b}", " ", clean_name, flags=re.IGNORECASE)
-        
+            # Also remove alias-expanded canonical form if it's literally in the title
+            if brand_in_title_canonical and brand_in_title_canonical != brand_in_title:
+                b_low2 = brand_in_title_canonical.lower()
+                eb2 = re.escape(b_low2)
+                start_b2 = r'\b' if b_low2[0].isalnum() else r'(?:^|\s)'
+                end_b2 = r'\b' if b_low2[-1].isalnum() else r'(?:\s|$)'
+                clean_name = re.sub(f"{start_b2}{eb2}{end_b2}", " ", clean_name, flags=re.IGNORECASE)
+
         if concentration:
             for key, val in PerfumeNormalizer.CONC_MAP.items():
                 if val == concentration:
                     clean_name = re.sub(rf'\b{re.escape(key)}\b', "", clean_name, flags=re.IGNORECASE)
+
+        # Brand-segment word cleanup — only when brand was detected FROM THE TITLE
+        # (not from explicit_brand), to avoid incorrectly stripping product-name words.
+        # E.g. "Giorgio Armani Emporio Armani..." → after removing "Giorgio Armani" phrase,
+        # the stray "Armani" still remains; remove it. But "Emporio" is a product word, keep it.
+        # When explicit_brand is given (brand not found in title), we DO NOT have certainty
+        # which brand tokens appear as orphans vs product name words, so we skip this.
+        if brand_in_title:
+            # brand_in_title_canonical may differ from brand (via explicit_brand override),
+            # use canonical of what was actually in the title for orphan cleanup.
+            _cleanup_brand = brand_in_title_canonical or brand_in_title
+            for _bseg in _cleanup_brand.split():
+                if len(_bseg) > 3:  # skip short tokens like "de", "&"
+                    _eb_bseg = re.escape(_bseg.lower())
+                    clean_name = re.sub(rf'\b{_eb_bseg}\b', " ", clean_name, flags=re.IGNORECASE)
 
         clean_name = re.sub(r'\s+', ' ', clean_name).strip()
         
@@ -188,6 +212,43 @@ class PerfumeNormalizer:
         words = clean_name.split()
         filtered_words = [w for w in words if w.lower().strip("-,.") not in generic_words]
         clean_name = " ".join(filtered_words)
+
+        # FALLBACK: trigger if clean_name is empty OR consists only of words
+        # that are part of the brand name (e.g. "HUGO" left over from "Hugo Boss")
+        _brand_words = {w.lower() for w in (brand or "").split() if len(w) > 2}
+        _clean_words = {w.lower().strip("-,.") for w in clean_name.split()}
+        _is_brand_fragment = bool(_clean_words) and _clean_words.issubset(_brand_words)
+
+        if (len(clean_name) <= 2 or _is_brand_fragment) and len(_before_noise) > 2:
+            _fallback = _before_noise
+            # Remove full brand string (phrase)
+            if brand_in_title:
+                b_low_f = brand_in_title.lower()
+                eb_f = re.escape(b_low_f)
+                sb_f = r'\b' if b_low_f[0].isalnum() else r'(?:^|\s)'
+                eb_f2 = r'\b' if b_low_f[-1].isalnum() else r'(?:\s|$)'
+                _fallback = re.sub(f"{sb_f}{eb_f}{eb_f2}", " ", _fallback, flags=re.IGNORECASE)
+            # Remove canonical brand phrase
+            if brand and brand != brand_in_title:
+                b_low_f2 = brand.lower()
+                eb_f3 = re.escape(b_low_f2)
+                sb_f2 = r'\b' if b_low_f2[0].isalnum() else r'(?:^|\s)'
+                eb_f4 = r'\b' if b_low_f2[-1].isalnum() else r'(?:\s|$)'
+                _fallback = re.sub(f"{sb_f2}{eb_f3}{eb_f4}", " ", _fallback, flags=re.IGNORECASE)
+            # Also remove individual brand words (handles partial matches like "HUGO" from "Hugo Boss")
+            for _bw in _brand_words:
+                _fallback = re.sub(rf'\b{re.escape(_bw)}\b', " ", _fallback, flags=re.IGNORECASE)
+            # Remove concentration
+            if concentration:
+                for key, val in PerfumeNormalizer.CONC_MAP.items():
+                    if val == concentration:
+                        _fallback = re.sub(rf'\b{re.escape(key)}\b', "", _fallback, flags=re.IGNORECASE)
+            # Only strip truly useless words — keep 'pour homme', 'man', 'intense', etc.
+            _min_filter = {"eau", "parfum", "edt", "edp", "de", "set"}
+            _fallback = " ".join(w for w in _fallback.split() if w.lower().strip("-,.") not in _min_filter)
+            _fallback = _fallback.strip("-,. |/")
+            if len(_fallback) > 2:
+                clean_name = _fallback
 
         # If clean_name is too short or just common words, it's garbage
         if len(clean_name) <= 2:

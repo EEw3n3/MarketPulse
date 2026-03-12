@@ -6,7 +6,7 @@ from sqlmodel import SQLModel, Field, Relationship
 # --- 1. PRODUCT GROUP (Aggregation for comparison) ---
 class ProductGroup(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(index=True) # Example: "iPhone 15 128GB Black"
+    name: str = Field(index=True, unique=True) # Example: "iPhone 15 128GB Black"
     category: Optional[str] = Field(default="General", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     

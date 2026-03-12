@@ -1112,13 +1112,26 @@ class ScraperService:
                     if match:
                         final_group_id = match.id
                     else:
-                        # Create NEW Group (Chain)
+                        # Create or find group atomically using PostgreSQL upsert.
+                        # ON CONFLICT DO NOTHING prevents duplicate groups from
+                        # concurrent workers racing to create the same perfume group.
                         canonical = matcher_service.get_canonical_name(item["title"], brand=item.get("brand"))
-                        new_group = ProductGroup(name=canonical, category="Perfume")
-                        session.add(new_group)
-                        await session.flush() # Get ID
-                        final_group_id = new_group.id
-                        logger.info(f"✨ Created NEW Chain: {new_group.name}")
+                        from sqlalchemy.dialects.postgresql import insert as pg_insert
+                        from datetime import datetime as _dt
+                        upsert_stmt = pg_insert(ProductGroup).values(
+                            name=canonical,
+                            category="Perfume",
+                            created_at=_dt.utcnow()
+                        ).on_conflict_do_nothing(index_elements=["name"])
+                        await session.execute(upsert_stmt)
+                        await session.flush()
+                        # Re-select to get the ID (works whether INSERT succeeded or was skipped)
+                        result = await session.execute(
+                            select(ProductGroup).where(ProductGroup.name == canonical)
+                        )
+                        resolved_group = result.scalar_one()
+                        final_group_id = resolved_group.id
+                        logger.info(f"✨ Created NEW Chain: {canonical}")
 
             if not product:
                 product = Product(
