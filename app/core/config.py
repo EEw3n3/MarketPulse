@@ -23,6 +23,14 @@ class Settings:
     # Scraping Config
     DEFAULT_TARGET_COUNT: int = 20
     MAX_CONCURRENT_SCRAPES: int = 3
+
+    # Delays between paginated page loads (seconds)
+    PAGE_DELAY_MIN: float = 2.0
+    PAGE_DELAY_MAX: float = 5.0
+
+    # Cooldown when a 429 / 503 rate-limit response is received (seconds)
+    RATE_LIMIT_COOLDOWN_MIN: float = 30.0
+    RATE_LIMIT_COOLDOWN_MAX: float = 60.0
     
     # Check that key is loaded
     def validate(self):

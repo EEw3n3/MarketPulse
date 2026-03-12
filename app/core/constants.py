@@ -35,3 +35,59 @@ COOKIE_ACCEPT_BUTTONS = [
     "#onetrust-accept-btn-handler", 
     ".cookie-consent-accept"
 ]
+
+# --- DOMAINS ---
+# Domains confirmed to be stable and NOT aggressively rate-limiting.
+# These get shorter delays and faster browser mode.
+# NOTE: notino.lv uses Network Interceptor, so it's fast by different means.
+VERIFIED_FAST_DOMAINS: set[str] = {
+    "douglas.lv",
+    "1a.lv",
+    "220.lv",
+    "notino.lv",
+}
+
+# Per-domain deep-dive concurrency limits and delay ranges (min, max) in seconds.
+# Used in scrape_catalog() when scheduling deep dives.
+DOMAIN_DEEP_DIVE_CONFIG: dict[str, dict] = {
+    "douglas.lv": {"concurrent": 2, "delay_min": 1.5, "delay_max": 3.0},
+    "notino.lv":  {"concurrent": 1, "delay_min": 0.5, "delay_max": 1.0},
+    "1a.lv":      {"concurrent": 3, "delay_min": 0.5, "delay_max": 1.0},
+    "220.lv":     {"concurrent": 3, "delay_min": 0.5, "delay_max": 1.0},
+    "makeup.lv":  {"concurrent": 2, "delay_min": 1.0, "delay_max": 2.0},
+    # Default for unknown domains (conservative)
+    "_default":   {"concurrent": 3, "delay_min": 3.0, "delay_max": 5.0},
+}
+
+# --- PRODUCT FILTER ---
+# Keywords that identify non-perfume items to discard entirely.
+# Items whose title contains ANY of these (case-insensitive) are skipped before DB save.
+PRODUCT_BLACKLIST: list[str] = [
+    "dezodorant",
+    "miniatūra",
+    "antiperspirant",
+    "antiseptiķis",
+    "difuzors",
+    "želeja",
+    "losjons",
+    "balzams",
+    "krēms",
+    "aftershave",
+    "after shave",
+    "body lotion",
+    "shower gel",
+    "komplekts",
+]
+
+# --- FALLBACK CSS SELECTORS ---
+# Used when AI-generated rule selectors fail.
+# Covers the most common product card patterns across generic e-commerce sites.
+FALLBACK_CONTAINER_CSS: str = (
+    "li.catalog-products-list__item, li.simple-slider-list__item, "
+    "li.product-item, .product-item, .product-card, .item, article"
+)
+
+FALLBACK_TITLE_CSS: str = (
+    ".product-details__name, .simple-slider-list__name, "
+    "h3, h2, .title, a.title, .name"
+)

@@ -150,25 +150,44 @@ async def main():
                 group_id = group.id
 
             encoded_query = quote_plus(search_term)
-            dynamic_targets = [
-                {
-                    "url": f"https://www.rdveikals.lv/search/lv/word/{encoded_query}/page/1/",
+
+            # Load search targets from config — same source as Hardcore Mode.
+            # Each store can define an optional "search_url_template" with a {query} placeholder.
+            # If absent, the base catalog URL is used (AI will apply intent filtering instead).
+            import json as _json
+            try:
+                with open("configs/categories.json", "r", encoding="utf-8") as _f:
+                    _cats = _json.load(_f)
+                _store_targets = _cats.get("mens_perfume", {}).get("targets", [])
+            except Exception as _e:
+                logger.error(f"❌ Could not load configs/categories.json: {_e}")
+                _store_targets = []
+
+            dynamic_targets = []
+            for _t in _store_targets:
+                # If store has a search template, build a search URL; otherwise use catalog URL
+                _tmpl = _t.get("search_url_template")
+                _url = _tmpl.format(query=encoded_query) if _tmpl else _t["url"]
+                dynamic_targets.append({
+                    "url": _url,
                     "search_term": search_term,
-                    "category": category
-                },
-                {
-                     "url": f"https://www.nike.com/w?q={encoded_query}",
-                     "search_term": search_term,
-                     "category": category
-                }
-            ]
-            
+                    "category": _t.get("category", category),
+                    "site_name": _t.get("site", "Unknown"),
+                })
+
+            if not dynamic_targets:
+                logger.error("❌ No store targets configured in configs/categories.json!")
+                return
+
             from app.core.registry import register_domain
             for t in dynamic_targets: register_domain(t["url"])
 
-            # 4. Launch parallel parsing and pass group_id
+            logger.info(f"🔎 Smart Search across {len(dynamic_targets)} stores: {[t['site_name'] for t in dynamic_targets]}")
+
+            # Launch parallel parsing and pass group_id
             tasks = [asyncio.create_task(process_target_worker(target, intent, group_id, enable_price_filter=True)) for target in dynamic_targets]
             await asyncio.gather(*tasks)
+
 
         elif choice == "2":
             # --- MODE 2: MASS SCRAPING ---

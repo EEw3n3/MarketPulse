@@ -12,6 +12,14 @@ from urllib.parse import urljoin, urlparse
 
 from app.domain.models import ScrapingRule, Product, PriceHistory, SharedPattern, ProductGroup
 from app.core.client import stealth_client
+from app.core.config import settings
+from app.core.constants import (
+    VERIFIED_FAST_DOMAINS,
+    DOMAIN_DEEP_DIVE_CONFIG,
+    PRODUCT_BLACKLIST,
+    FALLBACK_CONTAINER_CSS,
+    FALLBACK_TITLE_CSS,
+)
 
 @dataclass
 class ScrapedItem:
@@ -435,7 +443,6 @@ class ScraperService:
                  logger.warning("Network intercept returned 0 variants. Falling back to DOM parsing.")
 
         html = None
-        VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv"}
         is_verified = any(d in url for d in VERIFIED_FAST_DOMAINS)
         
         if "notino.lv" in url:
@@ -600,6 +607,99 @@ class ScraperService:
                 
         return variants
 
+    def _extract_makeup_variants_from_json(self, html: str, current_url: str) -> list[dict]:
+        import json
+        import re
+        from decimal import Decimal
+        from urllib.parse import urljoin
+        
+        results = []
+        match = re.search(r'__staticQueryClientHydrationData\s*=\s*JSON\.parse\((.*?)\);', html)
+        if not match:
+            return results
+            
+        try:
+            json_str_literal = match.group(1)
+            actual_json_str = json.loads(json_str_literal)
+            data = json.loads(actual_json_str)
+            
+            queries = data.get('queries', [])
+            for q in queries:
+                q_data = q.get('state', {}).get('data', {})
+                items = []
+                if isinstance(q_data, dict):
+                    items = q_data.get('items', [])
+                elif isinstance(q_data, list):
+                    if len(q_data) > 0 and isinstance(q_data[0], dict) and 'items' in q_data[0]:
+                        items = q_data[0].get('items', [])
+                
+                if not items and isinstance(q_data, list):
+                    items = q_data
+                
+                search_items = []
+                if isinstance(items, dict):
+                    for v in items.values():
+                        if isinstance(v, list):
+                            search_items.extend(v)
+                else:
+                    search_items = items
+                    
+                if isinstance(q_data, dict) and 'pages' in q_data:
+                    for p in q_data.get('pages', []):
+                        if 'products' in p:
+                            search_items.extend(p['products'])
+                            
+                for item in search_items:
+                    if not isinstance(item, dict): continue
+                    if 'analytics' not in item or 'title' not in item: continue
+                    
+                    base_title = item.get('title', '')
+                    brand = item.get('brand', {}).get('title', '') if isinstance(item.get('brand'), dict) else ''
+                    link = item.get('link', '')
+                    full_link = urljoin(current_url, link) if link else current_url
+                    
+                    image_url = None
+                    media = item.get('media', [])
+                    if isinstance(media, list) and media:
+                        if isinstance(media[0], dict):
+                            sizes = media[0].get('sizes', {})
+                            image_url = sizes.get('lg', {}).get('url') or media[0].get('url')
+                    elif isinstance(media, dict):
+                        image_url = media.get('url')
+                        
+                    variants_data = item.get('analytics', {}).get('variantsData', {})
+                    if variants_data and isinstance(variants_data, dict):
+                        for v_id, info in variants_data.items():
+                            vol = info.get('value', '')
+                            price_val = Decimal(str(info.get('price', 0))).quantize(Decimal("0.01"))
+                            
+                            results.append({
+                                "base_title": base_title,
+                                "price": price_val,
+                                "is_available": price_val > 0,
+                                "url": full_link,
+                                "image_url": image_url,
+                                "brand": brand,
+                                "volume": vol
+                            })
+                    else:
+                        price_val = Decimal(str(item.get('analytics', {}).get('price', 0))).quantize(Decimal("0.01"))
+                        if price_val > 0:
+                            results.append({
+                                "base_title": base_title,
+                                "price": price_val,
+                                "is_available": True,
+                                "url": full_link,
+                                "image_url": image_url,
+                                "brand": brand,
+                                "volume": item.get('analytics', {}).get('variant', '')
+                            })
+                            
+        except Exception as e:
+            logger.error(f"Failed parsing makeup JSON variants: {e}")
+            
+        return results
+
     async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True, site_name_ui: str = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
@@ -660,19 +760,42 @@ class ScraperService:
             sel = Selector(text=html)
             rule_updated = False
             
-            # 1. CARDS
-            cards, winner = self._try_selectors(sel, rule.container_css)
+            # --- MAKEUP.LV JSON DATA INJECTION ---
+            if "makeup.lv" in domain or "makeup." in domain:
+                makeup_items = self._extract_makeup_variants_from_json(html, current_url)
+                if makeup_items:
+                    logger.success(f"🎯 Makeup JSON parsing yielded {len(makeup_items)} variant entries!")
+                    from app.services.normalizer import perfume_normalizer
+                    
+                    unique_products = set()
+                    
+                    for mi in makeup_items:
+                        lower_title = mi['base_title'].lower()
+                        if any(b in lower_title for b in PRODUCT_BLACKLIST): continue
+                        
+                        unique_products.add(mi['url'])
+                        
+                        base_norm = perfume_normalizer.extract_all(mi["base_title"])
+                        full_title = f"{mi['base_title']} {mi['volume']}".strip()
+                        self._add_candidate(candidates, full_title, mi["price"], mi["is_available"], mi["url"], mi["image_url"], mi["brand"], base_norm)
+                    
+                    processed_cards += len(unique_products)
+                    cards = [] # Emulate no DOM cards to skip the standard loop
+                else:
+                   cards, winner = self._try_selectors(sel, rule.container_css)
+            else:
+                cards, winner = self._try_selectors(sel, rule.container_css)
             
-            if not cards:
+            # 1. CARDS
+            if not cards and not ("makeup." in domain and makeup_items):
                  # Universal fallback for generic store structures
-                 fallback_selectors = "li.catalog-products-list__item, li.simple-slider-list__item, li.product-item, .product-item, .product-card, .item, article"
-                 cards, winner = self._try_selectors(sel, fallback_selectors)
+                 cards, winner = self._try_selectors(sel, FALLBACK_CONTAINER_CSS)
                  if cards and winner:
                      logger.warning(f"🔧 [Auto-Fix] Switching container for {domain}: {rule.container_css} -> {winner}")
                      rule.container_css = winner
                      rule_updated = True
 
-            if not cards:
+            if not cards and not ("makeup." in domain and makeup_items):
                  logger.error(f"❌ Cards not found ({rule.container_css})")
                  break
                  
@@ -695,8 +818,7 @@ class ScraperService:
                         if brand and title and title.upper().startswith(brand.upper()):
                             title = title[len(brand):].strip()
                         if not title:
-                            fallback_title = ".product-details__name, .simple-slider-list__name, h3, h2, .title, a.title, .name"
-                            title_el, winner = self._try_selectors(card, fallback_title)
+                            title_el, winner = self._try_selectors(card, FALLBACK_TITLE_CSS)
                             title = self.extract_clean_text(title_el)
                             if brand and title and title.upper().startswith(brand.upper()):
                                 title = title[len(brand):].strip()
@@ -708,9 +830,8 @@ class ScraperService:
                         
                         # --- HARD FILTER (BLACKLIST) ---
                         # We drop non-perfume items entirely here so they never reach the DB or trigger Deep Dives
-                        BLACKLIST = ["dezodorant", "miniatūra", "antiperspirant", "antiseptiķis", "difuzors", "želeja", "losjons", "balzams", "krēms", "aftershave", "after shave", "body lotion", "shower gel", "komplekts"]
                         lower_title = title.lower()
-                        if any(b in lower_title for b in BLACKLIST):
+                        if any(b in lower_title for b in PRODUCT_BLACKLIST):
                             logger.debug(f"🗑️ Skipping noisy item matching blacklist: {title}")
                             continue
 
@@ -780,20 +901,13 @@ class ScraperService:
 
                 # --- PHASE 2: SEQUENTIAL DEEP DIVES (concurrent = 429 without proxy rotation) ---
                 if deep_dive_queue:
-                    VERIFIED_FAST_DOMAINS = {"douglas.lv", "1a.lv", "220.lv", "notino.lv"}
                     domain_key = urlparse(current_url).netloc.replace("www.", "")
                     
                     # Prevent 429 Too Many Requests by limiting concurrency strictly
-                    concurrent_limit = 5
-                    if domain_key in VERIFIED_FAST_DOMAINS:
-                        if domain_key == "douglas.lv":
-                            def delay_fn(): return random.uniform(1.5, 3.0)
-                            concurrent_limit = 2  # Douglas anti-bot is very sensitive
-                        else:
-                            def delay_fn(): return random.uniform(0.5, 1.0)
-                    else:
-                        def delay_fn(): return random.uniform(3.0, 5.0)
-                        concurrent_limit = 3
+                    # Config looked up from DOMAIN_DEEP_DIVE_CONFIG; falls back to _default for unknown domains
+                    _dd_cfg = DOMAIN_DEEP_DIVE_CONFIG.get(domain_key, DOMAIN_DEEP_DIVE_CONFIG["_default"])
+                    concurrent_limit = _dd_cfg["concurrent"]
+                    def delay_fn(_cfg=_dd_cfg): return random.uniform(_cfg["delay_min"], _cfg["delay_max"])
 
                     logger.info(f"🔍 Concurrent deep dives: {len(deep_dive_queue)} products (limit {concurrent_limit})")
                     
@@ -848,6 +962,10 @@ class ScraperService:
             # --- PAGINATION (Hybrid: Link vs Click) ---
             next_page_link = None
             
+            if "makeup." in domain:
+                # Makeup.lv usually uses distinct pagination link parameters
+                # Or standard fallback
+                pass
             # 1. Try Rule-based selector
             if rule.next_page_css:
                 # Try finding HREF first (Standard link)
@@ -889,7 +1007,7 @@ class ScraperService:
                 await session.commit()
                 
                 logger.info(f"➡️ Navigating to Page {page_number}: {current_url}")
-                await asyncio.sleep(random.uniform(2.0, 5.0))
+                await asyncio.sleep(random.uniform(settings.PAGE_DELAY_MIN, settings.PAGE_DELAY_MAX))
 
             elif next_click_selector:
                 # Case B: JS Click Navigation
@@ -898,7 +1016,7 @@ class ScraperService:
                 html = None
                 
                 logger.info(f"👆 Clicking to Page {page_number}...")
-                await asyncio.sleep(random.uniform(2.0, 5.0))
+                await asyncio.sleep(random.uniform(settings.PAGE_DELAY_MIN, settings.PAGE_DELAY_MAX))
                 
             else:
                 # Case C: End of Road

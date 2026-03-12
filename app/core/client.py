@@ -3,6 +3,7 @@ import random
 from curl_cffi.requests import AsyncSession
 from loguru import logger
 from app.core.proxy import proxy_manager
+from app.core.config import settings
 
 class StealthClient:
     """
@@ -80,7 +81,7 @@ class StealthClient:
 
                 # BAN OR TIMEOUT ERROR
                 if response.status_code in [429, 503]:
-                    wait_time = random.uniform(30, 60)
+                    wait_time = random.uniform(settings.RATE_LIMIT_COOLDOWN_MIN, settings.RATE_LIMIT_COOLDOWN_MAX)
                     logger.warning(f"⛔ Blocking {response.status_code} on {proxy_log}. Entering cooldown for {wait_time:.0f}s...")
                     
                     if self.current_proxy:
