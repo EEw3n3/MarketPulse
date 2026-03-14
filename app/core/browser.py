@@ -39,7 +39,9 @@ class NetworkInterceptor:
             pass
 
 
-class BrowserManager:                                                                                                                                                                                                               
+class BrowserManager:
+    __CF_PATTERN__ = r"^https?://cloudflare\.com/cdn-cgi/challenge-platform/.*"
+                                                                                                                                                                                                               
     def __init__(self) -> None:
         self.playwright: Playwright | None = None
         self.browser: Browser | None = None
@@ -106,6 +108,64 @@ class BrowserManager:
         )
         return context
 
+    async def _solve_cloudflare(self, page: Page) -> bool:
+        """
+        Attempts to solve Cloudflare Turnstile challenge using coordinate-based clicking.
+        Inspired by Scrapling logic.
+        """
+        try:
+            # Check if CF challenge is present
+            content = await page.content()
+            if "Just a moment..." not in content and "Verifying you are human" not in content:
+                return False
+
+            logger.info("🛡️ Cloudflare challenge detected. Attempting to solve...")
+            
+            # Wait for any network activity to settle slightly
+            await asyncio.sleep(2)
+            
+            # Find Turnstile iframe
+            iframe = None
+            for frame in page.frames:
+                import re
+                if re.match(self.__CF_PATTERN__, frame.url):
+                    iframe = frame
+                    break
+            
+            if not iframe:
+                logger.warning("⚠️ Cloudflare iframe not found.")
+                return False
+
+            # Ensure iframe is visible and get bounding box
+            try:
+                # We know iframe is not None here
+                frame_element = await iframe.frame_element()
+                if not frame_element: return False
+                
+                box = await frame_element.bounding_box()
+                if not box: return False
+                
+                # Turnstile checkbox is usually in the top-left area
+                # Scrapling offsets: X + 27, Y + 26
+                click_x = box["x"] + random.randint(25, 30)
+                click_y = box["y"] + random.randint(25, 30)
+                
+                logger.info(f"👆 Clicking Turnstile at ({click_x}, {click_y})")
+                await page.mouse.click(click_x, click_y, delay=random.randint(100, 200))
+                
+                # Wait for the challenge to resolve
+                for _ in range(10):
+                    await asyncio.sleep(1)
+                    if "Just a moment..." not in await page.content():
+                        logger.success("✅ Cloudflare challenge solved!")
+                        return True
+            except Exception as e:
+                logger.error(f"❌ Error during CF solving: {e}")
+                
+            return False
+        except Exception:
+            return False
+
     async def get_page_content(
         self, 
         url: str, 
@@ -114,7 +174,8 @@ class BrowserManager:
         context: BrowserContext | None = None, 
         click_selector: str | None = None, 
         verified_domain: bool = False,
-        intercept_traffic: bool = False
+        intercept_traffic: bool = False,
+        solve_cf: bool = True
     ) -> dict | None:
         """
         Opens the page, potentially clicks a selector, and returns HTML + Final URL.
@@ -152,6 +213,10 @@ class BrowserManager:
             logger.info(f"🚜 Loading page ({'Turbo' if fast_mode else 'Stealth'}): {url}")
             response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
+            # === CLOUDFLARE SOLVER ===
+            if solve_cf:
+                await self._solve_cloudflare(page)
+
             # === AUTO-CONSENT (Cookies) ===
             try:
                 cookie_selectors = [
