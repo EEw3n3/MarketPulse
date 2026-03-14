@@ -1,9 +1,11 @@
 import json
 from urllib.parse import urlparse
+from typing import Optional
 # from openai import AsyncOpenAI
 from google import genai
 from google.genai import types
 from bs4 import BeautifulSoup
+from parsel import Selector
 from loguru import logger
 from sqlmodel import select, desc
 from app.core.config import settings
@@ -14,7 +16,7 @@ class AIGenerator:
         # self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
-    async def get_or_create_rule(self, session, url: str, html_content: str, force_refresh: bool = False, error_hint: str = None) -> ScrapingRule:
+    async def get_or_create_rule(self, session, url: str, html_content: str, force_refresh: bool = False, error_hint: Optional[str] = None) -> Optional[ScrapingRule]:
 
         domain = urlparse(url).netloc.replace("www.", "")
         
@@ -33,8 +35,22 @@ class AIGenerator:
             return rule
             
         new_rule = await self.generate_rule(session, url, html_content, error_hint=error_hint)
-
         
+        # --- VALIDATION LOOP: Ensure rule finds multiple items (Catalog) ---
+        if new_rule:
+            sel = Selector(text=html_content)
+            cards_found = len(sel.css(new_rule.container_css))
+            
+            attempts = 1
+            max_attempts = 3
+            while cards_found < 5 and attempts < max_attempts:
+                logger.warning(f"⚠️ Rule for {domain} only found {cards_found} items. Retrying AI...")
+                attempts += 1
+                hint = f"Your previous container_css '{new_rule.container_css}' only found {cards_found} items. I need a selector for the main product grid (usually 10-50 items)."
+                new_rule = await self.generate_rule(session, url, html_content, error_hint=hint)
+                if not new_rule: break
+                cards_found = len(sel.css(new_rule.container_css))
+
         if new_rule:
             new_rule.domain = domain 
             
@@ -44,13 +60,33 @@ class AIGenerator:
             VERIFIED_DETAIL_RULES = {
                 "douglas.lv": {
                     "use_detail_page": True,
-                    "detail_trigger_text": None,   # ALL products need deep dive — no trigger filtering
+                    "detail_trigger_text": None,
                     "detail_variant_selector": "fieldset.items div.item",
                     "detail_variant_name_css": "span.name",
                     "detail_variant_price_css": "div.price span.now",
                 },
                 "notino.lv": {
                     "use_detail_page": True,
+                },
+                # Verified 2026-03-15 by HTML reverse-engineering (scout_220.py)
+                # SPA (Pigu platform) -- products loaded by browser JS, parsed via widget-data JSON
+                # Price extraction done via _extract_220_from_widget_data() in scraper.py
+                "220.lv": {
+                    "container_css": "div.c-product-card",
+                    "title_css": ".c-product-card__title a",
+                    "price_css": ".c-price:not(.h-price--loyalty)",  # fallback only; widget-data preferred
+                    "image_css": "img.c-product-card__image",
+                    "next_page_css": "[class*=pagination] a:last-child",
+                },
+                # Verified 2026-03-15 by HTML reverse-engineering (analyze_1a.py)
+                # Container: 48/48 cards confirmed, BEM class naming pattern
+                # Price: SmartNet loyalty price (best price shown to user)
+                "1a.lv": {
+                    "container_css": "div.catalog-taxons-product",
+                    "title_css": "a.catalog-taxons-product__name",
+                    "price_css": "span.catalog-taxons-product-price__price-number",
+                    "image_css": "img.catalog-taxons-product__image",
+                    "next_page_css": "a.paginator__next",
                 }
             }
             if domain in VERIFIED_DETAIL_RULES:
@@ -154,9 +190,9 @@ class AIGenerator:
         
         CRITICAL RULES:
         1. **Stability**: Prefer `data-testid`, `id`, `itemprop` or meaningful class names (e.g. 'product-card', 'price') over random hashes (e.g. 'css-1x2y3z').
-        2. **Container**: Find the REPEATING element that wraps a single product. It must appear multiple times.
+        2. **Container**: Find the REPEATING element that wraps a single product in the MAIN catalog grid. It must appear multiple times (usually 10-50 times).
         3. **Precision**: Title, Price, and Image selectors must be RELATIVE to the Container.
-        4. **Anti-Noise**: Ignore "Recommended", "Recently Viewed", or "Cart" sidebars. Focus on the MAIN CATALOG GRID.
+        4. **Anti-Noise**: IGNORE single items, "Recommended" blocks, "Recently Viewed" carousels, or "Cart" sidebars. They often have different structures. Focus ONLY on the primary product grid.
         5. **Variants**: Check if price has a prefix like "sākot no", "from", "ab". This indicates multiple options. Return this keyword.
         
         PAGINATION STRATEGY (CRITICAL):

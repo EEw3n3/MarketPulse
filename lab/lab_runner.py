@@ -86,25 +86,58 @@ async def run_lab_test(site_url: str, limit: int = 50):
     await browser_manager.stop()
     await stealth_client.close()
 
+async def clear_rule(session, domain: str):
+    """Delete any existing (potentially stale) rule for a domain before re-testing."""
+    from sqlmodel import select
+    stmt = select(ScrapingRule).where(ScrapingRule.domain == domain)
+    result = await session.execute(stmt)
+    rule = result.scalar_one_or_none()
+    if rule:
+        await session.delete(rule)
+        await session.commit()
+        logger.warning(f"🗑️  Cleared stale rule for {domain}")
+
 async def main():
     if not os.path.exists('lab'):
         os.makedirs('lab')
         
     await init_lab_db()
     
-    # --- HERE YOU CAN SET THE TARGET ---
-    # Tested Enterprise URLs for Reference:
-    # url_makeup = "https://makeup.lv/categorys/3218/"
-    # url_notino = "https://www.notino.lv/viriesu-smarzas/"
-    # url_douglas = "https://www.douglas.lv/lv/katalogs/smarzas/viriesu-smarzas/smarzas/?filter=10:107"
+    # --- SITES TO TEST ---
+    # Comment/uncomment as needed. force_refresh=True purges any stale DB rule first.
+    test_sites = [
+        {
+            "url": "https://www.1a.lv/c/smarzas-un-kosmetika/viriesu-smarzas/viriesu-smarzas/30j",
+            "label": "1A.LV",
+            "force_refresh": True,  # Always flush stale rule before lab test
+            "limit": 50,
+        },
+        # 220.lv — SPA (Pigu platform), requires browser rendering
+        # URL confirmed by user 2026-03-15
+        {
+            "url": "https://220.lv/lv/smarzas/viriesu_smarzas",
+            "label": "220.LV",
+            "force_refresh": True,
+            "limit": 50,
+        },
+    ]
     
-    target_url = "https://makeup.lv/categorys/3218/"
-    
-    print("\n" + "="*50)
-    print(f"🧪 MARKETPULSE LABORATORY: {target_url}")
-    print("="*50)
-    
-    await run_lab_test(target_url, limit=120)
+    async_session = sessionmaker(lab_engine, class_=AsyncSession, expire_on_commit=False)
+
+    for site in test_sites:
+        print("\n" + "="*55)
+        print(f"  🧪 MARKETPULSE LABORATORY: {site['label']}")
+        print(f"  URL: {site['url']}")
+        print("="*55)
+
+        # Force-clear old rule so VERIFIED_DETAIL_RULES override is always applied
+        if site.get("force_refresh"):
+            async with async_session() as session:
+                from urllib.parse import urlparse
+                domain = urlparse(site["url"]).netloc.replace("www.", "")
+                await clear_rule(session, domain)
+
+        await run_lab_test(site["url"], limit=site["limit"])
 
 if __name__ == "__main__":
     if sys.platform == 'win32':

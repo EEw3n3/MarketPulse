@@ -733,6 +733,55 @@ class ScraperService:
             
         return results
 
+    def _extract_220_from_widget_data(self, html: str) -> list[dict]:
+        """
+        220.lv is a SPA (Pigu platform). Each product card has a `widget-data`
+        attribute containing a full JSON object with clean decimal prices.
+
+        We use `regular_price` (publicly accessible non-loyalty price) rather
+        than `price` (loyalty/PLUS members only) for fair cross-site comparison.
+        """
+        import json
+        from parsel import Selector
+
+        results = []
+        sel = Selector(text=html)
+
+        for card in sel.css('div.c-product-card[widget-data]'):
+            try:
+                data = json.loads(card.attrib['widget-data'])
+                dl = data.get('dataLayerItem', {})
+
+                title     = data.get('title', '').strip()
+                url       = data.get('url', '')
+                image_url = data.get('photoUrl', '')
+                brand     = dl.get('item_brand', '')
+                status    = dl.get('item_status', 'active')
+
+                # regular_price = standard retail price (non-loyalty)
+                # price         = loyalty/PLUS member price (requires subscription)
+                regular_price = Decimal(str(dl.get('regular_price') or 0)).quantize(Decimal('0.01'))
+                sell_price    = Decimal(str(dl.get('price') or 0)).quantize(Decimal('0.01'))
+
+                # Use regular_price as the reference; fall back to sell_price if missing
+                final_price = regular_price if regular_price > 0 else sell_price
+                is_available = status == 'active' and final_price > 0
+
+                if title and final_price > 0:
+                    results.append({
+                        'base_title': title,
+                        'price':      final_price,
+                        'is_available': is_available,
+                        'url':        url,
+                        'image_url':  image_url,
+                        'brand':      brand,
+                        'volume':     '',   # volume embedded in title for this site
+                    })
+            except Exception as e:
+                logger.debug(f'220.lv widget-data parse error: {e}')
+
+        return results
+
     async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True, site_name_ui: str = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
@@ -793,8 +842,28 @@ class ScraperService:
             sel = Selector(text=html)
             rule_updated = False
             
+            # --- 220.LV WIDGET-DATA JSON INJECTION (SPA / Pigu platform) ---
+            if "220.lv" in domain:
+                items_220 = self._extract_220_from_widget_data(html)
+                if items_220:
+                    logger.success(f"🏪 220.lv widget-data yielded {len(items_220)} products!")
+                    from app.services.normalizer import perfume_normalizer
+                    unique_products_220 = set()
+                    for mi in items_220:
+                        lower_title = mi['base_title'].lower()
+                        if any(b in lower_title for b in PRODUCT_BLACKLIST): continue
+                        unique_products_220.add(mi['url'])
+                        base_norm = perfume_normalizer.extract_all(mi['base_title'])
+                        full_title = f"{mi['base_title']} {mi['volume']}".strip()
+                        self._add_candidate(candidates, full_title, mi['price'], mi['is_available'], mi['url'], mi['image_url'], mi['brand'], base_norm)
+                    processed_cards += len(unique_products_220)
+                    cards = []  # Skip standard DOM loop
+                else:
+                    logger.warning("⚠️ 220.lv widget-data yielded 0 items — falling back to DOM selectors")
+                    cards, winner = self._try_selectors(sel, rule.container_css)
+
             # --- MAKEUP.LV JSON DATA INJECTION ---
-            if "makeup.lv" in domain or "makeup." in domain:
+            elif "makeup.lv" in domain or "makeup." in domain:
                 makeup_items = self._extract_makeup_variants_from_json(html, current_url)
                 if makeup_items:
                     logger.success(f"🎯 Makeup JSON parsing yielded {len(makeup_items)} variant entries!")
@@ -1145,17 +1214,30 @@ class ScraperService:
                     if match:
                         final_group_id = match.id
                     else:
-                        # Create or find group atomically using PostgreSQL upsert.
+                        # Create or find group atomically.
                         # ON CONFLICT DO NOTHING prevents duplicate groups from
                         # concurrent workers racing to create the same perfume group.
                         canonical = matcher_service.get_canonical_name(item["title"], brand=item.get("brand"))
+                        
                         from sqlalchemy.dialects.postgresql import insert as pg_insert
+                        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
                         from datetime import datetime as _dt
-                        upsert_stmt = pg_insert(ProductGroup).values(
+                        
+                        # Dialect-aware UPSERT
+                        is_sqlite = session.bind.dialect.name == "sqlite"
+                        insert_fn = sqlite_insert if is_sqlite else pg_insert
+                        
+                        upsert_stmt = insert_fn(ProductGroup).values(
                             name=canonical,
                             category="Perfume",
                             created_at=_dt.utcnow()
-                        ).on_conflict_do_nothing(index_elements=["name"])
+                        )
+                        
+                        if is_sqlite:
+                            upsert_stmt = upsert_stmt.on_conflict_do_nothing(index_elements=["name"])
+                        else:
+                            upsert_stmt = upsert_stmt.on_conflict_do_nothing(index_elements=["name"])
+                            
                         await session.execute(upsert_stmt)
                         await session.flush()
                         # Re-select to get the ID (works whether INSERT succeeded or was skipped)
@@ -1302,6 +1384,12 @@ class ScraperService:
                 context=browser_context, 
                 click_selector=click_selector
              )
+
+        # 220.lv is a SPA — stealth client returns empty product shell (200 OK but no cards).
+        # Must always use full browser for correct rendering.
+        if "220.lv" in url:
+            from app.core.browser import browser_manager
+            return await browser_manager.get_page_content(url, fast_mode=fast_mode, context=browser_context)
 
         # Otherwise try stealth client (fast) first, but return dict format
         html = await stealth_client.get_page(url)
