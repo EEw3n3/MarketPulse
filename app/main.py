@@ -118,9 +118,10 @@ async def main():
     print("1. 🎯 Smart Search (Interactive Search)")
     print("2. 🚜 Mass Scraping (Category Training / Mass Scrape)")
     print("3. ☠️  HARDCORE MODE (Full Market Monitor - Auto Match)")
+    print("4. 🕰️  AUTO MODE (24/7 Scheduled Scrape)")
     print("-" * 50)
     
-    choice = input("👉 Select option (1 or 2): ").strip()
+    choice = input("👉 Select option (1, 2, 3, or 4): ").strip()
     
     await init_db()
     await stealth_client.init_session()
@@ -277,10 +278,30 @@ async def main():
                     await asyncio.sleep(0.5)
                 
                 await asyncio.gather(*tasks)
+
+        elif choice == "4":
+            # --- MODE 4: AUTO MODE (24/7 SCHEDULER) ---
+            logger.remove()
+            logger.add("scheduler.log", rotation="5 MB")
+            logger.info("🕰️ Starting Auto Mode...")
+            
+            from app.services.scheduler import scheduler_service
+            scheduler_service.start(interval_hours=12) # For example, every 12 hours
+            
+            # Keep event loop running forever
+            try:
+                while True:
+                    await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                scheduler_service.stop()
+                raise
         
         else:
             logger.error("Invalid mode selection.")
             return
+
+        if choice == "4":
+            return # Scheduler mode doesn't need to run the final analysis once
 
         # 5. FINAL ANALYSIS (only for search mode, or if data exists)
         logger.info("\n📊 GROUP REPORT GENERATION...")

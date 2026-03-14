@@ -266,7 +266,8 @@ class ScraperService:
             await asyncio.sleep(0.5) # Wait for initial trackers 
             
             # Find and click variants
-            variant_els = await page.locator("div[data-testid*='variant'], span[class*='variant'], .pd-variant-label").all()
+            # Expanded selectors to include visual image tiles (Scandal Elixir style)
+            variant_els = await page.locator("div[data-testid*='variant'], span[class*='variant'], .pd-variant-label, [data-testid='product-variants'] > div, div[class*='VariantContainer'] > div").all()
             if not variant_els:
                 variant_els = await page.locator("div:has-text(' ml'), button:has-text(' ml')").all()
                 
@@ -389,24 +390,56 @@ class ScraperService:
                         "is_available": dom_data.get("available", True)
                     })
                     
-            # Phase 5: Single Product Fallback (No buttons)
-            import re
+            # Phase 5: Single Product Fallback (No buttons/variants)
+            # Notino Single Variant Logic: Handle special volume location and promo prices
             if not variants:
                 try:
-                    price_text = await page.locator("[data-testid='price-component']").first.inner_text(timeout=2000)
-                    price_val = self.parse_price(price_text) if hasattr(self, 'parse_price') else 0.0
-                    if not price_val:
-                        m_pr = re.search(r'(\d+[,.]\d+)', price_text)
-                        if m_pr: price_val = float(m_pr.group(1).replace(',', '.'))
+                    # 1. Price Extraction (Prioritize Promo Price with Code)
+                    price_val = 0.0
+                    
+                    # Direct JS check for promo block (e.g. "31,87 € ar kodu TOP")
+                    # We look for the lowest price shown in the BuyBox area
+                    price_val = await page.evaluate('''() => {
+                        // Priority 1: Red promo price text
+                        let promoEl = document.querySelector('div[class*="PromoPrice"], [data-testid*="promo-price"], span[class*="promo-price"]');
+                        if (promoEl && promoEl.innerText.includes('€')) {
+                             let m = promoEl.innerText.match(/(\d+[,.]\d+)/);
+                             if (m) return parseFloat(m[1].replace(',', '.'));
+                        }
                         
-                    full_text = await page.evaluate("document.body.innerText")
-                    units_pattern = '|'.join(MEASUREMENT_UNITS)
-                    m_vol = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', full_text, re.IGNORECASE)
+                        // Priority 2: Standard price component
+                        let stdEl = document.querySelector('[data-testid="price-component"]');
+                        if (stdEl) {
+                             let m = stdEl.innerText.match(/(\d+[,.]\d+)/);
+                             if (m) return parseFloat(m[1].replace(',', '.'));
+                        }
+                        return 0;
+                    }''')
+                        
+                    # 2. Volume Extraction (Prioritize #pdSelectedVariant with JS override)
+                    # Playwright inner_text() sometimes misses hidden-but-present text in React
+                    vol_text = await page.evaluate('''() => {
+                        let el = document.querySelector('#pdSelectedVariant');
+                        return el ? el.innerText : '';
+                    }''')
+                    
                     vol = ""
-                    if m_vol:
-                        vol = m_vol.group(1).lower().replace(' ', '')
-                        unit_match = m_vol.group(2).lower()
-                        vol = vol.replace(unit_match, f' {unit_match}')
+                    units_pattern = '|'.join(MEASUREMENT_UNITS)
+                    if vol_text:
+                        m_sv = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', vol_text, re.IGNORECASE)
+                        if m_sv:
+                            vol = m_sv.group(1).lower().replace(' ', '')
+                            unit_m = m_sv.group(2).lower()
+                            vol = vol.replace(unit_m, f' {unit_m}')
+                    
+                    if not vol:
+                        # Fallback: scan whole page
+                        full_text = await page.evaluate("document.body.innerText")
+                        m_vol = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', full_text, re.IGNORECASE)
+                        if m_vol:
+                            vol = m_vol.group(1).lower().replace(' ', '')
+                            unit_match = m_vol.group(2).lower()
+                            vol = vol.replace(unit_match, f' {unit_match}')
                         
                     if price_val:
                         variants.append({
@@ -414,8 +447,8 @@ class ScraperService:
                             "price": Decimal(str(price_val)).quantize(Decimal("0.01")),
                             "is_available": True
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Single product fallback failed: {e}")
         except Exception as e:
             logger.error(f"Network intercept failed for {url}: {e}")
         finally:

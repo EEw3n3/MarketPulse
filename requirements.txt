@@ -19,3 +19,4 @@ alembic
 playwright-stealth==1.0.6
 beautifulsoup4==4.12.3
 rich
+apscheduler
