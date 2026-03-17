@@ -107,18 +107,10 @@ async def main():
     # Comment/uncomment as needed. force_refresh=True purges any stale DB rule first.
     test_sites = [
         {
-            "url": "https://www.1a.lv/c/smarzas-un-kosmetika/viriesu-smarzas/viriesu-smarzas/30j",
-            "label": "1A.LV",
-            "force_refresh": True,  # Always flush stale rule before lab test
-            "limit": 50,
-        },
-        # 220.lv — SPA (Pigu platform), requires browser rendering
-        # URL confirmed by user 2026-03-15
-        {
-            "url": "https://220.lv/lv/smarzas/viriesu_smarzas",
-            "label": "220.LV",
+            "url": "https://www.notino.lv/viriesu-smarzas/",
+            "label": "Notino.lv",
             "force_refresh": True,
-            "limit": 50,
+            "limit": 20,
         },
     ]
     

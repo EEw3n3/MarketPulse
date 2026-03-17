@@ -16,14 +16,20 @@ from app.domain.models import ScrapingRule, Product, PriceHistory
 LAB_DB_URL = "sqlite+aiosqlite:///lab/lab_test.db"
 lab_engine = create_async_engine(LAB_DB_URL, echo=False)
 
-USE_COLOR = sys.stdout.isatty()
+# Force colors off to avoid terminal-specific artifacts like 'X' appearing in logs/output
+USE_COLOR = False
 
 def col(code: str, text: str) -> str:
-    return f"\033[{code}m{text}\033[0m" if USE_COLOR else text
+    if not USE_COLOR:
+        return text
+    # Standard ANSI escape codes: \033[...m
+    return f"\033[{code}m{text}\033[0m"
 
 # Pad PLAIN text first, then apply color — avoids ANSI width miscalculation
 def pc(code: str, text: str, width: int = 0, align: str = "<") -> str:
-    padded = f"{text:{align}{width}}" if width else text
+    # Using raw f-string with padding can sometimes include escape characters in width calculation
+    # if not careful. But here we pad the PLAIN text first.
+    padded = f"{text:{align}{width}}" if width > 0 else text
     return col(code, padded)
 
 CYAN    = lambda t, w=0: pc("96", t, w)
@@ -59,11 +65,16 @@ async def inspect():
         rules_result = await session.execute(select(ScrapingRule))
         rules = {r.domain: r for r in rules_result.scalars().all()}
 
+        # Filter by freshness: only products seen in the last 15 minutes
+        from datetime import datetime, timedelta
+        fresh_threshold = datetime.utcnow() - timedelta(minutes=15)
+
         stmt = (
             select(Product)
+            .where(Product.last_seen >= fresh_threshold)
             .options(selectinload(Product.history))
             .order_by(Product.id.desc())
-            .limit(200)
+            .limit(500)
         )
         products = (await session.execute(stmt)).scalars().all()
 
@@ -105,7 +116,8 @@ async def inspect():
         print(DIM("  " + "─" * W))
 
         for p in sorted(prods, key=lambda x: -x.id):
-            rec = p.history[-1] if p.history else None
+            # Safe access to history
+            rec = p.history[-1] if (hasattr(p, 'history') and p.history) else None
 
             id_str     = str(p.id).ljust(6)
             brand_str  = trunc(p.brand or "—", 20).ljust(20)

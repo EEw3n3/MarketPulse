@@ -46,6 +46,9 @@ class AIGenerator:
                 "detail_variant_price_css": "div.price span.now",
             },
             "notino.lv": {
+                "container_css": "[data-testid='product-container']",
+                "title_css": "h3",
+                "price_css": "span[data-testid='price-component']",
                 "use_detail_page": True,
             },
             # Verified 2026-03-15 by HTML reverse-engineering (scout_220.py)
