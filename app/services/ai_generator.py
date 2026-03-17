@@ -19,28 +19,76 @@ class AIGenerator:
     async def get_or_create_rule(self, session, url: str, html_content: str, force_refresh: bool = False, error_hint: Optional[str] = None) -> Optional[ScrapingRule]:
 
         domain = urlparse(url).netloc.replace("www.", "")
-        
+
         statement = select(ScrapingRule).where(ScrapingRule.domain == domain)
         result = await session.execute(statement)
         rule = result.scalar_one_or_none()
-        
+
         if rule and force_refresh:
             logger.warning(f"♻️ Deleting old rule for {domain}...")
             await session.delete(rule)
             await session.commit()
             rule = None
-        
+
         if rule:
             logger.info(f"📍 Found rule for {domain}")
             return rule
-            
+
+        # --- VERIFIED FAST-PATH: Skip AI entirely for known domains ---
+        # These selectors are ground-truth confirmed by manual HTML inspection.
+        # Checking FIRST avoids wasting 3×15s = 45s on AI calls that get overridden anyway.
+        VERIFIED_DETAIL_RULES = {
+            "douglas.lv": {
+                "use_detail_page": True,
+                "detail_trigger_text": None,
+                "detail_variant_selector": "fieldset.items div.item",
+                "detail_variant_name_css": "span.name",
+                "detail_variant_price_css": "div.price span.now",
+            },
+            "notino.lv": {
+                "use_detail_page": True,
+            },
+            # Verified 2026-03-15 by HTML reverse-engineering (scout_220.py)
+            # SPA (Pigu platform) -- products loaded by browser JS, parsed via widget-data JSON
+            # Price extraction done via _extract_220_from_widget_data() in scraper.py
+            "220.lv": {
+                "container_css": "div.c-product-card",
+                "title_css": ".c-product-card__title a",
+                "price_css": ".c-price:not(.h-price--loyalty)",  # fallback only; widget-data preferred
+                "image_css": "img.c-product-card__image",
+                "next_page_css": "[class*=pagination] a:last-child",
+            },
+            # Verified 2026-03-15 by HTML reverse-engineering (analyze_1a.py)
+            # Container: 48/48 cards confirmed, BEM class naming pattern
+            "1a.lv": {
+                "container_css": "div.catalog-taxons-product",
+                "title_css": "a.catalog-taxons-product__name",
+                "price_css": "span.catalog-taxons-product-price__price-number",
+                "image_css": "img.catalog-taxons-product__image",
+                "next_page_css": "a.paginator__next",
+            }
+        }
+
+        if domain in VERIFIED_DETAIL_RULES:
+            # Skip AI — build rule directly from verified selectors
+            logger.info(f"⚡ VERIFIED fast-path for {domain} — skipping AI generation")
+            override = VERIFIED_DETAIL_RULES[domain]
+            new_rule = ScrapingRule(domain=domain)
+            for field, value in override.items():
+                setattr(new_rule, field, value)
+            session.add(new_rule)
+            await session.commit()
+            await session.refresh(new_rule)
+            logger.success(f"🔩 VERIFIED rule created instantly for {domain}")
+            return new_rule
+
         new_rule = await self.generate_rule(session, url, html_content, error_hint=error_hint)
-        
+
         # --- VALIDATION LOOP: Ensure rule finds multiple items (Catalog) ---
         if new_rule:
             sel = Selector(text=html_content)
             cards_found = len(sel.css(new_rule.container_css))
-            
+
             attempts = 1
             max_attempts = 3
             while cards_found < 5 and attempts < max_attempts:
@@ -52,55 +100,13 @@ class AIGenerator:
                 cards_found = len(sel.css(new_rule.container_css))
 
         if new_rule:
-            new_rule.domain = domain 
-            
-            # --- VERIFIED OVERRIDES: Hand-verified selectors for known domains ---
-            # These are ground-truth selectors confirmed by manual HTML inspection.
-            # They override any AI guesses to guarantee correctness.
-            VERIFIED_DETAIL_RULES = {
-                "douglas.lv": {
-                    "use_detail_page": True,
-                    "detail_trigger_text": None,
-                    "detail_variant_selector": "fieldset.items div.item",
-                    "detail_variant_name_css": "span.name",
-                    "detail_variant_price_css": "div.price span.now",
-                },
-                "notino.lv": {
-                    "use_detail_page": True,
-                },
-                # Verified 2026-03-15 by HTML reverse-engineering (scout_220.py)
-                # SPA (Pigu platform) -- products loaded by browser JS, parsed via widget-data JSON
-                # Price extraction done via _extract_220_from_widget_data() in scraper.py
-                "220.lv": {
-                    "container_css": "div.c-product-card",
-                    "title_css": ".c-product-card__title a",
-                    "price_css": ".c-price:not(.h-price--loyalty)",  # fallback only; widget-data preferred
-                    "image_css": "img.c-product-card__image",
-                    "next_page_css": "[class*=pagination] a:last-child",
-                },
-                # Verified 2026-03-15 by HTML reverse-engineering (analyze_1a.py)
-                # Container: 48/48 cards confirmed, BEM class naming pattern
-                # Price: SmartNet loyalty price (best price shown to user)
-                "1a.lv": {
-                    "container_css": "div.catalog-taxons-product",
-                    "title_css": "a.catalog-taxons-product__name",
-                    "price_css": "span.catalog-taxons-product-price__price-number",
-                    "image_css": "img.catalog-taxons-product__image",
-                    "next_page_css": "a.paginator__next",
-                }
-            }
-            if domain in VERIFIED_DETAIL_RULES:
-                override = VERIFIED_DETAIL_RULES[domain]
-                for field, value in override.items():
-                    setattr(new_rule, field, value)
-                logger.success(f"🔩 Applied VERIFIED selectors for {domain}")
-            
+            new_rule.domain = domain
             session.add(new_rule)
             await session.commit()
             await session.refresh(new_rule)
             logger.success(f"💾 New rule for {domain} saved.")
             return new_rule
-            
+
         return None
 
     def simplify_html(self, soup: BeautifulSoup) -> str:
