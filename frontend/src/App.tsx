@@ -4,7 +4,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
+import Favorites from "./pages/Favorites.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
+import Catalog from "./pages/Catalog.tsx";
+import Analytics from "./pages/Analytics.tsx";
 import ProductAnalytics from "./pages/ProductAnalytics.tsx";
 import Settings from "./pages/Settings.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -20,7 +23,10 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/catalog" element={<Catalog />} />
+          <Route path="/analytics" element={<Analytics />} />
           <Route path="/product/:id" element={<ProductAnalytics />} />
+          <Route path="/favorites" element={<Favorites />} />
           <Route path="/settings" element={<Settings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

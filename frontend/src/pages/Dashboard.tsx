@@ -8,6 +8,7 @@ import ProductFeed from "@/components/dashboard/ProductFeed";
 import GuidedTutorial from "@/components/dashboard/GuidedTutorial";
 import MobileBottomNav from "@/components/dashboard/MobileBottomNav";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAiPanel } from "@/hooks/use-ai-panel";
 
 export default function Dashboard() {
   const location = useLocation();
@@ -16,7 +17,7 @@ export default function Dashboard() {
   const [showTutorial, setShowTutorial] = useState(
     !!(location.state as any)?.showTutorial
   );
-  const [aiPanelOpen, setAiPanelOpen] = useState(!isMobile);
+  const { aiPanelOpen, setAiPanelOpen } = useAiPanel(isMobile);
 
   const openSettings = () => navigate("/settings");
 

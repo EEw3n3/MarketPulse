@@ -7,13 +7,16 @@ import PriceChart from "@/components/product/PriceChart";
 import ExportModal from "@/components/product/ExportModal";
 import TrackModal from "@/components/product/TrackModal";
 import MobileBottomNav from "@/components/dashboard/MobileBottomNav";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useAiPanel } from "@/hooks/use-ai-panel";
 
 export default function ProductAnalytics() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [exportOpen, setExportOpen] = useState(false);
   const [trackOpen, setTrackOpen] = useState(false);
   const [period, setPeriod] = useState<string>("1M");
-  const [aiPanelOpen, setAiPanelOpen] = useState(true);
+  const { aiPanelOpen, setAiPanelOpen } = useAiPanel(isMobile);
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">

@@ -1,132 +1,233 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
+import logoImg from "@/assets/logo.png";
 import { useNavigate } from "react-router-dom";
-import { ArrowDown, Bot, ChevronRight, Bell, BarChart3, MessageSquare, Droplets } from "lucide-react";
+import {
+  ChevronRight,
+  Bell,
+  BarChart3,
+  MessageSquare,
+  ArrowDown,
+  ArrowUp,
+  Download,
+  Share2,
+  TrendingDown,
+  Store,
+  Bot,
+  Shield,
+  Zap,
+  Eye,
+} from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import AuthModal from "@/components/AuthModal";
 import OnboardingModal from "@/components/OnboardingModal";
 import OnboardingStep2 from "@/components/OnboardingStep2";
 
-/* ── Starfield ────────────────────────────────────────────────── */
-const Stars = () => {
-  const stars = useMemo(
-    () =>
-      Array.from({ length: 40 }, (_, i) => ({
-        id: i,
-        left: Math.random() * 100,
-        top: Math.random() * 100,
-        size: 1 + Math.random() * 2,
-        delay: Math.random() * 6,
-        duration: 3 + Math.random() * 4,
-      })),
-    [],
-  );
+/* ── Scroll-triggered fade-in ─────────────────────────────────── */
+const useFadeIn = () => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
 
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.15 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  return { ref, className: visible ? "animate-fade-in" : "opacity-0" };
+};
+
+const Section = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => {
+  const fade = useFadeIn();
   return (
-    <div className="pointer-events-none fixed inset-0 overflow-hidden z-0" aria-hidden>
-      {stars.map((s) => (
-        <span
-          key={s.id}
-          className="absolute rounded-full bg-foreground/30 animate-twinkle"
-          style={{
-            left: `${s.left}%`,
-            top: `${s.top}%`,
-            width: s.size,
-            height: s.size,
-            animationDelay: `${s.delay}s`,
-            animationDuration: `${s.duration}s`,
-          }}
-        />
-      ))}
-    </div>
+    <section ref={fade.ref} className={`${fade.className} ${className}`}>
+      {children}
+    </section>
   );
 };
 
-/* ── Mini Price Chart (SVG) ───────────────────────────────────── */
-const MiniChart = () => (
-  <svg viewBox="0 0 200 80" className="w-full h-full" fill="none">
-    <defs>
-      <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="hsl(var(--success))" stopOpacity="0.3" />
-        <stop offset="100%" stopColor="hsl(var(--success))" stopOpacity="0" />
-      </linearGradient>
-    </defs>
-    <path
-      d="M0 60 Q20 55 40 50 T80 35 T120 40 T160 20 T200 25"
-      stroke="hsl(var(--success))"
-      strokeWidth="2"
-      strokeLinecap="round"
-    />
-    <path
-      d="M0 60 Q20 55 40 50 T80 35 T120 40 T160 20 T200 25 V80 H0Z"
-      fill="url(#chartGrad)"
-    />
-  </svg>
-);
-
-/* ── Showcase Cards ───────────────────────────────────────────── */
-const ShowcaseCards = () => (
-  <div className="flex flex-col sm:flex-row items-center justify-center gap-5 mt-14 px-4">
-    {/* Product card */}
-    <div className="glass-card p-5 w-64 animate-float" style={{ animationDelay: "0s", transform: "rotate(-12deg)" }}>
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-          <Droplets className="w-3.5 h-3.5 text-primary" />
-          Dior Sauvage EDP
-        </span>
-        <span className="inline-flex items-center gap-1 text-xs font-semibold text-success bg-success/10 px-2 py-0.5 rounded-button">
-          <ArrowDown className="w-3 h-3" /> 8.5%
-        </span>
-      </div>
-      <p className="font-display text-3xl font-bold tracking-tightest price-display text-foreground">125.00 €</p>
-      <p className="text-xs text-muted-foreground mt-2">Douglas · 3 min ago</p>
+/* ── Mini UI Mockups ──────────────────────────────────────────── */
+const PriceDropCard = () => (
+  <div className="glass-card p-4 space-y-3">
+    <div className="flex items-center justify-between">
+      <span className="text-xs font-medium text-muted-foreground">Dior Sauvage EDP</span>
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">
+        <ArrowDown className="w-3 h-3" /> 8.5%
+      </span>
     </div>
-
-    {/* Mini chart card */}
-    <div className="glass-card p-5 w-64 animate-float" style={{ animationDelay: "1s", transform: "rotate(4deg)" }}>
-      <p className="text-xs font-medium text-muted-foreground mb-2">30-Day Price Trend</p>
-      <div className="h-20">
-        <MiniChart />
-      </div>
-      <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
-        <span>Feb 14</span>
-        <span>Mar 16</span>
-      </div>
-    </div>
-
-    {/* AI chat preview */}
-    <div className="glass-card p-5 w-64 animate-float" style={{ animationDelay: "2s", transform: "rotate(20deg)" }}>
-      <div className="flex items-center gap-2 mb-3">
-        <Bot className="w-4 h-4 text-primary" />
-        <span className="text-xs font-medium text-muted-foreground">AI Assistant</span>
-      </div>
-      <div className="bg-surface-2 rounded-lg p-2.5 mb-2">
-        <p className="text-xs text-foreground">"When was the last price drop for Bleu de Chanel?"</p>
-      </div>
-      <div className="bg-primary/10 rounded-lg p-2.5">
-        <p className="text-xs text-foreground">
-          "It dropped 12% on Mar 2 at Notino — from 98€ to 86€."
-        </p>
-      </div>
+    <p className="font-display text-2xl font-bold text-foreground price-display">125.00 €</p>
+    <div className="flex items-center gap-2">
+      <div className="h-1 flex-1 rounded-full bg-success/20"><div className="h-full w-3/4 rounded-full bg-success" /></div>
+      <span className="text-[10px] text-muted-foreground">Best in 30d</span>
     </div>
   </div>
 );
 
-/* ── Features Row ─────────────────────────────────────────────── */
-const features = [
-  {
-    icon: Bell,
-    title: "Instant Alerts",
-    desc: "Telegram, SMS & Email notifications the moment prices change.",
-  },
-  {
-    icon: BarChart3,
-    title: "Price History",
-    desc: "Full year of historical charts across all major retailers.",
-  },
-  {
-    icon: MessageSquare,
-    title: "AI Assistant",
-    desc: "Ask anything about market data — powered by intelligent analysis.",
-  },
+const ComparisonTable = () => (
+  <div className="glass-card p-4 space-y-2">
+    <p className="text-xs font-semibold text-foreground mb-2">Store Comparison</p>
+    {[
+      { store: "Douglas.lv", price: "125.00 €", best: true },
+      { store: "Notino.lv", price: "129.99 €", best: false },
+      { store: "1a.lv", price: "134.95 €", best: false },
+    ].map((r) => (
+      <div key={r.store} className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${r.best ? "bg-success/10 border border-success/20" : "bg-surface-2"}`}>
+        <span className={r.best ? "text-success font-semibold" : "text-muted-foreground"}>{r.store}</span>
+        <span className={r.best ? "text-success font-bold" : "text-foreground"}>{r.price}</span>
+      </div>
+    ))}
+  </div>
+);
+
+const AiChatPreview = () => (
+  <div className="glass-card p-4 space-y-3">
+    <div className="flex items-center gap-2 mb-1">
+      <Bot className="w-4 h-4 text-primary" />
+      <span className="text-xs font-medium text-muted-foreground">AI Assistant</span>
+    </div>
+    <div className="bg-surface-2 rounded-lg p-2.5">
+      <p className="text-[11px] text-foreground">"What's the cheapest Hugo Boss right now?"</p>
+    </div>
+    <div className="bg-primary/10 rounded-lg p-2.5">
+      <p className="text-[11px] text-foreground">"Hugo Boss Bottled EDP is 62.90 € at Notino — lowest in 3 months."</p>
+    </div>
+  </div>
+);
+
+const ExportPreview = () => (
+  <div className="glass-card p-4 space-y-3">
+    <p className="text-xs font-semibold text-foreground">Export Formats</p>
+    <div className="grid grid-cols-2 gap-2">
+      {["📊 CSV", "📋 Excel", "📄 PDF", "🔗 JSON"].map((f) => (
+        <div key={f} className="bg-surface-2 rounded-lg px-3 py-2 text-[11px] text-muted-foreground text-center">{f}</div>
+      ))}
+    </div>
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <Download className="w-3 h-3" /> <span>One-click download</span>
+      <Share2 className="w-3 h-3 ml-2" /> <span>Share link</span>
+    </div>
+  </div>
+);
+
+/* ── Dashboard Preview (for "Built to Work for You") ──────────── */
+const DashboardPreview = () => (
+  <div className="glass-card p-5 space-y-3">
+    <div className="flex items-center gap-3 mb-2">
+      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center"><BarChart3 className="w-4 h-4 text-primary" /></div>
+      <div>
+        <p className="text-sm font-semibold text-foreground">Live Dashboard</p>
+        <p className="text-[10px] text-muted-foreground">Updated 2 min ago</p>
+      </div>
+    </div>
+    {[
+      { name: "Dior Sauvage EDP", price: "125.00 €", change: -7.4 },
+      { name: "Bleu de Chanel", price: "98.50 €", change: -3.2 },
+      { name: "Tom Ford Oud Wood", price: "189.00 €", change: 2.1 },
+    ].map((p) => (
+      <div key={p.name} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+        <span className="text-xs text-foreground">{p.name}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-foreground price-display">{p.price}</span>
+          <span className={`text-[10px] font-semibold ${p.change < 0 ? "text-success" : "text-destructive"}`}>
+            {p.change < 0 ? "↓" : "↑"} {Math.abs(p.change)}%
+          </span>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+/* ── Tab Previews ─────────────────────────────────────────────── */
+const DashboardTabContent = () => (
+  <div className="glass-card overflow-hidden">
+    <div className="grid grid-cols-4 gap-0 text-[11px] font-semibold text-muted-foreground border-b border-border px-4 py-3">
+      <span>Product</span><span>Store</span><span className="text-right">Price</span><span className="text-right">Change</span>
+    </div>
+    {[
+      { product: "Dior Sauvage EDP 100ml", store: "Douglas", price: "125.00 €", change: "-7.4%", down: true },
+      { product: "Bleu de Chanel EDT 50ml", store: "Notino", price: "72.90 €", change: "-3.2%", down: true },
+      { product: "Hugo Boss Bottled EDP", store: "1a.lv", price: "62.90 €", change: "+1.5%", down: false },
+      { product: "Tom Ford Oud Wood 50ml", store: "Douglas", price: "189.00 €", change: "-12.0%", down: true },
+      { product: "YSL La Nuit 100ml", store: "Notino", price: "88.50 €", change: "+0.8%", down: false },
+    ].map((r, i) => (
+      <div key={i} className="grid grid-cols-4 gap-0 text-xs px-4 py-3 border-b border-border/50 last:border-0 hover:bg-surface-2/50 transition-colors">
+        <span className="text-foreground font-medium truncate pr-2">{r.product}</span>
+        <span className="text-muted-foreground">{r.store}</span>
+        <span className="text-right text-foreground font-semibold price-display">{r.price}</span>
+        <span className={`text-right font-semibold ${r.down ? "text-success" : "text-destructive"}`}>{r.change}</span>
+      </div>
+    ))}
+  </div>
+);
+
+const ChartsTabContent = () => (
+  <div className="glass-card p-6">
+    <div className="flex items-center justify-between mb-4">
+      <p className="text-sm font-semibold text-foreground">Dior Sauvage EDP — 90 Day Trend</p>
+      <div className="flex gap-1">
+        {["1M", "3M", "6M"].map((p) => (
+          <span key={p} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${p === "3M" ? "bg-primary text-primary-foreground" : "bg-surface-2 text-muted-foreground"}`}>{p}</span>
+        ))}
+      </div>
+    </div>
+    <svg viewBox="0 0 400 120" className="w-full" fill="none">
+      <defs>
+        <linearGradient id="lgFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="hsl(263,70%,58%)" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="hsl(263,70%,58%)" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="lgStroke" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="hsl(263,70%,58%)" />
+          <stop offset="100%" stopColor="hsl(187,94%,43%)" />
+        </linearGradient>
+      </defs>
+      <path d="M0 90 Q30 85 60 75 T120 60 T180 55 T240 40 T300 45 T360 30 T400 35" stroke="url(#lgStroke)" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M0 90 Q30 85 60 75 T120 60 T180 55 T240 40 T300 45 T360 30 T400 35 V120 H0Z" fill="url(#lgFill)" />
+    </svg>
+    <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
+      <span>Dec 22</span><span>Jan 15</span><span>Feb 8</span><span>Mar 1</span><span>Mar 22</span>
+    </div>
+  </div>
+);
+
+const AlertsTabContent = () => (
+  <div className="glass-card p-5 space-y-3">
+    {[
+      { icon: ArrowDown, text: "Dior Sauvage dropped to 125.00 € at Douglas", time: "3 min ago", color: "text-success" },
+      { icon: ArrowDown, text: "Bleu de Chanel dropped to 72.90 € at Notino", time: "1 hour ago", color: "text-success" },
+      { icon: ArrowUp, text: "Hugo Boss Bottled rose to 64.90 € at 1a.lv", time: "5 hours ago", color: "text-destructive" },
+      { icon: ArrowDown, text: "Tom Ford Oud Wood dropped to 189.00 € at Douglas", time: "1 day ago", color: "text-success" },
+    ].map((a, i) => (
+      <div key={i} className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
+        <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center ${a.color === "text-success" ? "bg-success/10" : "bg-destructive/10"}`}>
+          <a.icon className={`w-3 h-3 ${a.color}`} />
+        </div>
+        <div className="flex-1">
+          <p className="text-xs text-foreground">{a.text}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{a.time}</p>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+/* ── Features Data ────────────────────────────────────────────── */
+const featureGrid = [
+  { icon: TrendingDown, title: "Track Price Drops", desc: "Get instant alerts when prices fall across all monitored stores.", preview: PriceDropCard },
+  { icon: Store, title: "Compare Across Stores", desc: "See side-by-side pricing from Douglas, Notino, 1a.lv and more.", preview: ComparisonTable },
+  { icon: Bot, title: "AI-Powered Insights", desc: "Ask natural questions about pricing trends and get instant answers.", preview: AiChatPreview },
+  { icon: Download, title: "Export & Share", desc: "Download price history in CSV, Excel, PDF or JSON format.", preview: ExportPreview },
+];
+
+const bottomFeatures = [
+  { icon: Shield, title: "Reliable & Accurate", desc: "Prices are checked every 15 minutes across all stores. You always see the freshest data." },
+  { icon: Zap, title: "Lightning Fast", desc: "Sub-second search and real-time updates. No waiting, no refreshing." },
+  { icon: Eye, title: "Full Transparency", desc: "Complete price history with no hidden data. See every change, every day." },
+  { icon: Bell, title: "Smart Notifications", desc: "Telegram, SMS, or email — choose how and when you want to be notified." },
 ];
 
 /* ── Page ─────────────────────────────────────────────────────── */
@@ -136,132 +237,192 @@ const Index = () => {
   const [onboardingStep, setOnboardingStep] = useState<null | 1 | 2>(null);
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <div className="relative min-h-screen bg-background">
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onRegister={() => { setAuthOpen(false); setOnboardingStep(1); }} onSignIn={() => navigate("/dashboard")} />
       <OnboardingModal open={onboardingStep === 1} onClose={() => setOnboardingStep(null)} onNext={() => setOnboardingStep(2)} />
       <OnboardingStep2 open={onboardingStep === 2} onClose={() => { setOnboardingStep(null); navigate("/dashboard", { state: { showTutorial: true } }); }} onBack={() => setOnboardingStep(1)} />
-      {/* Animated gradient background */}
-      <div
-        className="fixed inset-0 z-0 animate-gradient-shift"
-        style={{
-          background: "linear-gradient(135deg, #0A0A0F 0%, #1a0533 50%, #0A0A0F 100%)",
-          backgroundSize: "200% 200%",
-        }}
-      />
-      <Stars />
 
-      {/* Sticky Header */}
-      <header className="sticky top-0 z-50 h-16 flex items-center justify-between px-5 md:px-10 border-b border-border/50 bg-background/60 backdrop-blur-xl">
-        <div className="flex items-center gap-2.5">
-          {/* Hexagon logo */}
-          <svg width="28" height="32" viewBox="0 0 28 32" fill="none" className="shrink-0">
-            <path
-              d="M14 0L27.856 8V24L14 32L0.144 24V8L14 0Z"
-              fill="hsl(var(--primary))"
-            />
-            <text
-              x="14"
-              y="20"
-              textAnchor="middle"
-              fill="white"
-              fontSize="14"
-              fontWeight="700"
-              fontFamily="Outfit, sans-serif"
-            >
-              M
-            </text>
-          </svg>
-          <span className="font-display text-xl font-bold text-foreground">
-            Market<span className="text-primary">Pulse</span>
-          </span>
+      {/* ─── Header ─── */}
+      <header className="sticky top-0 z-50 h-16 flex items-center justify-between px-5 md:px-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-2.5">
+            <img src={logoImg} alt="MarketPulse" className="h-9 w-auto shrink-0" />
+            <span className="font-display text-xl font-bold text-foreground">
+              Market<span className="text-primary">Pulse</span>
+            </span>
+          </div>
+          <nav className="hidden md:flex items-center gap-6">
+            {["Use Cases", "Pricing", "Docs"].map((l) => (
+              <a key={l} href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">{l}</a>
+            ))}
+          </nav>
         </div>
-
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setAuthOpen(true)}
-            className="hidden sm:inline-flex items-center justify-center text-sm font-medium border border-primary text-primary rounded-button px-4 py-2 transition-all ease-brand hover:bg-primary/10"
-          >
+          <button onClick={() => setAuthOpen(true)} className="hidden sm:inline-flex items-center justify-center text-sm font-medium border border-primary text-primary rounded-button px-4 py-2 transition-all hover:bg-primary/10">
             Sign In
           </button>
-          <button
-            onClick={() => setAuthOpen(true)}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button onClick={() => setAuthOpen(true)} className="btn-primary text-sm px-5 py-2">
             Get Started
           </button>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="relative z-10 flex flex-col items-center justify-center text-center px-5" style={{ minHeight: "calc(80vh - 64px)" }}>
-        {/* Badge */}
-        <div
-          className="inline-flex items-center gap-2 border border-secondary/40 rounded-full px-4 py-1.5 mb-8 opacity-0 animate-fade-in"
-          style={{ animationDelay: "0.1s" }}
-        >
-          <span className="text-secondary text-sm">✦</span>
-          <span className="text-xs text-muted-foreground font-medium">Real-time price monitoring</span>
+      {/* ─── Hero ─── */}
+      <section className="relative z-10 max-w-7xl mx-auto px-5 md:px-10 pt-20 md:pt-32 pb-20">
+        <div className="grid md:grid-cols-2 gap-12 items-center">
+          <div className="animate-fade-in">
+            <div className="inline-flex items-center gap-2 border border-primary/30 rounded-full px-4 py-1.5 mb-6">
+              <span className="text-primary text-sm">✦</span>
+              <span className="text-xs text-muted-foreground font-medium">Real-time price monitoring</span>
+            </div>
+            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight leading-[1.1] text-foreground">
+              The intelligent
+              <br />
+              <span className="gradient-text">perfume price</span>
+              <br />
+              tracker.
+            </h1>
+            <p className="mt-6 text-base text-muted-foreground max-w-lg leading-relaxed">
+              MarketPulse monitors prices across Douglas, Notino, 220.lv, Makeup.lv, and 1a.lv. Be the first to know about drops and never overpay again.
+            </p>
+            <div className="flex items-center gap-4 mt-8">
+              <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-8 py-3.5 hover:scale-[1.03] transition-transform">
+                Start for Free <ChevronRight className="w-4 h-4 ml-1 inline" />
+              </button>
+              <button onClick={() => setAuthOpen(true)} className="inline-flex items-center justify-center text-sm font-medium border border-border text-foreground rounded-button px-6 py-3.5 transition-all hover:bg-surface-2">
+                See Demo
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-4">No credit card required · Free forever for 5 products</p>
+          </div>
+          <div className="hidden md:block animate-fade-in" style={{ animationDelay: "0.3s" }}>
+            <DashboardPreview />
+          </div>
         </div>
-
-        {/* H1 */}
-        <h1
-          className="font-display text-5xl md:text-6xl font-extrabold tracking-tightest leading-[1.1] opacity-0 animate-fade-in"
-          style={{ animationDelay: "0.25s" }}
-        >
-          Track Prices.
-          <br />
-          Shop <span className="gradient-text">Smarter.</span>
-        </h1>
-
-        {/* Subheadline */}
-        <p
-          className="mt-5 text-[15px] text-muted-foreground max-w-[520px] leading-relaxed opacity-0 animate-fade-in"
-          style={{ animationDelay: "0.4s" }}
-        >
-          MarketPulse monitors perfume prices across Douglas, Notino, 220.lv, Makeup.lv, and 1a.lv. Be the first to know about drops and changes.
-        </p>
-
-        {/* CTA */}
-        <div className="mt-8 opacity-0 animate-fade-in" style={{ animationDelay: "0.55s" }}>
-          <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-8 py-3.5 hover:scale-[1.04] transition-transform ease-brand">
-            Start for Free <ChevronRight className="w-4 h-4 ml-1 inline" />
-          </button>
-          <p className="text-[11px] text-muted-foreground mt-3">Takes 30 seconds. No credit card required.</p>
-        </div>
-
       </section>
 
-      {/* Showcase — separated from hero */}
-      <section className="relative z-10 pb-12 opacity-0 animate-fade-in" style={{ animationDelay: "0.7s" }}>
-        <ShowcaseCards />
-      </section>
+      {/* ─── Meet MarketPulse ─── */}
+      <Section className="py-24 px-5 md:px-10">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Meet MarketPulse</h2>
+            <p className="mt-4 text-muted-foreground max-w-xl mx-auto">Everything you need to track perfume prices intelligently.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-6">
+            {featureGrid.map((f) => (
+              <div key={f.title} className="glass-card p-6 hover:-translate-y-1 transition-transform">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <f.icon className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-base font-bold text-foreground">{f.title}</h3>
+                    <p className="text-xs text-muted-foreground">{f.desc}</p>
+                  </div>
+                </div>
+                <f.preview />
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
 
-      {/* Features */}
-      <section className="relative z-10 py-24 px-5">
-        <div className="max-w-4xl mx-auto grid sm:grid-cols-3 gap-6">
-          {features.map((f, i) => (
-            <div
-              key={f.title}
-              className="glass-card p-6 text-center opacity-0 animate-fade-in"
-              style={{ animationDelay: `${0.9 + i * 0.15}s` }}
-            >
+      {/* ─── Built to Work for You ─── */}
+      <Section className="py-24 px-5 md:px-10">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">
+                Built to Work
+                <br />
+                <span className="gradient-text">for You</span>
+              </h2>
+              <p className="mt-4 text-muted-foreground leading-relaxed max-w-md">
+                Whether you're a perfume enthusiast or a reseller, MarketPulse gives you the tools to make smarter purchasing decisions every day.
+              </p>
+              <ul className="mt-6 space-y-3">
+                {["Monitor 5+ stores simultaneously", "AI-powered price predictions", "Instant alerts via Telegram & email", "Historical data spanning 12+ months"].map((item) => (
+                  <li key={item} className="flex items-center gap-3 text-sm text-foreground">
+                    <span className="w-5 h-5 rounded-full bg-success/10 flex items-center justify-center text-success text-xs">✓</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="glass-card p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                <span className="text-xs font-semibold text-foreground">Smart Notifications</span>
+              </div>
+              {[
+                { text: "🔔 Dior Sauvage dropped 8.5% at Douglas", time: "Just now", highlight: true },
+                { text: "📊 Weekly digest: 3 price drops in your watchlist", time: "2 hours ago", highlight: false },
+                { text: "🔔 Bleu de Chanel at historic low (72.90 €)", time: "Yesterday", highlight: false },
+              ].map((n, i) => (
+                <div key={i} className={`flex items-center justify-between py-3 border-b border-border/50 last:border-0 ${n.highlight ? "bg-primary/5 -mx-2 px-2 rounded-lg" : ""}`}>
+                  <span className="text-xs text-foreground">{n.text}</span>
+                  <span className="text-[10px] text-muted-foreground ml-3 shrink-0">{n.time}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ─── Your Price Dashboard ─── */}
+      <Section className="py-24 px-5 md:px-10">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-10">
+            <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Your Price Dashboard</h2>
+            <p className="mt-4 text-muted-foreground">A glimpse of what's waiting for you inside.</p>
+          </div>
+          <Tabs defaultValue="dashboard" className="w-full">
+            <TabsList className="mx-auto flex w-fit bg-surface-2 rounded-full p-1 mb-8">
+              <TabsTrigger value="dashboard" className="rounded-full px-5 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Dashboard</TabsTrigger>
+              <TabsTrigger value="charts" className="rounded-full px-5 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Charts</TabsTrigger>
+              <TabsTrigger value="alerts" className="rounded-full px-5 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Alerts</TabsTrigger>
+            </TabsList>
+            <TabsContent value="dashboard"><DashboardTabContent /></TabsContent>
+            <TabsContent value="charts"><ChartsTabContent /></TabsContent>
+            <TabsContent value="alerts"><AlertsTabContent /></TabsContent>
+          </Tabs>
+        </div>
+      </Section>
+
+      {/* ─── Bottom Features ─── */}
+      <Section className="py-24 px-5 md:px-10">
+        <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {bottomFeatures.map((f) => (
+            <div key={f.title} className="glass-card p-6 text-center hover:-translate-y-1 transition-transform">
               <div className="inline-flex items-center justify-center w-11 h-11 rounded-card bg-primary/10 mb-4">
                 <f.icon className="w-5 h-5 text-primary" />
               </div>
-              <h3 className="font-display text-lg font-bold text-foreground mb-2">{f.title}</h3>
+              <h3 className="font-display text-base font-bold text-foreground mb-2">{f.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>
-      </section>
+      </Section>
 
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-border/50 py-6 px-5">
-        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+      {/* ─── CTA ─── */}
+      <Section className="py-24 px-5 md:px-10">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Ready to save on every purchase?</h2>
+          <p className="mt-4 text-muted-foreground">Join thousands of smart shoppers tracking perfume prices in real time.</p>
+          <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-10 py-4 mt-8 hover:scale-[1.03] transition-transform">
+            Get Started — It's Free <ChevronRight className="w-4 h-4 ml-1 inline" />
+          </button>
+        </div>
+      </Section>
+
+      {/* ─── Footer ─── */}
+      <footer className="border-t border-border/50 py-8 px-5 md:px-10">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
           <span>© 2026 MarketPulse</span>
-          <div className="flex gap-5">
-            <a href="#" className="hover:text-foreground transition-colors ease-brand">Privacy</a>
-            <a href="#" className="hover:text-foreground transition-colors ease-brand">Terms</a>
+          <div className="flex gap-6">
+            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
+            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
+            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </div>
       </footer>

@@ -1,14 +1,15 @@
 import { LayoutDashboard, Package, BarChart2, Heart, Settings } from "lucide-react";
+import logoImg from "@/assets/logo.png";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
-  { icon: Package, label: "Catalog", id: "catalog" },
-  { icon: BarChart2, label: "Analytics", id: "analytics" },
-  { icon: Heart, label: "Favorites", id: "favorites" },
-  { icon: Settings, label: "Settings", id: "settings" },
+  { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", path: "/dashboard" },
+  { icon: Package, label: "Catalog", id: "catalog", path: "/catalog" },
+  { icon: BarChart2, label: "Analytics", id: "analytics", path: "/analytics" },
+  { icon: Heart, label: "Favorites", id: "favorites", path: "/favorites" },
+  { icon: Settings, label: "Settings", id: "settings", path: "/settings" },
 ];
 
 interface DashboardSidebarProps {
@@ -16,32 +17,24 @@ interface DashboardSidebarProps {
 }
 
 export default function DashboardSidebar({ onSettingsClick }: DashboardSidebarProps) {
-  const [active, setActive] = useState("dashboard");
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const getActiveId = () => {
+    if (location.pathname === "/catalog") return "catalog";
+    if (location.pathname === "/analytics") return "analytics";
+    if (location.pathname === "/favorites") return "favorites";
+    if (location.pathname === "/settings") return "settings";
+    return "dashboard";
+  };
+
+  const active = getActiveId();
 
   return (
     <aside className="w-16 h-full flex flex-col items-center bg-surface border-r border-border shrink-0 hidden md:flex">
       {/* Logo */}
       <div className="h-16 flex items-center justify-center">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <polygon
-            points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5"
-            fill="hsl(263 70% 58%)"
-            opacity="0.15"
-            stroke="hsl(263 70% 58%)"
-            strokeWidth="1.5"
-          />
-          <text
-            x="16"
-            y="21"
-            textAnchor="middle"
-            fill="hsl(263 70% 58%)"
-            fontSize="14"
-            fontWeight="700"
-            fontFamily="Outfit, sans-serif"
-          >
-            M
-          </text>
-        </svg>
+        <img src={logoImg} alt="MarketPulse" className="h-9 w-auto" />
       </div>
 
       {/* Nav */}
@@ -51,8 +44,11 @@ export default function DashboardSidebar({ onSettingsClick }: DashboardSidebarPr
             <TooltipTrigger asChild>
               <button
                 onClick={() => {
-                  setActive(item.id);
-                  if (item.id === "settings" && onSettingsClick) onSettingsClick();
+                  if (item.id === "settings" && onSettingsClick) {
+                    onSettingsClick();
+                  } else {
+                    navigate(item.path);
+                  }
                 }}
                 className={cn(
                   "w-10 h-10 rounded-full flex items-center justify-center transition-colors relative",
