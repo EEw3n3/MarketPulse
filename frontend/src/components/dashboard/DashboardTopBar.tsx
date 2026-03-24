@@ -19,8 +19,8 @@ export default function DashboardTopBar({ onSettingsClick, onAiToggle, aiPanelOp
   return (
     <header className="h-16 flex items-center px-6 bg-surface border-b border-border shrink-0">
       {/* Left */}
-      <h2 className="text-lg text-foreground font-medium whitespace-nowrap">
-        Good evening, Ervin 👋
+      <h2 className="text-lg text-foreground font-display font-bold tracking-tight whitespace-nowrap">
+        Good evening, Ervin
       </h2>
 
       {/* Center */}
@@ -39,7 +39,7 @@ export default function DashboardTopBar({ onSettingsClick, onAiToggle, aiPanelOp
             onBlur={() => setSearchFocused(false)}
             className="w-full h-10 pl-9 pr-16 rounded-card bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] border border-border text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground bg-surface-2 px-1.5 py-0.5 rounded">
+          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground bg-surface border border-border/50 px-1.5 py-0.5 rounded shadow-sm hover:text-foreground transition-colors cursor-default">
             Ctrl+K
           </kbd>
         </div>
@@ -50,7 +50,7 @@ export default function DashboardTopBar({ onSettingsClick, onAiToggle, aiPanelOp
         {/* Bell */}
         <button className="relative w-10 h-10 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors">
           <Bell size={20} />
-          <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground flex items-center justify-center animate-badge-bounce">
+          <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground flex items-center justify-center animate-badge-bounce ring-2 ring-surface">
             3
           </span>
         </button>

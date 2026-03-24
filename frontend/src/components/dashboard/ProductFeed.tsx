@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { RefreshCw, ChevronLeft, ChevronRight, Package } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type Product = {
@@ -60,8 +60,8 @@ function ProductCard({ product, small = false }: { product: Product; small?: boo
       {...(!small && product.id === 1 ? { "data-tutorial": "product-card" } : {})}
     >
       <div className={`${imgHeight} bg-surface-2 relative overflow-hidden rounded-t-xl flex items-center justify-center`}>
-        <div className="text-muted-foreground text-xs opacity-40 select-none">📦</div>
-        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white flex items-center justify-center">
+        <Package className="text-muted-foreground opacity-20" size={small ? 32 : 48} strokeWidth={1.5} />
+        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white flex items-center justify-center shadow-sm">
           <span className="text-[9px] font-bold text-[hsl(240,50%,14%)]">{product.storeInitial}</span>
         </div>
         <div
@@ -74,17 +74,17 @@ function ProductCard({ product, small = false }: { product: Product; small?: boo
           {product.changeDirection === "down" ? "↓" : "↑"} {product.changeDirection === "down" ? "−" : "+"}
           {product.changePercent}%
         </div>
-        <div className="absolute inset-0 bg-primary/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-          <span className="text-primary-foreground text-sm font-semibold">Learn More →</span>
+        <div className="absolute inset-0 bg-gradient-to-t from-background/95 via-background/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
+          <span className="text-primary-foreground text-sm font-semibold translate-y-2 group-hover:translate-y-0 transition-transform duration-300">Learn More →</span>
         </div>
       </div>
       <div className={`${small ? "p-2" : "p-3"} flex flex-col gap-1`}>
         <span className="text-[11px] uppercase tracking-widest text-muted-foreground">{product.brand}</span>
         <span className={`${small ? "text-xs" : "text-[13px]"} font-semibold text-foreground line-clamp-2`}>{product.title}</span>
-        <span className={`${priceSize} font-bold font-['Outfit',sans-serif] ${product.changeDirection === "down" ? "text-[hsl(var(--success))]" : "text-foreground"}`}>
+        <span className={`${priceSize} font-bold font-display tabular-nums tracking-tight ${product.changeDirection === "down" ? "text-[hsl(var(--success))]" : "text-foreground"}`}>
           {product.currentPrice.toFixed(2)} €
         </span>
-        <span className="text-[11px] text-muted-foreground line-through">{product.previousPrice.toFixed(2)} €</span>
+        <span className="text-[11px] text-muted-foreground line-through tabular-nums">{product.previousPrice.toFixed(2)} €</span>
       </div>
     </div>
   );
@@ -157,7 +157,7 @@ export default function ProductFeed() {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-6 pt-6 pb-3">
-        <h2 className="text-lg font-bold font-['Outfit',sans-serif] text-foreground">Latest Changes</h2>
+        <h2 className="text-lg font-bold font-display tracking-tight text-foreground">Latest Changes</h2>
         <div className="flex items-center gap-1 text-[13px] text-muted-foreground">
           <RefreshCw size={14} />
           Updated 3 minutes ago

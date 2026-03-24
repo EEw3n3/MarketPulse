@@ -16,6 +16,11 @@ import {
   Shield,
   Zap,
   Eye,
+  Check,
+  FileSpreadsheet,
+  FileText,
+  FileJson,
+  File,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import AuthModal from "@/components/AuthModal";
@@ -47,6 +52,52 @@ const Section = ({ children, className = "" }: { children: React.ReactNode; clas
     <section ref={fade.ref} className={`${fade.className} ${className}`}>
       {children}
     </section>
+  );
+};
+
+/* ── Animated counter hook (count up when visible) ───────────── */
+const useCountUp = (target: number, duration = 1200) => {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [count, setCount] = useState(0);
+  const [started, setStarted] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setStarted(true); obs.disconnect(); } },
+      { threshold: 0.3 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!started) return;
+    let start = 0;
+    const step = Math.ceil(target / (duration / 16));
+    const timer = setInterval(() => {
+      start += step;
+      if (start >= target) { setCount(target); clearInterval(timer); }
+      else setCount(start);
+    }, 16);
+    return () => clearInterval(timer);
+  }, [started, target, duration]);
+
+  return { ref, count };
+};
+
+/* ── Stats counter item ───────────────────────────────────────── */
+const StatItem = ({ value, suffix, label }: { value: number; suffix: string; label: string }) => {
+  const { ref, count } = useCountUp(value);
+  return (
+    <div className="text-center px-8 py-6">
+      <p className="font-display text-3xl md:text-4xl font-extrabold stat-number">
+        <span ref={ref}>{count}</span>
+        <span>{suffix}</span>
+      </p>
+      <p className="text-xs text-muted-foreground mt-1.5 font-medium tracking-wide uppercase">{label}</p>
+    </div>
   );
 };
 
@@ -98,12 +149,21 @@ const AiChatPreview = () => (
   </div>
 );
 
+/* ExportPreview — Lucide SVG icons replacing emoji */
 const ExportPreview = () => (
   <div className="glass-card p-4 space-y-3">
     <p className="text-xs font-semibold text-foreground">Export Formats</p>
     <div className="grid grid-cols-2 gap-2">
-      {["📊 CSV", "📋 Excel", "📄 PDF", "🔗 JSON"].map((f) => (
-        <div key={f} className="bg-surface-2 rounded-lg px-3 py-2 text-[11px] text-muted-foreground text-center">{f}</div>
+      {[
+        { icon: FileSpreadsheet, label: "CSV" },
+        { icon: File, label: "Excel" },
+        { icon: FileText, label: "PDF" },
+        { icon: FileJson, label: "JSON" },
+      ].map(({ icon: Icon, label }) => (
+        <div key={label} className="bg-surface-2 rounded-lg px-3 py-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
+          <Icon className="w-3.5 h-3.5 shrink-0" />
+          {label}
+        </div>
       ))}
     </div>
     <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -113,7 +173,7 @@ const ExportPreview = () => (
   </div>
 );
 
-/* ── Dashboard Preview (for "Built to Work for You") ──────────── */
+/* ── Dashboard Preview (for Hero) ────────────────────────────── */
 const DashboardPreview = () => (
   <div className="glass-card p-5 space-y-3">
     <div className="flex items-center gap-3 mb-2">
@@ -224,7 +284,7 @@ const featureGrid = [
 ];
 
 const bottomFeatures = [
-  { icon: Shield, title: "Reliable & Accurate", desc: "Prices are checked every 15 minutes across all stores. You always see the freshest data." },
+  { icon: Shield, title: "Reliable & Accurate", desc: "Prices are scanned twice daily across all stores. You always see fresh, verified data." },
   { icon: Zap, title: "Lightning Fast", desc: "Sub-second search and real-time updates. No waiting, no refreshing." },
   { icon: Eye, title: "Full Transparency", desc: "Complete price history with no hidden data. See every change, every day." },
   { icon: Bell, title: "Smart Notifications", desc: "Telegram, SMS, or email — choose how and when you want to be notified." },
@@ -237,7 +297,7 @@ const Index = () => {
   const [onboardingStep, setOnboardingStep] = useState<null | 1 | 2>(null);
 
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-screen bg-background overflow-x-hidden">
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onRegister={() => { setAuthOpen(false); setOnboardingStep(1); }} onSignIn={() => navigate("/dashboard")} />
       <OnboardingModal open={onboardingStep === 1} onClose={() => setOnboardingStep(null)} onNext={() => setOnboardingStep(2)} />
       <OnboardingStep2 open={onboardingStep === 2} onClose={() => { setOnboardingStep(null); navigate("/dashboard", { state: { showTutorial: true } }); }} onBack={() => setOnboardingStep(1)} />
@@ -269,48 +329,117 @@ const Index = () => {
 
       {/* ─── Hero ─── */}
       <section className="relative z-10 max-w-7xl mx-auto px-5 md:px-10 pt-20 md:pt-32 pb-20">
-        <div className="grid md:grid-cols-2 gap-12 items-center">
+        {/* Background blobs */}
+        <div
+          className="hero-blob w-[500px] h-[500px] top-[-120px] right-[-100px] opacity-[0.09]"
+          style={{ background: "hsl(263 70% 58%)" }}
+        />
+        <div
+          className="hero-blob w-[400px] h-[400px] bottom-[-80px] left-[-80px] opacity-[0.07]"
+          style={{ background: "hsl(187 94% 43%)" }}
+        />
+
+        {/* 60 / 40 asymmetric grid — left col wider */}
+        <div className="relative z-10 grid md:grid-cols-[1fr_0.7fr] gap-10 items-center">
           <div className="animate-fade-in">
-            <div className="inline-flex items-center gap-2 border border-primary/30 rounded-full px-4 py-1.5 mb-6">
+            {/* Top badge */}
+            <div className="inline-flex items-center gap-2 border border-primary/30 rounded-full px-4 py-1.5 mb-5">
               <span className="text-primary text-sm">✦</span>
-              <span className="text-xs text-muted-foreground font-medium">Real-time price monitoring</span>
+              <span className="text-xs text-muted-foreground font-medium">Latvian perfume price intelligence</span>
             </div>
+
+            {/* Stats bar */}
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              {[
+                { dot: true, text: "5 stores monitored" },
+                { dot: false, text: "1,200+ perfumes" },
+                { dot: false, text: "2× daily scan" },
+              ].map((s, i) => (
+                <span key={i} className="badge-pill">
+                  {s.dot && <span className="dot" />}
+                  {s.text}
+                </span>
+              ))}
+            </div>
+
             <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight leading-[1.1] text-foreground">
-              The intelligent
+              Stop guessing
               <br />
-              <span className="gradient-text">perfume price</span>
+              <span className="gradient-text">prices.</span>
               <br />
-              tracker.
+              Start knowing them.
             </h1>
-            <p className="mt-6 text-base text-muted-foreground max-w-lg leading-relaxed">
-              MarketPulse monitors prices across Douglas, Notino, 220.lv, Makeup.lv, and 1a.lv. Be the first to know about drops and never overpay again.
+            <p className="mt-6 text-base text-muted-foreground max-w-md leading-relaxed">
+              Douglas dropped Dior Sauvage by 8.5% last Tuesday. Did you know? MarketPulse would have told you the moment it happened.
             </p>
             <div className="flex items-center gap-4 mt-8">
-              <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-8 py-3.5 hover:scale-[1.03] transition-transform">
+              <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-8 py-3.5">
                 Start for Free <ChevronRight className="w-4 h-4 ml-1 inline" />
               </button>
               <button onClick={() => setAuthOpen(true)} className="inline-flex items-center justify-center text-sm font-medium border border-border text-foreground rounded-button px-6 py-3.5 transition-all hover:bg-surface-2">
                 See Demo
               </button>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-4">No credit card required · Free forever for 5 products</p>
+
+            {/* Trust badges */}
+            <div className="flex items-center gap-4 mt-5">
+              <span className="check-badge">
+                <Check className="w-3.5 h-3.5" />
+                No credit card required
+              </span>
+              <span className="check-badge">
+                <Check className="w-3.5 h-3.5" />
+                Free for 5 products
+              </span>
+            </div>
           </div>
-          <div className="hidden md:block animate-fade-in" style={{ animationDelay: "0.3s" }}>
+
+          {/* Right col — card + floating toast */}
+          <div className="hidden md:block animate-fade-in relative" style={{ animationDelay: "0.3s" }}>
+            {/* Floating live toast — top-right corner */}
+            <div
+              className="absolute -top-4 -right-4 z-20 animate-fade-in"
+              style={{ animationDelay: "1.2s" }}
+            >
+              <div className="glass-card px-3.5 py-2.5 flex items-center gap-2.5 shadow-glow min-w-0">
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-success/15 shrink-0">
+                  <ArrowDown className="w-3 h-3 text-success" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-foreground whitespace-nowrap">Dior Sauvage ↓ 8.5%</p>
+                  <p className="text-[10px] text-muted-foreground">Douglas.lv · just now</p>
+                </div>
+                <span className="dot ml-1 shrink-0" style={{ background: "hsl(160 84% 39%)", width: 6, height: 6, borderRadius: '50%', display: 'inline-block', animation: 'pulse-dot 2s ease-in-out infinite' }} />
+              </div>
+            </div>
             <DashboardPreview />
           </div>
         </div>
       </section>
 
+      {/* ─── Stats Strip ─── */}
+      <Section className="stats-strip">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/50">
+            <StatItem value={5} suffix="+" label="Stores monitored" />
+            <StatItem value={1200} suffix="+" label="Perfumes tracked" />
+            <StatItem value={4800} suffix="+" label="Price checks / day" />
+            <StatItem value={8} suffix="%" label="Avg. savings found" />
+          </div>
+        </div>
+      </Section>
+
       {/* ─── Meet MarketPulse ─── */}
       <Section className="py-24 px-5 md:px-10">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
+            <p className="text-xs font-semibold tracking-widest uppercase text-primary mb-3">Why MarketPulse</p>
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Meet MarketPulse</h2>
             <p className="mt-4 text-muted-foreground max-w-xl mx-auto">Everything you need to track perfume prices intelligently.</p>
           </div>
           <div className="grid sm:grid-cols-2 gap-6">
             {featureGrid.map((f) => (
-              <div key={f.title} className="glass-card p-6 hover:-translate-y-1 transition-transform">
+              <div key={f.title} className="feature-card p-7">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                     <f.icon className="w-5 h-5 text-primary" />
@@ -393,7 +522,7 @@ const Index = () => {
       <Section className="py-24 px-5 md:px-10">
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {bottomFeatures.map((f) => (
-            <div key={f.title} className="glass-card p-6 text-center hover:-translate-y-1 transition-transform">
+            <div key={f.title} className="feature-card p-6 text-center">
               <div className="inline-flex items-center justify-center w-11 h-11 rounded-card bg-primary/10 mb-4">
                 <f.icon className="w-5 h-5 text-primary" />
               </div>
@@ -407,11 +536,30 @@ const Index = () => {
       {/* ─── CTA ─── */}
       <Section className="py-24 px-5 md:px-10">
         <div className="max-w-2xl mx-auto text-center">
-          <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Ready to save on every purchase?</h2>
-          <p className="mt-4 text-muted-foreground">Join thousands of smart shoppers tracking perfume prices in real time.</p>
-          <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-10 py-4 mt-8 hover:scale-[1.03] transition-transform">
-            Get Started — It's Free <ChevronRight className="w-4 h-4 ml-1 inline" />
-          </button>
+          <div className="cta-card">
+            <div className="cta-glow" />
+            <div className="relative z-10">
+              <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">The market doesn't wait.<br />Neither should you.</h2>
+              <p className="mt-4 text-muted-foreground max-w-md mx-auto">Every hour you don't track prices is an hour someone else is buying smarter than you.</p>
+              <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-10 py-4 mt-8">
+                Get Started — It's Free <ChevronRight className="w-4 h-4 ml-1 inline" />
+              </button>
+              <div className="flex items-center justify-center gap-6 mt-5">
+                <span className="check-badge">
+                  <Check className="w-3.5 h-3.5" />
+                  No credit card
+                </span>
+                <span className="check-badge">
+                  <Check className="w-3.5 h-3.5" />
+                  Free forever plan
+                </span>
+                <span className="check-badge">
+                  <Check className="w-3.5 h-3.5" />
+                  Cancel anytime
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </Section>
 

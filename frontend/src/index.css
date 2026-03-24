@@ -133,6 +133,134 @@
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   }
 
+  /* ── Feature card: stronger hover with gradient border glow ── */
+  .feature-card {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(16px);
+    border-radius: var(--radius-card);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-card);
+    transition: all 0.3s var(--bezier-brand);
+    position: relative;
+  }
+
+  .feature-card::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--radius-card);
+    background: linear-gradient(135deg, hsl(var(--primary) / 0), hsl(var(--primary) / 0.4), hsl(var(--secondary) / 0.3));
+    opacity: 0;
+    transition: opacity 0.3s var(--bezier-brand);
+    z-index: -1;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 30px hsl(var(--primary) / 0.15);
+    border-color: hsl(var(--primary) / 0.35);
+  }
+
+  .feature-card:hover::after {
+    opacity: 1;
+  }
+
+  .light .feature-card {
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  }
+
+  /* ── Hero blob backgrounds ── */
+  .hero-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Badge pill (stats bar) ── */
+  .badge-pill {
+    @apply inline-flex items-center gap-1.5 text-xs font-medium;
+    background: hsl(var(--primary) / 0.08);
+    border: 1px solid hsl(var(--primary) / 0.2);
+    border-radius: 9999px;
+    padding: 0.25rem 0.75rem;
+    color: hsl(var(--foreground) / 0.7);
+    transition: all 0.2s var(--bezier-brand);
+  }
+
+  .badge-pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    display: inline-block;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  /* ── Check badge (trust indicators) ── */
+  .check-badge {
+    @apply inline-flex items-center gap-1.5 text-xs;
+    color: hsl(var(--foreground) / 0.55);
+  }
+
+  .check-badge svg {
+    color: hsl(var(--success));
+  }
+
+  /* ── Stat number (animated counters) ── */
+  .stat-number {
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, hsl(var(--foreground)), hsl(var(--foreground) / 0.85));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Stats strip section ── */
+  .stats-strip {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--primary) / 0.06),
+      hsl(var(--secondary) / 0.04),
+      hsl(var(--primary) / 0.06)
+    );
+    border-top: 1px solid hsl(var(--border));
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  /* ── CTA card with gradient border ── */
+  .cta-card {
+    position: relative;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(16px);
+    border-radius: 20px;
+    padding: 3rem 2rem;
+  }
+
+  .cta-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    padding: 1px;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.4), hsl(var(--secondary) / 0.3), hsl(var(--border)));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .cta-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    background: radial-gradient(ellipse at 50% 100%, hsl(var(--primary) / 0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
   .btn-primary {
     @apply inline-flex items-center justify-center font-semibold text-sm;
     background: hsl(var(--primary));
@@ -144,8 +272,9 @@
   }
 
   .btn-primary:hover {
-    filter: brightness(1.15);
-    box-shadow: 0 0 56px rgba(124, 58, 237, 0.35);
+    filter: brightness(1.12);
+    transform: scale(1.025);
+    box-shadow: 0 0 56px rgba(124, 58, 237, 0.4);
   }
 
   .price-display {
@@ -173,5 +302,21 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+}
+
+@layer utilities {
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  @keyframes count-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-count-up {
+    animation: count-up 0.6s ease-out forwards;
   }
 }

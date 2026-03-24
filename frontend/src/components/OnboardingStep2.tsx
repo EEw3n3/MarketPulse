@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Check, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, Check, Plus, Search, X, Loader2 } from "lucide-react";
 
 const BRANDS = [
   "Dior", "Chanel", "Tom Ford", "Versace", "Hugo Boss", "Armani",
@@ -81,10 +81,14 @@ const OnboardingStep2 = ({ open, onClose, onBack }: OnboardingStep2Props) => {
         style={{
           background: "hsl(var(--surface))",
           border: "1px solid hsl(var(--border))",
-          boxShadow: "0 32px 80px rgba(0,0,0,0.55), var(--shadow-glow)",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)",
           padding: "40px",
         }}
       >
+        {/* Top Progress Bar */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-surface-2 overflow-hidden rounded-t-modal">
+          <div className="h-full w-full bg-primary transition-all duration-500 ease-brand shadow-[0_0_12px_rgba(124,58,237,0.6)]" />
+        </div>
         {/* Close */}
         <button onClick={onClose} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-colors">
           <X className="w-5 h-5" />
@@ -122,8 +126,8 @@ const OnboardingStep2 = ({ open, onClose, onBack }: OnboardingStep2Props) => {
                   inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium
                   border transition-all duration-200 ease-brand
                   ${isSelected
-                    ? "bg-primary text-primary-foreground border-primary shadow-[0_0_12px_rgba(124,58,237,0.25)]"
-                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground bg-transparent"
+                    ? "bg-primary text-primary-foreground border-primary shadow-[0_0_16px_rgba(124,58,237,0.35)]"
+                    : "border-border/50 bg-surface-2/40 text-muted-foreground hover:border-primary/40 hover:bg-surface-2 hover:text-foreground"
                   }
                 `}
               >
@@ -159,7 +163,9 @@ const OnboardingStep2 = ({ open, onClose, onBack }: OnboardingStep2Props) => {
               />
             </div>
             {otherStatus === "checking" && (
-              <span className="text-xs text-muted-foreground animate-pulse">Checking…</span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…
+              </span>
             )}
             {otherStatus === "found" && (
               <button onClick={addOtherBrand} className="flex items-center gap-1 text-xs text-success font-medium whitespace-nowrap">
@@ -177,10 +183,7 @@ const OnboardingStep2 = ({ open, onClose, onBack }: OnboardingStep2Props) => {
 
         {/* Footer */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-primary" />
-            <span className="w-2 h-2 rounded-full bg-primary" />
-          </div>
+          <div className="flex-1" />
 
           <div className="flex items-center gap-3">
             <button

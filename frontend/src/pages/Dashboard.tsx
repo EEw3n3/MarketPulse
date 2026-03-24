@@ -24,7 +24,15 @@ export default function Dashboard() {
   return (
     <div className="h-screen flex overflow-hidden bg-background">
       {showTutorial && (
-        <GuidedTutorial onComplete={() => setShowTutorial(false)} />
+        <GuidedTutorial 
+          onComplete={() => {
+            setShowTutorial(false);
+            setAiPanelOpen(false);
+          }} 
+          onStepChange={(stepIdx) => {
+            setAiPanelOpen(stepIdx === 4);
+          }}
+        />
       )}
       
       {/* Sidebar: hidden on mobile */}

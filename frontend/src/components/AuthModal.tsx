@@ -92,10 +92,10 @@ const FormInput = ({
             placeholder:text-muted-foreground/50
             ${
               touched && error
-                ? "border-destructive shadow-[0_0_12px_rgba(239,68,68,0.25)]"
+                ? "border-destructive focus:ring-2 focus:ring-destructive/20 bg-destructive/5"
                 : touched && valid
-                ? "border-success/60 shadow-[0_0_12px_rgba(16,185,129,0.15)]"
-                : "border-border focus:border-primary focus:shadow-[0_0_16px_rgba(124,58,237,0.3)]"
+                ? "border-success/60 focus:ring-2 focus:ring-success/20 bg-success/5"
+                : "border-border focus:border-primary focus:ring-2 focus:ring-primary/20"
             }
             ${shaking ? "animate-[shake_0.4s_ease-in-out]" : ""}
           `}
@@ -239,14 +239,17 @@ const AuthModal = ({ open, onClose, onRegister, onSignIn }: AuthModalProps) => {
       style={{ backdropFilter: "blur(12px)", background: "rgba(0,0,0,0.6)" }}
       onClick={handleBackdrop}
     >
+      <div className="absolute inset-0 z-[-1] overflow-hidden pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/20 rounded-full blur-[100px] opacity-70" />
+      </div>
       <div
         ref={modalRef}
         className="relative w-full max-w-[460px] rounded-modal overflow-hidden animate-scale-in"
         style={{
-          background: "rgba(255,255,255,0.05)",
+          background: "rgba(255,255,255,0.03)",
           backdropFilter: "blur(24px)",
           border: "1px solid hsl(var(--border))",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.5), var(--shadow-glow)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
         {/* Close button */}
@@ -263,28 +266,27 @@ const AuthModal = ({ open, onClose, onRegister, onSignIn }: AuthModalProps) => {
             Welcome to Market<span className="text-primary">Pulse</span>
           </h2>
 
-          {/* Tabs */}
-          <div className="flex border-b border-border">
+          {/* Segmented Control Tabs */}
+          <div className="flex bg-surface-2 p-1.5 rounded-full relative">
             {(["signin", "register"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`
-                  flex-1 pb-3 text-sm font-semibold transition-all duration-300 ease-brand relative
-                  ${tab === t ? "text-primary" : "text-muted-foreground hover:text-foreground"}
+                  flex-1 py-2 text-sm font-semibold rounded-full relative z-10 transition-colors duration-300
+                  ${tab === t ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}
                 `}
               >
                 {t === "signin" ? "Sign In" : "Register"}
-                {/* active underline */}
-                <span
-                  className={`
-                    absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full
-                    transition-transform duration-300 ease-brand origin-center
-                    ${tab === t ? "scale-x-100" : "scale-x-0"}
-                  `}
-                />
               </button>
             ))}
+            {/* Sliding Pill */}
+            <div
+              className={`
+                absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-primary rounded-full transition-transform duration-300 ease-brand shadow-[0_0_12px_rgba(124,58,237,0.4)]
+                ${tab === "signin" ? "translate-x-0" : "translate-x-[calc(100%+5px)]"}
+              `}
+            />
           </div>
         </div>
 

@@ -58,7 +58,10 @@ export default function DashboardSidebar({ onSettingsClick }: DashboardSidebarPr
                 )}
               >
                 {active === item.id && (
-                  <span className="absolute inset-0 rounded-full bg-primary/20 animate-sidebar-icon-scale" />
+                  <>
+                    <span className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-sm shadow-[0_0_8px_rgba(124,58,237,0.8)]" />
+                    <span className="absolute inset-0 rounded-full bg-primary/15 animate-sidebar-icon-scale" />
+                  </>
                 )}
                 <item.icon size={20} className="relative z-10" />
               </button>
@@ -72,7 +75,7 @@ export default function DashboardSidebar({ onSettingsClick }: DashboardSidebarPr
 
       {/* Avatar */}
       <div className="pb-4">
-        <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-semibold">
+        <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold ring-2 ring-primary/20 shadow-[0_0_12px_rgba(124,58,237,0.3)]">
           E
         </div>
       </div>

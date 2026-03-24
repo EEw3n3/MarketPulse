@@ -68,10 +68,14 @@ const OnboardingModal = ({ open, onClose, onNext }: OnboardingModalProps) => {
         style={{
           background: "hsl(var(--surface))",
           border: "1px solid hsl(var(--border))",
-          boxShadow: "0 32px 80px rgba(0,0,0,0.55), var(--shadow-glow)",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)",
           padding: "40px",
         }}
       >
+        {/* Top Progress Bar */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-surface-2 overflow-hidden rounded-t-modal">
+          <div className="h-full w-1/2 bg-primary transition-all duration-500 ease-brand shadow-[0_0_12px_rgba(124,58,237,0.6)]" />
+        </div>
         {/* Close */}
         <button
           onClick={onClose}
@@ -103,8 +107,8 @@ const OnboardingModal = ({ open, onClose, onNext }: OnboardingModalProps) => {
                   transition-all duration-200 ease-brand group
                   ${
                     isSelected
-                      ? "border-primary bg-primary/[0.08] shadow-[0_0_20px_rgba(124,58,237,0.15)]"
-                      : "border-border bg-surface-2/50 hover:border-primary/40 hover:bg-surface-2"
+                      ? "border-primary bg-primary/[0.08] shadow-[0_0_20px_rgba(124,58,237,0.15)] ring-1 ring-primary"
+                      : "border-border/60 bg-surface-2/30 hover:bg-surface-2 hover:border-primary/50 hover:shadow-[0_4px_16px_rgba(124,58,237,0.1)]"
                   }
                   ${store.id === "1a" ? "col-span-2 sm:col-span-1 sm:col-start-1" : ""}
                 `}
@@ -150,12 +154,7 @@ const OnboardingModal = ({ open, onClose, onNext }: OnboardingModalProps) => {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between">
-          {/* Progress dots */}
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-primary" />
-            <span className="w-2 h-2 rounded-full bg-muted" />
-          </div>
+        <div className="flex justify-end">
 
           {/* Next button */}
           <button
