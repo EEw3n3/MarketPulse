@@ -12,18 +12,13 @@ import {
   List,
   Download,
   ExternalLink,
+  X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import CatalogFilterPanel, { FilterState, defaultFilters } from "./CatalogFilterPanel";
 
 // ───── Types ─────
 type SortField = "brand" | "name" | "price" | "change" | "store";
@@ -78,10 +73,7 @@ const ROWS_PER_PAGE = 12;
 
 export default function CatalogContent() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
-  const [storeFilter, setStoreFilter] = useState("All Stores");
-  const [typeFilter, setTypeFilter] = useState("All Types");
-  const [stockFilter, setStockFilter] = useState("All");
+  const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [sortField, setSortField] = useState<SortField>("brand");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
@@ -109,8 +101,8 @@ export default function CatalogContent() {
   const filtered = useMemo(() => {
     let data = [...catalogData];
 
-    if (search) {
-      const q = search.toLowerCase();
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
       data = data.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
@@ -118,10 +110,13 @@ export default function CatalogContent() {
           p.sku.toLowerCase().includes(q)
       );
     }
-    if (storeFilter !== "All Stores") data = data.filter((p) => p.store === storeFilter);
-    if (typeFilter !== "All Types") data = data.filter((p) => p.type === typeFilter);
-    if (stockFilter === "In Stock") data = data.filter((p) => p.inStock);
-    if (stockFilter === "Out of Stock") data = data.filter((p) => !p.inStock);
+    if (filters.stores.length > 0) data = data.filter((p) => filters.stores.includes(p.store));
+    if (filters.brands.length > 0) data = data.filter((p) => filters.brands.includes(p.brand));
+    if (filters.types.length > 0) data = data.filter((p) => filters.types.includes(p.type));
+    if (filters.inStock !== null) data = data.filter((p) => p.inStock === filters.inStock);
+    if (filters.priceRange[0] > 0 || filters.priceRange[1] < 500) {
+      data = data.filter((p) => p.price >= filters.priceRange[0] && p.price <= filters.priceRange[1]);
+    }
 
     data.sort((a, b) => {
       let cmp = 0;
@@ -136,7 +131,7 @@ export default function CatalogContent() {
     });
 
     return data;
-  }, [search, storeFilter, typeFilter, stockFilter, sortField, sortDir]);
+  }, [filters, sortField, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / ROWS_PER_PAGE);
   const paginated = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
@@ -147,7 +142,7 @@ export default function CatalogContent() {
       <div className="px-6 pt-6 pb-4 border-b border-border">
         <div className="flex items-center justify-between mb-1">
           <div>
-            <h1 className="text-xl font-bold font-['Outfit',sans-serif] text-foreground">
+            <h1 className="text-xl font-bold font-display tracking-tight text-foreground">
               Product Catalog
             </h1>
             <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -155,7 +150,7 @@ export default function CatalogContent() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 text-[13px] border-border">
+            <Button variant="outline" size="sm" className="gap-1.5 text-[13px] bg-surface/50 backdrop-blur-md border border-border shadow-sm hover:bg-surface-2 transition-colors">
               <Download size={14} />
               Export
             </Button>
@@ -169,38 +164,19 @@ export default function CatalogContent() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by name, brand, or SKU..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            value={filters.search}
+            onChange={(e) => { setFilters(p => ({...p, search: e.target.value})); setPage(1); }}
             className="pl-9 h-9 text-[13px] bg-surface-2 border-border"
           />
         </div>
 
-        <Select value={storeFilter} onValueChange={(v) => { setStoreFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[150px] h-9 text-[13px] bg-surface-2 border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {stores.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-
-        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[130px] h-9 text-[13px] bg-surface-2 border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {types.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-          </SelectContent>
-        </Select>
-
-        <Select value={stockFilter} onValueChange={(v) => { setStockFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[130px] h-9 text-[13px] bg-surface-2 border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {stockFilters.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <CatalogFilterPanel 
+          filters={filters}
+          setFilters={(f) => { typeof f === "function" ? setFilters((prev) => { const next = f(prev); setPage(1); return next; }) : (() => { setFilters(f); setPage(1); })(); }}
+          availableBrands={Array.from(new Set(catalogData.map(p => p.brand)))}
+          availableStores={stores.filter(s => s !== "All Stores")}
+          availableTypes={types.filter(t => t !== "All Types")}
+        />
 
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -223,6 +199,40 @@ export default function CatalogContent() {
           </button>
         </div>
       </div>
+
+      {/* Active Filters Bar */}
+      {(filters.brands.length > 0 || filters.stores.length > 0 || filters.types.length > 0 || filters.priceRange[0] > 0 || filters.priceRange[1] < 500 || filters.inStock !== null) && (
+        <div className="px-6 py-2.5 border-b border-border bg-surface-2/10 flex flex-wrap items-center gap-2">
+          {filters.brands.map(b => (
+            <Badge key={`brand-${b}`} variant="secondary" className="gap-1 bg-surface border-border text-[11px] font-normal hover:bg-surface-2 hover:border-primary/50 cursor-pointer transition-colors" onClick={() => { setFilters(p => ({...p, brands: p.brands.filter(x => x !== b)})); setPage(1); }}>
+              Brand: <span className="text-foreground font-medium">{b}</span> <X size={10} className="text-muted-foreground ml-1" />
+            </Badge>
+          ))}
+          {filters.stores.map(s => (
+            <Badge key={`store-${s}`} variant="secondary" className="gap-1 bg-surface border-border text-[11px] font-normal hover:bg-surface-2 hover:border-primary/50 cursor-pointer transition-colors" onClick={() => { setFilters(p => ({...p, stores: p.stores.filter(x => x !== s)})); setPage(1); }}>
+              Store: <span className="text-foreground font-medium">{s}</span> <X size={10} className="text-muted-foreground ml-1" />
+            </Badge>
+          ))}
+          {filters.types.map(t => (
+            <Badge key={`type-${t}`} variant="secondary" className="gap-1 bg-surface border-border text-[11px] font-normal hover:bg-surface-2 hover:border-primary/50 cursor-pointer transition-colors" onClick={() => { setFilters(p => ({...p, types: p.types.filter(x => x !== t)})); setPage(1); }}>
+              Type: <span className="text-foreground font-medium">{t}</span> <X size={10} className="text-muted-foreground ml-1" />
+            </Badge>
+          ))}
+          {(filters.priceRange[0] > 0 || filters.priceRange[1] < 500) && (
+            <Badge variant="secondary" className="gap-1 bg-surface border-border text-[11px] font-normal hover:bg-surface-2 hover:border-primary/50 cursor-pointer transition-colors" onClick={() => { setFilters(p => ({...p, priceRange: [0, 500]})); setPage(1); }}>
+              Price: <span className="text-foreground font-medium font-display tabular-nums tracking-tight">€{filters.priceRange[0]} - €{filters.priceRange[1]}</span> <X size={10} className="text-muted-foreground ml-1" />
+            </Badge>
+          )}
+          {filters.inStock !== null && (
+            <Badge variant="secondary" className="gap-1 bg-surface border-border text-[11px] font-normal hover:bg-surface-2 hover:border-primary/50 cursor-pointer transition-colors" onClick={() => { setFilters(p => ({...p, inStock: null})); setPage(1); }}>
+              Status: <span className="text-foreground font-medium">{filters.inStock ? "In Stock" : "Out of Stock"}</span> <X size={10} className="text-muted-foreground ml-1" />
+            </Badge>
+          )}
+          <Button variant="ghost" size="sm" className="h-5 text-[11px] px-2 text-muted-foreground hover:text-foreground hover:bg-transparent ml-1" onClick={() => { setFilters(p => ({...defaultFilters, search: p.search})); setPage(1); }}>
+            Clear all
+          </Button>
+        </div>
+      )}
 
       {/* Table */}
       {viewMode === "table" ? (
@@ -291,7 +301,7 @@ export default function CatalogContent() {
                       {p.type}
                     </Badge>
                   </td>
-                  <td className="px-3 py-3 text-right font-['Outfit',sans-serif] font-semibold text-foreground">
+                  <td className="px-3 py-3 text-right font-display tabular-nums tracking-tight font-semibold text-foreground">
                     {p.price.toFixed(2)} €
                   </td>
                   <td className="px-3 py-3 text-right">
@@ -300,7 +310,7 @@ export default function CatalogContent() {
                     ) : (
                       <span
                         className={cn(
-                          "inline-flex items-center gap-0.5 text-[12px] font-medium",
+                          "inline-flex items-center gap-0.5 text-[12px] font-medium font-display tabular-nums tracking-tight",
                           p.changeDirection === "down" ? "text-[hsl(var(--success))]" : "text-destructive"
                         )}
                       >
@@ -347,7 +357,7 @@ export default function CatalogContent() {
             <div
               key={p.id}
               onClick={() => navigate(`/product/${p.id}`)}
-              className="rounded-[var(--radius-card)] border border-border bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] p-4 cursor-pointer hover:border-primary/30 transition-all group"
+              className="rounded-[var(--radius-card)] border border-border bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] p-4 cursor-pointer hover:border-primary/40 hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(0,0,0,0.4)] transition-all duration-300 group"
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
@@ -360,13 +370,13 @@ export default function CatalogContent() {
               </p>
               <p className="text-[11px] text-muted-foreground mb-3">{p.volume} · {p.type}</p>
               <div className="flex items-end justify-between">
-                <span className="text-lg font-bold font-['Outfit',sans-serif] text-foreground">
+                <span className="text-lg font-bold font-display tabular-nums tracking-tight text-foreground">
                   {p.price.toFixed(2)} €
                 </span>
                 {p.changeDirection !== "none" && (
                   <span
                     className={cn(
-                      "text-[11px] font-medium",
+                      "text-[11px] font-medium font-display tabular-nums tracking-tight",
                       p.changeDirection === "down" ? "text-[hsl(var(--success))]" : "text-destructive"
                     )}
                   >

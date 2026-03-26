@@ -49,7 +49,7 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
                 <span className="absolute inset-0 rounded-full bg-primary animate-pulse" />
                 <span className="absolute inset-0 rounded-full bg-primary" />
               </span>
-              <span className="text-[15px] font-bold text-foreground">MarketPulse AI</span>
+              <span className="text-[15px] font-bold text-foreground font-display tracking-tight">MarketPulse AI</span>
               <button
                 onClick={onClose}
                 className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
@@ -61,17 +61,17 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               <div className="flex justify-end">
-                <div className="max-w-[85%] bg-primary text-primary-foreground text-[13px] px-3 py-2 rounded-tl-2xl rounded-bl-2xl rounded-tr-sm">
+                <div className="max-w-[85%] bg-primary text-primary-foreground text-[13px] px-3 py-2 rounded-tl-2xl rounded-bl-2xl rounded-tr-sm border border-primary/20" style={{ boxShadow: "0 4px 16px rgba(124,58,237,0.3), inset 0 1px 0 rgba(255,255,255,0.15)" }}>
                   Show me the cheapest Dior Sauvage EDP 100ml across all stores
                 </div>
               </div>
               <div className="flex justify-start">
-                <div className="max-w-[85%] bg-surface-2 text-foreground text-[13px] px-3 py-2 rounded-tr-2xl rounded-br-2xl rounded-tl-sm">
-                  I found Dior Sauvage EDP 100ml listed on 4 stores. The best price is currently <span className="text-secondary font-semibold">€78.90</span> at Notino, which is 12% below the average.
+                <div className="max-w-[85%] bg-[rgba(255,255,255,0.03)] backdrop-blur-[12px] border border-border text-foreground text-[13px] px-3 py-2 rounded-tr-2xl rounded-br-2xl rounded-tl-sm shadow-sm">
+                  I found Dior Sauvage EDP 100ml listed on 4 stores. The best price is currently <span className="text-secondary font-semibold font-display tabular-nums tracking-tight">€78.90</span> at Notino, which is 12% below the average.
                 </div>
               </div>
               <div className="flex justify-start">
-                <div className="flex items-center gap-1 bg-surface-2 px-3 py-2.5 rounded-tr-2xl rounded-br-2xl rounded-tl-sm">
+                <div className="flex items-center gap-1 bg-[rgba(255,255,255,0.03)] backdrop-blur-[12px] border border-border px-3 py-2.5 rounded-tr-2xl rounded-br-2xl rounded-tl-sm shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot" style={{ animationDelay: "0s" }} />
                   <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot" style={{ animationDelay: "0.15s" }} />
                   <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot" style={{ animationDelay: "0.3s" }} />
@@ -84,7 +84,7 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
               {suggestedChips.map((chip) => (
                 <button
                   key={chip}
-                  className="px-2.5 py-1 rounded-full bg-surface-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors border border-border"
+                  className="px-2.5 py-1 rounded-full bg-[rgba(255,255,255,0.02)] backdrop-blur-md text-[11px] text-muted-foreground hover:text-foreground transition-all duration-200 border border-border hover:border-primary/50 hover:bg-surface-2"
                 >
                   {chip}
                 </button>
@@ -92,18 +92,20 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
             </div>
 
             {/* Input */}
-            <div className="border-t border-border p-3 flex items-end gap-2 pb-safe">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask MarketPulse AI..."
-                rows={1}
-                className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none max-h-24"
-              />
-              <button className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 hover:brightness-110 transition">
-                <Send size={14} />
-              </button>
+            <div className="p-3 pb-safe border-t border-border bg-surface/50 backdrop-blur-md">
+              <div className="flex items-end gap-2 bg-surface-2/50 border border-border rounded-xl p-1.5 focus-within:ring-2 focus-within:ring-primary/40 focus-within:border-primary/50 transition-all duration-200 shadow-inner">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask MarketPulse AI..."
+                  rows={1}
+                  className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none max-h-24 px-2 py-1.5"
+                />
+                <button className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 hover:brightness-110 transition shadow-[0_2px_8px_rgba(124,58,237,0.4)]">
+                  <Send size={14} />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -136,7 +138,7 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
             <span className="absolute inset-0 rounded-full bg-primary animate-pulse" />
             <span className="absolute inset-0 rounded-full bg-primary" />
           </span>
-          <span className="text-[15px] font-bold text-foreground">MarketPulse AI</span>
+          <span className="text-[15px] font-bold text-foreground font-display tracking-tight">MarketPulse AI</span>
           <button
             onClick={onClose}
             className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
@@ -148,18 +150,18 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 min-w-[360px]">
           <div className="flex justify-end">
-            <div className="max-w-[80%] bg-primary text-primary-foreground text-[13px] px-3 py-2 rounded-tl-2xl rounded-bl-2xl rounded-tr-sm">
+            <div className="max-w-[80%] bg-primary text-primary-foreground text-[13px] px-3 py-2 rounded-tl-2xl rounded-bl-2xl rounded-tr-sm border border-primary/20" style={{ boxShadow: "0 4px 16px rgba(124,58,237,0.3), inset 0 1px 0 rgba(255,255,255,0.15)" }}>
               Show me the cheapest Dior Sauvage EDP 100ml across all stores
             </div>
           </div>
           <div className="flex justify-start">
-            <div className="max-w-[80%] bg-surface-2 text-foreground text-[13px] px-3 py-2 rounded-tr-2xl rounded-br-2xl rounded-tl-sm">
-              I found Dior Sauvage EDP 100ml listed on 4 stores. The best price is currently <span className="text-secondary font-semibold">€78.90</span> at Notino, which is 12% below the average.
+            <div className="max-w-[80%] bg-[rgba(255,255,255,0.03)] backdrop-blur-[12px] border border-border text-foreground text-[13px] px-3 py-2 rounded-tr-2xl rounded-br-2xl rounded-tl-sm shadow-sm">
+              I found Dior Sauvage EDP 100ml listed on 4 stores. The best price is currently <span className="text-secondary font-semibold font-display tabular-nums tracking-tight">€78.90</span> at Notino, which is 12% below the average.
             </div>
           </div>
           {/* AI typing indicator */}
           <div className="flex justify-start">
-            <div className="flex items-center gap-1 bg-surface-2 px-3 py-2.5 rounded-tr-2xl rounded-br-2xl rounded-tl-sm">
+            <div className="flex items-center gap-1 bg-[rgba(255,255,255,0.03)] backdrop-blur-[12px] border border-border px-3 py-2.5 rounded-tr-2xl rounded-br-2xl rounded-tl-sm shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot" style={{ animationDelay: "0s" }} />
               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot" style={{ animationDelay: "0.15s" }} />
               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot" style={{ animationDelay: "0.3s" }} />
@@ -172,7 +174,7 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
           {suggestedChips.map((chip) => (
             <button
               key={chip}
-              className="px-2.5 py-1 rounded-full bg-surface-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors border border-border"
+              className="px-2.5 py-1 rounded-full bg-[rgba(255,255,255,0.02)] backdrop-blur-md text-[11px] text-muted-foreground hover:text-foreground transition-all duration-200 border border-border hover:border-primary/50 hover:bg-surface-2"
             >
               {chip}
             </button>
@@ -180,18 +182,20 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
         </div>
 
         {/* Input */}
-        <div className="border-t border-border p-3 flex items-end gap-2 min-w-[360px]">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask MarketPulse AI..."
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none max-h-24"
-          />
-          <button className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 hover:brightness-110 transition">
-            <Send size={14} />
-          </button>
+        <div className="p-3 min-w-[360px] border-t border-border bg-surface/50 backdrop-blur-md">
+          <div className="flex items-end gap-2 bg-surface-2/50 border border-border rounded-xl p-1.5 focus-within:ring-2 focus-within:ring-primary/40 focus-within:border-primary/50 transition-all duration-200 shadow-inner">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask MarketPulse AI..."
+              rows={1}
+              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none max-h-24 px-2 py-1.5"
+            />
+            <button className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 hover:brightness-110 transition shadow-[0_2px_8px_rgba(124,58,237,0.4)]">
+              <Send size={14} />
+            </button>
+          </div>
         </div>
       </aside>
     </>

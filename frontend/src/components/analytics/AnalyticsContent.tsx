@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import PriceSpikeHeatmap from "./PriceSpikeHeatmap";
 import {
   Select,
   SelectContent,
@@ -199,20 +200,20 @@ export default function AnalyticsContent() {
         {/* KPI Row */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {kpiCards.map((kpi) => (
-            <Card key={kpi.label} className="bg-surface border-border">
+            <Card key={kpi.label} className="bg-surface border-border hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(0,0,0,0.4)] hover:border-primary/30 transition-all duration-300 group cursor-pointer">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">
+                  <span className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium group-hover:text-foreground transition-colors">
                     {kpi.label}
                   </span>
-                  <kpi.icon size={14} className="text-muted-foreground" />
+                  <kpi.icon size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
                 </div>
-                <p className="font-display text-2xl font-bold text-foreground tracking-tight">
+                <p className="font-display text-2xl font-bold text-foreground tabular-nums tracking-tight">
                   {kpi.value}
                 </p>
                 <p className={cn(
-                  "text-[11px] mt-1 flex items-center gap-1",
-                  kpi.direction === "up" ? "text-success" : "text-destructive"
+                  "text-[11px] mt-1 flex items-center gap-1 font-display tabular-nums tracking-tight font-medium",
+                  kpi.direction === "up" ? "text-[hsl(var(--success))]" : "text-destructive"
                 )}>
                   {kpi.direction === "up" ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
                   {kpi.change}
@@ -488,6 +489,26 @@ export default function AnalyticsContent() {
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Heatmap Section */}
+        <div className="grid grid-cols-1 mt-6">
+          <Card className="bg-surface border-border hover:border-primary/10 transition-colors">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <div className="flex items-center gap-2">
+                <div className="h-2.5 w-2.5 rounded-full bg-destructive/80 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                <CardTitle className="text-sm font-medium text-foreground">
+                  Minimum Advertised Price (MAP) Anomaly Heatmap
+                </CardTitle>
+              </div>
+              <p className="text-[11px] text-muted-foreground max-w-2xl leading-relaxed mt-1">
+                Visual matrix highlighting stores selling below market median. Dark red cells (less than -15%) indicate severe dumping violations threatening brand positioning.
+              </p>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <PriceSpikeHeatmap />
             </CardContent>
           </Card>
         </div>
