@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Moon, Sun, Check, LogOut, Trash2, Camera, ArrowLeft } from "lucide-react";
+import { Moon, Sun, Check, LogOut, Trash2, Camera, ArrowLeft, User, Sliders, Bell, Palette, ShieldAlert } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -106,53 +107,73 @@ export default function Settings() {
           <h1 className="text-2xl font-display font-bold text-foreground mb-8">Settings</h1>
 
           {/* ── 1. Profile ─────────────────────────────────── */}
-          <section className="space-y-4 mb-8">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-widest">Profile</h3>
-
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xl font-bold shrink-0">E</div>
-              <button className="inline-flex items-center gap-1.5 text-[13px] text-primary hover:text-primary/80 transition-colors">
-                <Camera className="w-3.5 h-3.5" />
-                Change Photo
-              </button>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[13px] text-muted-foreground">Name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-surface-2/50 border-border" />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[13px] text-muted-foreground">Email</label>
-              <div className="relative">
-                <Input value="ervin@example.com" disabled className="bg-surface-2/50 border-border pr-20" />
-                <Badge className="absolute right-2 top-1/2 -translate-y-1/2 bg-success/20 text-success border-success/30 text-[10px]">Verified</Badge>
+          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <User className="w-4 h-4 text-primary" /> Profile
+              </CardTitle>
+              <CardDescription className="text-xs">Manage your personal details and account security.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5 pt-5">
+              <div className="flex items-center gap-5">
+                <div className="relative group cursor-pointer">
+                  <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl font-bold shrink-0 ring-2 ring-primary/20 ring-offset-2 ring-offset-background group-hover:ring-primary/40 transition-all duration-300">
+                    E
+                  </div>
+                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="w-5 h-5 text-white" />
+                  </div>
+                </div>
+                <div>
+                  <button className="text-[13px] font-medium text-primary hover:text-primary/80 transition-colors">
+                    Upload new picture
+                  </button>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">JPG, GIF or PNG. Max size 2MB.</p>
+                </div>
               </div>
-            </div>
 
-            <button onClick={() => setShowPasswordFields(!showPasswordFields)} className="text-[13px] text-primary hover:text-primary/80 transition-colors">
-              {showPasswordFields ? "Cancel" : "Change Password"}
-            </button>
-
-            {showPasswordFields && (
-              <div className="space-y-3 animate-fade-in">
-                <Input type="password" placeholder="Current password" className="bg-surface-2/50 border-border" />
-                <Input type="password" placeholder="New password" className="bg-surface-2/50 border-border" />
-                <Input type="password" placeholder="Confirm new password" className="bg-surface-2/50 border-border" />
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Name</label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 transition-all h-9 text-sm" />
               </div>
-            )}
 
-            <Button className="w-full btn-primary">Save Changes</Button>
-          </section>
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-foreground">Email</label>
+                <div className="relative">
+                  <Input value="ervin@example.com" disabled className="bg-surface border-border pr-20 opacity-70 h-9 text-sm" />
+                  <Badge className="absolute right-2 top-1/2 -translate-y-1/2 bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] border-[hsl(var(--success))]/30 text-[10px] px-1.5">Verified</Badge>
+                </div>
+              </div>
 
-          <Separator className="mb-8" />
+              <div className="pt-2">
+                <button onClick={() => setShowPasswordFields(!showPasswordFields)} className="text-[13px] font-medium text-primary hover:text-primary/80 transition-colors">
+                  {showPasswordFields ? "Cancel" : "Change Password"}
+                </button>
+              </div>
+
+              {showPasswordFields && (
+                <div className="space-y-3 animate-fade-in p-4 bg-surface-2/30 rounded-[var(--radius-card)] border border-border/50">
+                  <Input type="password" placeholder="Current password" className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 h-9 text-sm" />
+                  <Input type="password" placeholder="New password" className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 h-9 text-sm" />
+                  <Input type="password" placeholder="Confirm new password" className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 h-9 text-sm" />
+                </div>
+              )}
+
+              <Button className="w-full btn-primary h-9 shadow-glow hover:scale-[1.01] transition-transform">Save Changes</Button>
+            </CardContent>
+          </Card>
 
           {/* ── 2. Preferences ─────────────────────────────── */}
-          <section className="space-y-4 mb-8">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-widest">Preferences</h3>
-
-            <div className="space-y-2.5">
-              <label className="text-[13px] text-foreground font-medium">Tracked Stores</label>
+          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-primary" /> Personalization
+              </CardTitle>
+              <CardDescription className="text-xs">Select your priority stores and brands for the dashboard.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-5">
+              <div className="space-y-2.5">
+                <label className="text-[13px] text-foreground font-medium">Tracked Stores</label>
               <div className="flex flex-wrap gap-2">
                 {STORES.map((store) => {
                   const isSelected = trackedStores.has(store.id);
@@ -197,65 +218,85 @@ export default function Settings() {
                 })}
               </div>
             </div>
-          </section>
-
-          <Separator className="mb-8" />
+            </CardContent>
+          </Card>
 
           {/* ── 3. Notifications ───────────────────────────── */}
-          <section className="space-y-4 mb-8">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-widest">Notifications</h3>
-            <div className="space-y-3">
-              <NotifRow label="Price drop alerts" checked={priceDropAlerts} onChange={setPriceDropAlerts} />
-              <NotifRow label="Price increase alerts" checked={priceIncreaseAlerts} onChange={setPriceIncreaseAlerts} />
-              <NotifRow label="New products in my brands" checked={newProductAlerts} onChange={setNewProductAlerts} />
-              <NotifRow label="Weekly email digest" checked={weeklyDigest} onChange={setWeeklyDigest} />
+          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Bell className="w-4 h-4 text-primary" /> Notifications
+              </CardTitle>
+              <CardDescription className="text-xs">Configure how and when you receive price alerts.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-5">
+            <div className="space-y-4">
+              <NotifRow label="Price drop alerts" description="Immediate notification when a tracked product drops in price." checked={priceDropAlerts} onChange={setPriceDropAlerts} />
+              <NotifRow label="Price increase alerts" description="Daily digest of price increases." checked={priceIncreaseAlerts} onChange={setPriceIncreaseAlerts} />
+              <NotifRow label="New products in my brands" description="Alert when a new product from your favorite brands appears." checked={newProductAlerts} onChange={setNewProductAlerts} />
+              <NotifRow label="Weekly email digest" description="Summary report sent every Monday." checked={weeklyDigest} onChange={setWeeklyDigest} />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[13px] text-muted-foreground">Minimum price change to notify</label>
+            
+            <Separator className="my-2 border-border/50" />
+            
+            <div className="space-y-2">
+              <label className="text-[12px] font-medium text-foreground">Sensitivy Threshold</label>
+              <p className="text-[11px] text-muted-foreground mb-1.5">Minimum price change required to trigger an alert.</p>
               <Select value={minChange} onValueChange={setMinChange}>
-                <SelectTrigger className="bg-surface-2/50 border-border w-full">
+                <SelectTrigger className="bg-surface border-border focus-visible:ring-primary/30 h-9 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-surface border-border">
-                  <SelectItem value="3">3%</SelectItem>
-                  <SelectItem value="5">5%</SelectItem>
-                  <SelectItem value="10">10%</SelectItem>
-                  <SelectItem value="20">20%</SelectItem>
+                  <SelectItem value="3">3% (High sensitivity)</SelectItem>
+                  <SelectItem value="5">5% (Recommended)</SelectItem>
+                  <SelectItem value="10">10% (Medium)</SelectItem>
+                  <SelectItem value="20">20% (Major drops only)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-          </section>
-
-          <Separator className="mb-8" />
+            </CardContent>
+          </Card>
 
           {/* ── 4. Appearance ──────────────────────────────── */}
-          <section className="space-y-4 mb-8">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-widest">Appearance</h3>
-            <div className="flex items-center bg-surface-2 rounded-full p-0.5 gap-0.5 w-fit">
-              <button
-                onClick={() => { if (!isDark) toggleTheme(); }}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 ${
-                  isDark ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                }`}
-              >
-                <Moon className="w-3.5 h-3.5" /> Dark
-              </button>
-              <button
-                onClick={() => { if (isDark) toggleTheme(); }}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 ${
-                  !isDark ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                }`}
-              >
-                <Sun className="w-3.5 h-3.5" /> Light
-              </button>
-            </div>
-          </section>
-
-          <Separator className="mb-8" />
+          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Palette className="w-4 h-4 text-primary" /> Appearance
+              </CardTitle>
+              <CardDescription className="text-xs">Customize the interface visual theme.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-5">
+              <div className="flex items-center bg-surface border border-border rounded-full p-1 gap-1 w-fit">
+                <button
+                  onClick={() => { if (!isDark) toggleTheme(); }}
+                  className={`flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-medium transition-all duration-300 ${
+                    isDark ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground hover:bg-surface-2"
+                  }`}
+                >
+                  <Moon className="w-4 h-4" /> Dark
+                </button>
+                <button
+                  onClick={() => { if (isDark) toggleTheme(); }}
+                  className={`flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-medium transition-all duration-300 ${
+                    !isDark ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground hover:bg-surface-2"
+                  }`}
+                >
+                  <Sun className="w-4 h-4" /> Light
+                </button>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* ── 5. Account ─────────────────────────────────── */}
-          <section className="space-y-4 pb-10">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-widest">Account</h3>
+          <Card className="mb-10 bg-destructive/[0.02] border-destructive/20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-destructive/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+            <CardHeader className="pb-4 border-b border-destructive/10">
+              <CardTitle className="text-sm font-semibold text-destructive flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4" /> Danger Zone
+              </CardTitle>
+              <CardDescription className="text-xs">Irreversible and destructive actions.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-5 relative z-10">
             <Button variant="outline" className="w-full border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive">
               <LogOut className="w-4 h-4 mr-2" /> Sign Out
             </Button>
@@ -276,18 +317,22 @@ export default function Settings() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </section>
+            </CardContent>
+          </Card>
         </div>
       </main>
     </div>
   );
 }
 
-function NotifRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function NotifRow({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-foreground">{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} />
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <p className="text-[13px] font-medium text-foreground">{label}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed pr-6">{description}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} className="data-[state=checked]:bg-primary mt-1" />
     </div>
   );
 }

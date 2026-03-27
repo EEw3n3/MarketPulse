@@ -98,26 +98,37 @@ export default function FavoritesContent() {
 
       <div className="p-6 space-y-5">
         {/* Quick Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="bg-surface border-border">
-            <CardContent className="p-4 text-center">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1">Price Drops</p>
-              <p className="font-display text-2xl font-bold text-success">{dropsCount}</p>
-              <p className="text-[11px] text-muted-foreground">of {favorites.length} products</p>
+        <div className="grid grid-cols-3 gap-4">
+          <Card className="relative overflow-hidden bg-[rgba(255,255,255,0.02)] backdrop-blur-[16px] border-border hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.5)] hover:border-[hsl(var(--success))]/30 transition-all duration-500 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[hsl(var(--success))]/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 group-hover:bg-[hsl(var(--success))]/20 transition-colors duration-500 pointer-events-none" />
+            <CardContent className="p-5 text-center relative z-10">
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium group-hover:text-foreground transition-colors">Price Drops</p>
+              <p className="font-display text-4xl font-bold text-[hsl(var(--success))] tabular-nums tracking-tight drop-shadow-[0_0_15px_rgba(var(--success),0.3)]">
+                {dropsCount}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">of {favorites.length} products</p>
             </CardContent>
           </Card>
-          <Card className="bg-surface border-border">
-            <CardContent className="p-4 text-center">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1">Potential Savings</p>
-              <p className="font-display text-2xl font-bold text-foreground">€{totalSavings.toFixed(0)}</p>
-              <p className="text-[11px] text-muted-foreground">vs. previous prices</p>
+
+          <Card className="relative overflow-hidden bg-[rgba(255,255,255,0.02)] backdrop-blur-[16px] border-border hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.5)] hover:border-blue-500/30 transition-all duration-500 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 group-hover:bg-blue-500/20 transition-colors duration-500 pointer-events-none" />
+            <CardContent className="p-5 text-center relative z-10">
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium group-hover:text-foreground transition-colors">Potential Savings</p>
+              <p className="font-display text-4xl font-bold text-foreground tabular-nums tracking-tight">
+                €{totalSavings.toFixed(0)}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">vs. previous prices</p>
             </CardContent>
           </Card>
-          <Card className="bg-surface border-border">
-            <CardContent className="p-4 text-center">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1">Alerts Active</p>
-              <p className="font-display text-2xl font-bold text-primary">{alertsOn}</p>
-              <p className="text-[11px] text-muted-foreground">notifications on</p>
+
+          <Card className="relative overflow-hidden bg-[rgba(255,255,255,0.02)] backdrop-blur-[16px] border-border hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.5)] hover:border-primary/40 transition-all duration-500 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 group-hover:bg-primary/20 transition-colors duration-500 pointer-events-none" />
+            <CardContent className="p-5 text-center relative z-10">
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium group-hover:text-foreground transition-colors">Alerts Active</p>
+              <p className="font-display text-4xl font-bold text-primary tabular-nums tracking-tight drop-shadow-[0_0_15px_rgba(124,58,237,0.3)]">
+                {alertsOn}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">notifications on</p>
             </CardContent>
           </Card>
         </div>
@@ -133,16 +144,17 @@ export default function FavoritesContent() {
             return (
               <Card
                 key={product.id}
-                className="bg-surface border-border hover:border-primary/30 transition-colors cursor-pointer group"
+                className="relative overflow-hidden bg-surface border-border hover:border-primary/40 hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(0,0,0,0.5)] transition-all duration-300 cursor-pointer group"
                 onClick={() => navigate(`/product/${product.id}`)}
               >
-                <CardContent className="p-4 flex items-center gap-4">
+                <div className="absolute top-0 right-0 w-32 h-full bg-gradient-to-l from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                <CardContent className="p-4 flex items-center gap-4 relative z-10">
                   {/* Change Indicator */}
                   <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
-                    isDown ? "bg-success/10" : isUp ? "bg-destructive/10" : "bg-muted/10"
+                    "w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110",
+                    isDown ? "bg-[hsl(var(--success))]/10 shadow-[0_0_15px_rgba(var(--success),0.2)]" : isUp ? "bg-destructive/10" : "bg-muted/10"
                   )}>
-                    {isDown ? <TrendingDown size={18} className="text-success" /> :
+                    {isDown ? <TrendingDown size={18} className="text-[hsl(var(--success))]" /> :
                      isUp ? <TrendingUp size={18} className="text-destructive" /> :
                      <Minus size={18} className="text-muted-foreground" />}
                   </div>
@@ -150,28 +162,28 @@ export default function FavoritesContent() {
                   {/* Product Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground truncate">{product.name}</p>
+                      <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">{product.name}</p>
                       {atLowest && (
-                        <Badge className="bg-success/10 text-success border-success/20 text-[10px] px-1.5 shrink-0">
+                        <Badge className="bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] border-[hsl(var(--success))]/30 text-[10px] px-1.5 shrink-0 animate-pulse shadow-[0_0_8px_rgba(var(--success),0.4)]">
                           Lowest
                         </Badge>
                       )}
                     </div>
-                    <p className="text-[11px] text-muted-foreground">{product.brand} · {product.store}</p>
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground mt-0.5">{product.brand} · <span className="text-foreground/70">{product.store}</span></p>
                   </div>
 
                   {/* Price */}
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-foreground tabular-nums">€{product.currentPrice.toFixed(2)}</p>
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span className="text-[11px] text-muted-foreground line-through tabular-nums">
+                    <p className="text-[15px] font-display font-bold text-foreground tabular-nums tracking-tight group-hover:scale-105 origin-right transition-transform">€{product.currentPrice.toFixed(2)}</p>
+                    <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                      <span className="text-[11px] font-display text-muted-foreground line-through tabular-nums tracking-tight">
                         €{product.previousPrice.toFixed(2)}
                       </span>
                       <Badge
                         variant="outline"
                         className={cn(
-                          "text-[10px] px-1.5",
-                          isDown ? "border-success/30 text-success" : isUp ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"
+                          "text-[10px] px-1.5 font-display tabular-nums tracking-tight",
+                          isDown ? "border-[hsl(var(--success))]/30 text-[hsl(var(--success))]" : isUp ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"
                         )}
                       >
                         {change > 0 ? "+" : ""}{change.toFixed(1)}%
@@ -209,13 +221,18 @@ export default function FavoritesContent() {
         </div>
 
         {favorites.length === 0 && (
-          <div className="text-center py-16">
-            <Heart size={40} className="mx-auto text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">No favorites yet</p>
-            <p className="text-[11px] text-muted-foreground mt-1">Browse the Catalog to add products</p>
-            <Button variant="outline" className="mt-4 text-xs" onClick={() => navigate("/catalog")}>
-              Go to Catalog
-            </Button>
+          <div className="text-center py-24 relative overflow-hidden rounded-[var(--radius-card)] border border-dashed border-border/50 bg-[rgba(255,255,255,0.01)] backdrop-blur-sm">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-primary/5 rounded-full blur-[60px] pointer-events-none" />
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="w-16 h-16 rounded-full bg-surface-2/80 border border-border flex items-center justify-center mb-4 shadow-glow">
+                <Heart size={24} className="text-primary/70" />
+              </div>
+              <p className="text-lg font-display tracking-tight font-medium text-foreground">No favorites</p>
+              <p className="text-[13px] text-muted-foreground mt-1.5 max-w-[250px] mx-auto">Track your most crucial products to receive instant dumping alerts.</p>
+              <Button className="mt-6 h-9 px-6 text-[13px] shadow-glow hover:scale-105 transition-transform" onClick={() => navigate("/catalog")}>
+                Browse Catalog
+              </Button>
+            </div>
           </div>
         )}
       </div>
