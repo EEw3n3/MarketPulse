@@ -73,12 +73,13 @@ class DashboardManager:
             progress = self.progress_data[site]
             
             # Simple progress bar as text
-            bar_len = 10
+            bar_len = 20
             filled = int(bar_len * (progress / 100))
             bar = "█" * filled + "░" * (bar_len - filled)
             
-            panel_content = f"[bold cyan]Status:[/bold cyan] {status}\n[bold yellow]Progress:[/bold yellow] [{bar}] {progress}%\n\n{log_text}"
-            self.layout[site].update(Panel(panel_content, title=f" {site} ", border_style="blue"))
+            # Use escape sequences or just avoid brackets around the bar to prevent Rich interpreting it as a style tag
+            panel_content = f"[bold cyan]Status:[/bold cyan] {status}\n[bold yellow]Progress:[/bold yellow] |{bar}| {progress}%\n\n{log_text}"
+            self.layout[site].update(Panel(panel_content, title=f" [bold white]{site}[/bold white] ", border_style="blue"))
             
         return self.layout
 

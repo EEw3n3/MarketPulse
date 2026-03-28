@@ -61,3 +61,7 @@ Thumbs.db
 
 # Project Docs (if they are temporary/local versions)
 # PROJECT_VISION.txt
+
+# SSH Keys
+MarketPulse
+MarketPulse.pub

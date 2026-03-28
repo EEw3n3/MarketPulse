@@ -809,6 +809,8 @@ class ScraperService:
         from app.services.ui import get_dashboard
         db = get_dashboard()
 
+        ai_retry_attempted = False
+
         while processed_cards < max_items:
             # Check if we have a valid URL or a pending click
             if not current_url and not next_click_selector:
@@ -899,7 +901,31 @@ class ScraperService:
 
             if not cards and not ("makeup." in domain and makeup_items):
                  logger.error(f"❌ Cards not found ({rule.container_css})")
-                 break
+                 
+                 if not ai_retry_attempted:
+                     logger.warning(f"🤖 Triggering AI Self-Healing for {domain}...")
+                     ai_retry_attempted = True
+                     
+                     if db and site_name_ui:
+                         db.update_status(site_name_ui, "AI Healing DOM...", progress=0)
+                     
+                     from app.services.ai_generator import ai_generator
+                     hint = f"Elements matching previous container_css '{rule.container_css}' were NOT found. Find the correct repeating product container."
+                     
+                     new_rule = await ai_generator.get_or_create_rule(session, current_url, html, force_refresh=True, error_hint=hint)
+                     if new_rule:
+                         logger.success(f"🤖 AI regenerated rule. Retrying card extraction...")
+                         rule = new_rule
+                         cards, winner = self._try_selectors(sel, rule.container_css)
+                         if not cards:
+                             logger.error("❌ AI regenerated rule also failed. Skipping page.")
+                             break
+                     else:
+                         logger.error("❌ AI failed to regenerate rule. Skipping page.")
+                         break
+                 else:
+                     logger.error(f"❌ Cards not found ({rule.container_css}), and AI retry already attempted. Giving up.")
+                     break
                  
             logger.info(f"{rule.emoji} [Page {page_number}] Cards: {len(cards)}")
 
@@ -1041,6 +1067,10 @@ class ScraperService:
                                     "is_available": d["is_available"]
                                 })
                             return results
+
+                    if db and site_name_ui:
+                        progress_pct = round((items_completed_overall / max_items) * 100, 1)
+                        db.update_status(site_name_ui, f"Deep Diving: {items_completed_overall}/{max_items}", progress=progress_pct)
 
                     tasks = [process_job(job) for job in deep_dive_queue]
                     for f in asyncio.as_completed(tasks):

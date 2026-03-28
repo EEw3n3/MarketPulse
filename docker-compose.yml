@@ -19,9 +19,10 @@ services:
 
   app:
     build: .
-    # Команда "tail -f /dev/null" держит контейнер запущенным, 
-    # чтобы ты мог внутри него запускать скрипты вручную.
-    command: tail -f /dev/null 
+    # Продакшен команда: создание таблиц и переход в режим сна (ожидание ручного запуска скрейпера)
+    command: sh -c "alembic upgrade head && tail -f /dev/null"
+    # ports:
+    #   - "8000:8000"
     volumes:
       - .:/app
     environment:

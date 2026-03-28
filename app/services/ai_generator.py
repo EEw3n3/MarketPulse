@@ -45,12 +45,6 @@ class AIGenerator:
                 "detail_variant_name_css": "span.name",
                 "detail_variant_price_css": "div.price span.now",
             },
-            "notino.lv": {
-                "container_css": "[data-testid='product-container']",
-                "title_css": "h3",
-                "price_css": "span[data-testid='price-component']",
-                "use_detail_page": True,
-            },
             # Verified 2026-03-15 by HTML reverse-engineering (scout_220.py)
             # SPA (Pigu platform) -- products loaded by browser JS, parsed via widget-data JSON
             # Price extraction done via _extract_220_from_widget_data() in scraper.py
