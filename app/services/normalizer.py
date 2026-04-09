@@ -1,4 +1,5 @@
 import re
+import html
 from typing import Optional, Dict
 
 class PerfumeNormalizer:
@@ -79,7 +80,14 @@ class PerfumeNormalizer:
         r"\bafter shave\b", r"\baftershave\b", r"\btester\b", r"\btestieris\b",
         r"\bparfums\b", r"\bman\b", r"\bwomen\b", r"\bwoman\b", r"\bmen\b",
         r"\bdezodorants\b", r"\bminiatūra\b", r"\bantiperspirants\b", r"\bantiseptiķis\b", 
-        r"\baroma difuzors\b", r"\bdezodorants-zīmulis\b", r"\bdušas želeja\b"
+        r"\baroma difuzors\b", r"\bdezodorants-zīmulis\b", r"\bdušas želeja\b",
+        # Added based on stress test results
+        r"\btilpums\b", r"\bvolume\b", r"\bgab\b", r"\baerosols\b", r"\baerosol\b",
+        r"\bviriesiem\b", r"\bsievietem\b", r"\bvīriešu\b", r"\bsieviešu\b", r"\bviriesu\b", r"\bsieviesu\b",
+        r"\bkvepalai\b", r"\bvyrams\b", r"\bmoterims\b", r"\bparfumerija\b",
+        r"\btualetes ūdens\b", r"\bparfimērijas ūdens\b", r"\bsmaržūdens\b", r"\bsmaržas\b", r"\bodekolons\b",
+        r"\btualetes udens\b", r"\bparfimerijas udens\b", r"\bsmarzudens\b", r"\bsmarzas\b",
+        r"\beau de toilette\b", r"\beau de parfum\b", r"\bedt\b", r"\bedp\b"
     ]
 
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
@@ -91,6 +99,8 @@ class PerfumeNormalizer:
         If explicit_brand is passed, it takes PRIORITY over heuristic brand detection.
         Heuristic detection is only used to determine what text to strip from the title.
         """
+        # 0. Initial Cleanup: remove HTML entities and normalize spaces
+        title = html.unescape(title)
         title_lower = title.lower()
         # 0. Preparation: remove only strictly annoying leading punctuation for brand search
         # but keep symbols that might be part of the brand (like &)
@@ -208,9 +218,13 @@ class PerfumeNormalizer:
         clean_name = re.sub(r'\s+', ' ', clean_name).strip()
         
         # Aggressive word-by-word cleanup for orphan generic words
-        generic_words = {"eau", "parfum", "edt", "edp", "pour", "for", "de", "man", "men", "woman", "women", "homme", "femme", "set"}
+        generic_words = {
+            "eau", "parfum", "edt", "edp", "pour", "for", "de", "man", "men", "woman", "women", "homme", "femme", "set",
+            "gab", "tilpums", "volume", "vīriešiem", "sievietēm", "viriesiem", "sievietem", "vīriešu", "sieviešu",
+            "tualetes", "ūdens", "parfimērijas", "smaržas", "kvepalai", "vyrams", "moterims", "parfumerija"
+        }
         words = clean_name.split()
-        filtered_words = [w for w in words if w.lower().strip("-,.") not in generic_words]
+        filtered_words = [w for w in words if w.lower().strip("-,.:|") not in generic_words]
         clean_name = " ".join(filtered_words)
 
         # FALLBACK: trigger if clean_name is empty OR consists only of words

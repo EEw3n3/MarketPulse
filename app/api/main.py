@@ -75,18 +75,24 @@ async def get_product_feed(limit: int = 20, db: AsyncSession = Depends(get_db)):
     for p in products:
         diff = float(p.last_price - p.old_price) if p.old_price else 0
         direction = "none"
-        if diff > 0: direction = "up"
-        elif diff < 0: direction = "down"
+        if diff > 0.01: direction = "up"
+        elif diff < -0.01: direction = "down"
         
+        # Calculate percentage and round to nearest integer for "clean" UI
         percent = abs(diff / float(p.old_price)) * 100 if p.old_price and p.old_price != 0 else 0
+        rounded_percent = int(round(percent))
         
+        # Skip items with no significant change (the "garbage" the user mentioned)
+        if direction == "none" or rounded_percent == 0:
+            continue
+
         feed_items.append(schemas.ProductFeedItem(
             id=p.id,
             brand=p.brand or "Unknown",
             title=p.title,
             currentPrice=float(p.last_price),
             previousPrice=float(p.old_price) if p.old_price else float(p.last_price),
-            changePercent=round(percent, 1),
+            changePercent=rounded_percent,
             changeDirection=direction,
             storeInitial=get_store_initial(p.search_term),
             storeName=p.search_term.capitalize(),
@@ -121,10 +127,11 @@ async def get_catalog(
     for p in products:
         diff = float(p.last_price - p.old_price) if p.old_price else 0
         direction = "none"
-        if diff > 0: direction = "up"
-        elif diff < 0: direction = "down"
+        if diff > 0.01: direction = "up"
+        elif diff < -0.01: direction = "down"
         
         percent = abs(diff / float(p.old_price)) * 100 if p.old_price and p.old_price != 0 else 0
+        rounded_percent = int(round(percent))
         
         catalog_items.append(schemas.CatalogItem(
             id=p.id,
@@ -135,7 +142,7 @@ async def get_catalog(
             type=p.concentration or "EDT",
             price=float(p.last_price),
             previousPrice=float(p.old_price) if p.old_price else float(p.last_price),
-            changePercent=round(percent, 1),
+            changePercent=rounded_percent,
             changeDirection=direction,
             store=p.search_term.capitalize(),
             storeColor=get_store_color(p.search_term),

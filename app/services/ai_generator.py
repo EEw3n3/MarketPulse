@@ -39,6 +39,8 @@ class AIGenerator:
         # Checking FIRST avoids wasting 3×15s = 45s on AI calls that get overridden anyway.
         VERIFIED_DETAIL_RULES = {
             "douglas.lv": {
+                "site_name": "Douglas Latvia",
+                "emoji": "💄",
                 "use_detail_page": True,
                 "detail_trigger_text": None,
                 "detail_variant_selector": "fieldset.items div.item",
@@ -49,6 +51,8 @@ class AIGenerator:
             # SPA (Pigu platform) -- products loaded by browser JS, parsed via widget-data JSON
             # Price extraction done via _extract_220_from_widget_data() in scraper.py
             "220.lv": {
+                "site_name": "220.lv",
+                "emoji": "⚡",
                 "container_css": "div.c-product-card",
                 "title_css": ".c-product-card__title a",
                 "price_css": ".c-price:not(.h-price--loyalty)",  # fallback only; widget-data preferred
@@ -58,6 +62,8 @@ class AIGenerator:
             # Verified 2026-03-15 by HTML reverse-engineering (analyze_1a.py)
             # Container: 48/48 cards confirmed, BEM class naming pattern
             "1a.lv": {
+                "site_name": "1a.lv",
+                "emoji": "🛒",
                 "container_css": "div.catalog-taxons-product",
                 "title_css": "a.catalog-taxons-product__name",
                 "price_css": "span.catalog-taxons-product-price__price-number",
@@ -70,13 +76,24 @@ class AIGenerator:
             # Skip AI — build rule directly from verified selectors
             logger.info(f"⚡ VERIFIED fast-path for {domain} — skipping AI generation")
             override = VERIFIED_DETAIL_RULES[domain]
-            new_rule = ScrapingRule(domain=domain)
-            for field, value in override.items():
-                setattr(new_rule, field, value)
+            
+            # Atomic check-and-create to avoid IntegrityError
+            stmt = select(ScrapingRule).where(ScrapingRule.domain == domain)
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+            
+            if existing:
+                for field, value in override.items():
+                    setattr(existing, field, value)
+                new_rule = existing
+            else:
+                new_rule = ScrapingRule(domain=domain)
+                for field, value in override.items():
+                    setattr(new_rule, field, value)
+            
             session.add(new_rule)
             await session.commit()
             await session.refresh(new_rule)
-            logger.success(f"🔩 VERIFIED rule created instantly for {domain}")
+            logger.success(f"🔩 VERIFIED rule created/updated instantly for {domain}")
             return new_rule
 
         new_rule = await self.generate_rule(session, url, html_content, error_hint=error_hint)

@@ -10,7 +10,7 @@ async def clear_rules():
     async with AsyncSession(engine) as s:
         result = await s.execute(
             delete(ScrapingRule).where(
-                ScrapingRule.domain.in_(["1a.lv", "220.lv"])
+                ScrapingRule.domain.in_(["1a.lv", "220.lv", "notino.lv", "makeup.lv", "douglas.lv"])
             )
         )
         await s.commit()
