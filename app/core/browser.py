@@ -15,7 +15,7 @@ class NetworkInterceptor:
         try:
             if "application/json" in response.headers.get("content-type", "").lower():
                 url = response.url
-                # Мы убрали фильтр на слова tracking, events, чтобы ловить те самые Payload, о которых ты говорил
+                # убрали фильтр на слова tracking, events, чтобы ловить те самые Payload, о которых ты говорил
                 junk = ['google', 'facebook', 'hotjar', 'metrics', 'clarity', 'trustpilot', 'doubleclick', 'ads']
                 if any(j in url.lower() for j in junk):
                     return
