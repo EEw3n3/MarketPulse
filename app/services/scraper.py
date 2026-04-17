@@ -798,6 +798,8 @@ class ScraperService:
         processed_cards = 0
         next_click_selector = None # For JS Pagination
         next_page_link = None # Initialize for reset logic visibility
+        seen_page_signatures: set = set()  # Loop detection: frozenset of card hrefs per page
+        final_scraped_items: list = []  # Accumulated across all pages (incremental saves)
 
         # --- RESUME LOGIC (Checkpoint) ---
         if rule.last_page_url and rule.last_page_url.startswith(start_url.split('?')[0]):
@@ -928,6 +930,20 @@ class ScraperService:
                      break
                  
             logger.info(f"{rule.emoji} [Page {page_number}] Cards: {len(cards)}")
+
+            # --- LOOP DETECTION (JS pagination guard) ---
+            # Notino and similar SPAs keep the "next page" button visible even on the last
+            # page. When clicked it returns identical content. Detect by fingerprinting the
+            # set of card hrefs — if we've seen this exact page before, we've looped.
+            page_hrefs = frozenset(
+                card.css("a::attr(href)").get() or ""
+                for card in cards
+            ) - {""}  # drop empty strings
+            if page_hrefs and page_hrefs in seen_page_signatures:
+                logger.info(f"🔁 Loop detected on page {page_number} — same card set already scraped. Stopping pagination.")
+                break
+            if page_hrefs:
+                seen_page_signatures.add(page_hrefs)
 
             try:
                 for card in cards:
@@ -1108,7 +1124,12 @@ class ScraperService:
 
             finally:
                 logger.debug("🚜 Finished processing catalog page.")
-            
+
+            # Flush this page's candidates to DB immediately — crash/Ctrl+C safe
+            page_saved = await self._flush_candidates(session, candidates, rule, group_id, intent)
+            final_scraped_items.extend(page_saved)
+            candidates.clear()
+
             if processed_cards >= max_items:
                 logger.info(f"🛑 Reached max_items limit ({max_items}). Stopping pagination.")
                 break
@@ -1206,179 +1227,8 @@ class ScraperService:
             await session.commit()
             logger.info(f"🏁 Checkpoint reset for {domain} (Reached limit or end).")
 
-        # --- PHASE 2: FILTERING AND ANALYSIS (Methods 1, 2, 3) ---
-        valid_items = []
-        
-        if candidates:
-            import json
-            from app.services.validator import content_validator
-            from datetime import datetime
-            
-            all_forbidden = []
-            if intent:
-                all_forbidden = intent.get("forbidden_keywords", []).copy()
-            if rule.negative_keywords:
-                try: 
-                   context_negative = json.loads(rule.negative_keywords)
-                   if isinstance(context_negative, list): all_forbidden.extend(context_negative)
-                except: pass
-
-            for item in candidates:
-                # Check 2: Words (Method 2/3)
-                if intent:
-                    if content_validator.is_garbage(item["title"], all_forbidden):
-                        # logger.debug(f"🗑️ [WordFilter] Drop {item['title']}")
-                        continue
-                    if not content_validator.check_brand(item["title"], intent.get("brand")):
-                        continue
-                
-                valid_items.append(item)
-
-        # --- PHASE 3: SAVING ---
-        final_scraped_items = []
-        # When variants are enabled, we should process up to max_items *original products*
-        # But for simplicity, we'll just take the items from the final valid_items list.
-        # To make sure we get what user expects, we should have limited cards earlier.
-        
-        logger.info(f"💾 Saving {len(valid_items)} items...")
-        
-        from app.services.matcher import matcher_service
-        from app.domain.models import ProductGroup
-
-        for item in valid_items:
-            # 1. Check if product exists by URL + Volume (to support variants)
-            stmt = select(Product).where(
-                Product.url == item["url"],
-                Product.volume == item["volume"]
-            )
-            product = (await session.execute(stmt)).scalar_one_or_none()
-            
-            # 2. Determine Group ID
-            final_group_id = group_id
-            
-            if not final_group_id:
-                # AUTO-MATCHING MODE (The Hardcore Part)
-                # If product exists, keep its group.
-                if product and product.group_id:
-                    final_group_id = product.group_id
-                else:
-                    # Try to find a match by attributes
-                    match = await matcher_service.find_best_match(session, item)
-                    if match:
-                        final_group_id = match.id
-                    else:
-                        # Create or find group atomically.
-                        # ON CONFLICT DO NOTHING prevents duplicate groups from
-                        # concurrent workers racing to create the same perfume group.
-                        canonical = matcher_service.get_canonical_name(item["title"], brand=item.get("brand"))
-                        
-                        from sqlalchemy.dialects.postgresql import insert as pg_insert
-                        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-                        from datetime import datetime as _dt
-                        
-                        # Dialect-aware UPSERT
-                        is_sqlite = session.bind.dialect.name == "sqlite"
-                        insert_fn = sqlite_insert if is_sqlite else pg_insert
-                        
-                        upsert_stmt = insert_fn(ProductGroup).values(
-                            name=canonical,
-                            category="Perfume",
-                            created_at=_dt.utcnow()
-                        )
-                        
-                        if is_sqlite:
-                            upsert_stmt = upsert_stmt.on_conflict_do_nothing(index_elements=["name"])
-                        else:
-                            upsert_stmt = upsert_stmt.on_conflict_do_nothing(index_elements=["name"])
-                            
-                        await session.execute(upsert_stmt)
-                        await session.flush()
-                        # Re-select to get the ID (works whether INSERT succeeded or was skipped)
-                        result = await session.execute(
-                            select(ProductGroup).where(ProductGroup.name == canonical)
-                        )
-                        resolved_group = result.scalar_one()
-                        final_group_id = resolved_group.id
-                        logger.info(f"✨ Created NEW Chain: {canonical}")
-
-            if not product:
-                product = Product(
-                    title=item["title"], 
-                    url=item["url"], 
-                    search_term=rule.site_name,
-                    group_id=final_group_id,
-                    brand=item.get("brand"),
-                    volume=item.get("volume"),
-                    concentration=item.get("concentration")
-                )
-                session.add(product)
-                await session.flush()
-                change_type = "initial"
-            else:
-                # Update group and attributes if they were missing
-                if not product.group_id: product.group_id = final_group_id
-                if not product.brand: product.brand = item.get("brand")
-                if not product.volume: product.volume = item.get("volume")
-                if not product.concentration: product.concentration = item.get("concentration")
-                
-                # Change Detection Logic
-                change_type = "no_change"
-                if product.last_price is not None:
-                    if item["price"] < product.last_price:
-                        change_type = "price_down"
-                        product.old_price = product.last_price
-                    elif item["price"] > product.last_price:
-                        change_type = "price_up"
-                        product.old_price = product.last_price
-                
-                if not product.is_available and item["price"] > 0:
-                    change_type = "back_in_stock"
-                
-                session.add(product)
-            
-            # Ensure we don't save None to Decimal column if not allowed
-            # but usually it's better to store 0.00 and is_available=False
-            price_to_save = item["price"] if item["price"] is not None else Decimal("0.00")
-            
-            product.last_seen = datetime.utcnow()
-            product.last_price = price_to_save
-            product.is_available = item["is_available"]
-            if item["image_url"]: product.image_url = item["image_url"]
-            
-            # Brand auto-discovery
-            if not product.brand and item.get("title"):
-                from app.services.normalizer import perfume_normalizer
-                norm = perfume_normalizer.extract_all(item["title"])
-                product.brand = norm.get("brand")
-
-            session.add(product)
-
-            # --- DIFF-SCRAPING: Only save history if something changed ---
-            if change_type != "no_change":
-                history = PriceHistory(
-                    price=item["price"], 
-                    in_stock=item["is_available"], 
-                    product_id=product.id,
-                    change_type=change_type
-                )
-                session.add(history)
-                
-                # Notify about SIGNIFICANT changes
-                from app.services.notifier import notification_service
-                notification_service.report_change(product, history, rule.site_name)
-            else:
-                pass # Silent update of last_seen/last_price only
-
-            final_scraped_items.append(ScrapedItem(
-                title=product.title, 
-                price=item["price"], 
-                availability="Yes", 
-                url=product.url, 
-                image_url=item["image_url"]
-            ))
-
-        await session.commit()        
         # --- QUALITY CONTROL & SELF-LEARNING ---
+        # Candidates were already saved per-page via _flush_candidates.
         report = self.validate_dataset(final_scraped_items)
         
         from datetime import datetime
@@ -1400,6 +1250,144 @@ class ScraperService:
 
         return final_scraped_items
 
+
+    async def _flush_candidates(self, session, candidates: list, rule, group_id, intent: dict | None) -> list:
+        """Filter and save a batch of candidates to DB. Returns saved ScrapedItems.
+        Called after each catalog page so data is committed incrementally — crash/Ctrl+C safe.
+        """
+        if not candidates:
+            return []
+
+        import json
+        from datetime import datetime as _dt
+        from app.services.validator import content_validator
+        from app.services.matcher import matcher_service
+        from app.domain.models import ProductGroup
+        from app.services.notifier import notification_service
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        # --- Filter ---
+        all_forbidden: list = []
+        if intent:
+            all_forbidden = intent.get("forbidden_keywords", []).copy()
+        if rule.negative_keywords:
+            try:
+                ctx = json.loads(rule.negative_keywords)
+                if isinstance(ctx, list):
+                    all_forbidden.extend(ctx)
+            except Exception:
+                pass
+
+        valid_items = []
+        for item in candidates:
+            if intent:
+                if content_validator.is_garbage(item["title"], all_forbidden):
+                    continue
+                if not content_validator.check_brand(item["title"], intent.get("brand")):
+                    continue
+            valid_items.append(item)
+
+        # --- Save ---
+        saved_items = []
+        is_sqlite = session.bind.dialect.name == "sqlite"
+        insert_fn = sqlite_insert if is_sqlite else pg_insert
+
+        for item in valid_items:
+            stmt = select(Product).where(
+                Product.url == item["url"],
+                Product.volume == item["volume"]
+            )
+            product = (await session.execute(stmt)).scalar_one_or_none()
+
+            final_group_id = group_id
+            if not final_group_id:
+                if product and product.group_id:
+                    final_group_id = product.group_id
+                else:
+                    match = await matcher_service.find_best_match(session, item)
+                    if match:
+                        final_group_id = match.id
+                    else:
+                        canonical = matcher_service.get_canonical_name(item["title"], brand=item.get("brand"))
+                        upsert_stmt = insert_fn(ProductGroup).values(
+                            name=canonical,
+                            category="Perfume",
+                            created_at=_dt.utcnow()
+                        ).on_conflict_do_nothing(index_elements=["name"])
+                        await session.execute(upsert_stmt)
+                        await session.flush()
+                        result = await session.execute(select(ProductGroup).where(ProductGroup.name == canonical))
+                        resolved_group = result.scalar_one()
+                        final_group_id = resolved_group.id
+                        logger.info(f"✨ Created NEW Chain: {canonical}")
+
+            if not product:
+                product = Product(
+                    title=item["title"],
+                    url=item["url"],
+                    search_term=rule.site_name,
+                    group_id=final_group_id,
+                    brand=item.get("brand"),
+                    volume=item.get("volume"),
+                    concentration=item.get("concentration")
+                )
+                session.add(product)
+                await session.flush()
+                change_type = "initial"
+            else:
+                if not product.group_id: product.group_id = final_group_id
+                if not product.brand: product.brand = item.get("brand")
+                if not product.volume: product.volume = item.get("volume")
+                if not product.concentration: product.concentration = item.get("concentration")
+
+                change_type = "no_change"
+                if product.last_price is not None:
+                    if item["price"] < product.last_price:
+                        change_type = "price_down"
+                        product.old_price = product.last_price
+                    elif item["price"] > product.last_price:
+                        change_type = "price_up"
+                        product.old_price = product.last_price
+                if not product.is_available and item["price"] > 0:
+                    change_type = "back_in_stock"
+                session.add(product)
+
+            price_to_save = item["price"] if item["price"] is not None else Decimal("0.00")
+            product.last_seen = _dt.utcnow()
+            product.last_price = price_to_save
+            product.is_available = item["is_available"]
+            if item["image_url"]:
+                product.image_url = item["image_url"]
+
+            if not product.brand and item.get("title"):
+                from app.services.normalizer import perfume_normalizer
+                norm = perfume_normalizer.extract_all(item["title"])
+                product.brand = norm.get("brand")
+
+            session.add(product)
+
+            if change_type != "no_change":
+                history = PriceHistory(
+                    price=item["price"],
+                    in_stock=item["is_available"],
+                    product_id=product.id,
+                    change_type=change_type
+                )
+                session.add(history)
+                notification_service.report_change(product, history, rule.site_name)
+
+            saved_items.append(ScrapedItem(
+                title=product.title,
+                price=item["price"],
+                availability="Yes",
+                url=product.url,
+                image_url=item["image_url"]
+            ))
+
+        await session.commit()
+        logger.info(f"💾 Page flushed: {len(saved_items)} items saved.")
+        return saved_items
 
     def _add_candidate(self, candidates, title, price, is_available, url, image_url, brand, norm):
         """Standardizes and adds a product to the candidates list."""

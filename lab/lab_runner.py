@@ -30,6 +30,10 @@ FULL_RUN = "--full" in sys.argv
 # 9999 = effectively unlimited; scraper stops on its own when pagination ends
 _FULL_LIMIT = 9999
 
+# --skip notino,douglas  → comma-separated site labels to exclude
+_skip_arg = next((a for a in sys.argv if a.startswith("--skip=")), None)
+SKIP_LABELS = {s.strip().lower() for s in _skip_arg.replace("--skip=", "").split(",")} if _skip_arg else set()
+
 # All 5 production sites
 # stress test: limit=20, force_refresh=True (regenerate rules each time)
 # full run:    limit=9999, force_refresh=False (reuse already-verified rules)
@@ -277,6 +281,10 @@ async def main():
     all_metrics = []
 
     for site in TEST_SITES:
+        if site["label"].lower().replace(".lv", "") in SKIP_LABELS or site["label"].lower() in SKIP_LABELS:
+            print(f"\n  ⏭️  Skipping {site['label']} (--skip)")
+            continue
+
         print()
         print(f"{'='*55}")
         print(f"  🧪 TESTING: {site['label']}")
