@@ -955,7 +955,7 @@ class ScraperService:
                                 rule_updated = True
                         
                         if not title: continue
-                        
+
                         # --- HARD FILTER (BLACKLIST) ---
                         # We drop non-perfume items entirely here so they never reach the DB or trigger Deep Dives
                         lower_title = title.lower()
@@ -971,6 +971,29 @@ class ScraperService:
                             price_text = self.extract_clean_text(price_el)
                             price_val = self.parse_price(price_text)
                             is_available = True if price_val and price_val > Decimal("0") else False
+
+                        # === NOTINO-specific: enrich single-variant cards (no deep dive needed) ===
+                        # Notino catalog cards expose volume+concentration via product-(tile|card)-variant-name
+                        # and discount price via a pink-colored span (#dc0069). Extracting both lets us
+                        # skip deep dive for single-variant products (those without "sākot ar" trigger).
+                        if "notino.lv" in current_url.lower():
+                            variant_texts = card.css(
+                                "[data-testid='product-tile-variant-name']::text, "
+                                "[data-testid='product-card-variant-name']::text"
+                            ).getall()
+                            if variant_texts:
+                                v_text = " ".join(t.strip() for t in variant_texts if t.strip())
+                                if v_text and not re.search(r'\d+[.,]?\d*\s*(ml|l|oz)\b', title, re.IGNORECASE):
+                                    title = f"{title} {v_text}"
+
+                            # Prefer discount price (rendered in Notino brand pink #dc0069) over regular
+                            discount_text = card.css("span[style*='#dc0069']::text").get()
+                            if discount_text:
+                                discount_val = self.parse_price(discount_text)
+                                if discount_val and discount_val > Decimal("0"):
+                                    if not price_val or discount_val < price_val:
+                                        price_val = discount_val
+                                        is_available = True
 
                         # 4. IMAGE
                         image_url = None
@@ -1415,9 +1438,9 @@ class ScraperService:
                 click_selector=click_selector
              )
 
-        # 220.lv is a SPA — stealth client returns empty product shell (200 OK but no cards).
-        # Must always use full browser for correct rendering.
-        if "220.lv" in url:
+        # SPA sites — stealth client returns empty product shells (200 OK but no card content).
+        # Must always use full browser for correct React/JS rendering.
+        if "220.lv" in url or "notino.lv" in url:
             from app.core.browser import browser_manager
             return await browser_manager.get_page_content(url, fast_mode=fast_mode, context=browser_context)
 

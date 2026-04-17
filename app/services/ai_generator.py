@@ -38,11 +38,38 @@ class AIGenerator:
         # These selectors are ground-truth confirmed by manual HTML inspection.
         # Checking FIRST avoids wasting 3×15s = 45s on AI calls that get overridden anyway.
         VERIFIED_DETAIL_RULES = {
+            # Verified 2026-04-17 by HTML reverse-engineering (lab/debug_notino_lv.html)
+            # NOTE: class-based selectors (styled__*) change on every Notino deploy.
+            # Using data-testid attributes which are stable across deployments.
+            "notino.lv": {
+                "site_name": "Notino",
+                "emoji": "👃",
+                "container_css": "[data-testid='product-container']:not([data-recommendation='promo-banner'])",
+                # Notino renders two component variants: ProductCard (Playwright) vs ProductTile (real browser).
+                # Both selectors provided as comma-fallback for _try_selectors.
+                "title_css": "[data-testid='product-card-name'], [data-testid='product-tile-name']",
+                "brand_css": "[data-testid='product-card-brand'], [data-testid='product-tile-brand']",
+                "price_css": "[data-testid='price-component']",
+                "image_css": "img[loading='lazy']",
+                "next_page_css": ".nextPage[data-testid='page-button-wrapper']",
+                "use_detail_page": True,
+                "detail_trigger_text": "sākot ar,no ",
+            },
+            # Verified 2026-04-17 by HTML reverse-engineering (lab/debug_douglas_lv.html)
+            # Douglas Latvia changed HTML structure: old .product-tile → new .product_element
+            # Price is in span.now (can contain "Šobrīd nav"/"Drīz tirdzniecībā!" for OOS)
+            # Tealium JSON (data-tealium-info) available for deep dive variant extraction
             "douglas.lv": {
                 "site_name": "Douglas Latvia",
                 "emoji": "💄",
+                "container_css": "div.product_element",
+                "title_css": "span.name",
+                "brand_css": "span.brand_caps",
+                "price_css": "span.price span.now",
+                "image_css": "img.product-photo",
+                "next_page_css": "a.page.next",
                 "use_detail_page": True,
-                "detail_trigger_text": None,
+                "detail_trigger_text": "no ,sākot",
                 "detail_variant_selector": "fieldset.items div.item",
                 "detail_variant_name_css": "span.name",
                 "detail_variant_price_css": "div.price span.now",

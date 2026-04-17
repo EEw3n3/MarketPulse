@@ -1,16 +1,24 @@
+"""
+MarketPulse Lab Runner — Multi-site stress test
+Runs all 5 sites sequentially, collects quality metrics, prints summary.
+
+Usage:
+  python lab/lab_runner.py           # stress test: 20 items per site, regenerate rules
+  python lab/lab_runner.py --full    # full run: all items per site, reuse existing rules
+"""
 import asyncio
 import sys
 import os
 import time
+from decimal import Decimal
 from loguru import logger
-from sqlmodel import SQLModel, create_engine, Session, select
+from sqlmodel import SQLModel, select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-# Add project root to path to import app modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.domain.models import ScrapingRule, Product, PriceHistory
+from app.domain.models import ScrapingRule, Product
 from app.services.scraper import scraper_service
 from app.core.client import stealth_client
 
@@ -18,77 +26,55 @@ from app.core.client import stealth_client
 LAB_DB_URL = "sqlite+aiosqlite:///lab/lab_test.db"
 lab_engine = create_async_engine(LAB_DB_URL, echo=False)
 
+FULL_RUN = "--full" in sys.argv
+# 9999 = effectively unlimited; scraper stops on its own when pagination ends
+_FULL_LIMIT = 9999
+
+# All 5 production sites
+# stress test: limit=20, force_refresh=True (regenerate rules each time)
+# full run:    limit=9999, force_refresh=False (reuse already-verified rules)
+TEST_SITES = [
+    {
+        "url": "https://www.notino.lv/viriesu-smarzas/",
+        "label": "Notino.lv",
+        "force_refresh": not FULL_RUN,
+        "limit": _FULL_LIMIT if FULL_RUN else 20,
+    },
+    {
+        "url": "https://www.douglas.lv/lv/katalogs/smarzas/viriesu-smarzas/smarzas/",
+        "label": "Douglas.lv",
+        "force_refresh": not FULL_RUN,
+        "limit": _FULL_LIMIT if FULL_RUN else 20,
+    },
+    {
+        "url": "https://makeup.lv/categorys/3218/",
+        "label": "Makeup.lv",
+        "force_refresh": not FULL_RUN,
+        "limit": _FULL_LIMIT if FULL_RUN else 20,
+    },
+    {
+        "url": "https://220.lv/lv/smarzas/viriesu_smarzas",
+        "label": "220.lv",
+        "force_refresh": not FULL_RUN,
+        "limit": _FULL_LIMIT if FULL_RUN else 20,
+    },
+    {
+        "url": "https://www.1a.lv/c/smarzas-un-kosmetika/viriesu-smarzas/viriesu-smarzas/30j",
+        "label": "1a.lv",
+        "force_refresh": not FULL_RUN,
+        "limit": _FULL_LIMIT if FULL_RUN else 20,
+    },
+]
+
+
 async def init_lab_db():
     async with lab_engine.begin() as conn:
-        # Create tables ONLY if they don't exist in the lab DB
         await conn.run_sync(SQLModel.metadata.create_all)
-    logger.info("🧪 Lab Database Initialized.")
+    logger.info("🧪 Lab Database initialized.")
 
-async def run_lab_test(site_url: str, limit: int = 50):
-    """
-    Runs an isolated test for a specific URL.
-    """
-    async_session = sessionmaker(lab_engine, class_=AsyncSession, expire_on_commit=False)
-    
-    await stealth_client.init_session()
-    
-    async with async_session() as session:
-        t_start = time.time()
-        logger.info(f"🧪 [LAB TEST] Starting validation for: {site_url}")
-        
-        # 1. We need to register the domain for rule generation
-        from app.core.registry import register_domain
-        register_domain(site_url)
-        
-        # 2. Get/Create rule using our AI generator
-        from app.services.ai_generator import ai_generator
-        # Fetch HTML using Tier 3 for complex sites
-        from app.core.browser import browser_manager
-        response = await browser_manager.get_page_content(site_url)
-        
-        if not response or not response.get("html"):
-            logger.error("❌ Failed to fetch HTML in Lab mode.")
-            return
-            
-        html = response["html"]
 
-        with open("lab_debug.html", "w", encoding="utf-8") as f:
-            f.write(html)
-        logger.info("📄 Lab debug HTML saved to lab_debug.html")
-
-        rule = await ai_generator.get_or_create_rule(session, site_url, html)
-        if not rule:
-            logger.error("❌ AI failed to create a rule for this site.")
-            return
-
-        logger.info(f"🧬 [LAB] Testing Rule: {rule.site_name} | {rule.domain}")
-        
-        # 3. Execution
-        items = await scraper_service.scrape_catalog(
-            session=session,
-            start_url=site_url,
-            initial_html=html,
-            max_items=limit,
-            enable_price_filter=False
-        )
-        
-        # 4. Result Analysis
-        if items:
-            elapsed = time.time() - t_start
-            rate = len(items) / (elapsed / 60)
-            logger.success(f"✅ [LAB] Success! Collected {len(items)} items.")
-            logger.info(f"📊 Quality Check: Items with recognized patterns - {len(items)}")
-            logger.info(f"⏱️  Total time: {elapsed:.1f}s ({elapsed/60:.1f} min) | Rate: {rate:.0f} items/min")
-        else:
-            logger.error("❌ [LAB] Scraper returned 0 items.")
-
-    from app.core.browser import browser_manager
-    await browser_manager.stop()
-    await stealth_client.close()
-
-async def clear_rule(session, domain: str):
-    """Delete any existing (potentially stale) rule for a domain before re-testing."""
-    from sqlmodel import select
+async def clear_rule(session: AsyncSession, domain: str):
+    """Delete existing rule for domain before re-testing."""
     stmt = select(ScrapingRule).where(ScrapingRule.domain == domain)
     result = await session.execute(stmt)
     rule = result.scalar_one_or_none()
@@ -97,41 +83,229 @@ async def clear_rule(session, domain: str):
         await session.commit()
         logger.warning(f"🗑️  Cleared stale rule for {domain}")
 
+
+async def run_site_test(session: AsyncSession, site_url: str, label: str, limit: int) -> dict:
+    """
+    Run a single site test and return quality metrics.
+    Returns a metrics dict with all quality data.
+    """
+    from app.core.registry import register_domain
+    from app.services.ai_generator import ai_generator
+    from app.core.browser import browser_manager
+
+    t_start = time.time()
+    metrics = {
+        "label": label,
+        "url": site_url,
+        "total": 0,
+        "available": 0,
+        "unavailable": 0,
+        "with_price": 0,
+        "with_brand": 0,
+        "with_volume": 0,
+        "with_group": 0,
+        "zero_prices": 0,
+        "no_brand": 0,
+        "no_volume": 0,
+        "elapsed": 0.0,
+        "status": "❌ FAILED",
+        "error": None,
+    }
+
+    try:
+        register_domain(site_url)
+
+        # Fetch initial HTML
+        response = await browser_manager.get_page_content(site_url)
+        if not response or not response.get("html"):
+            metrics["error"] = "Failed to fetch HTML"
+            return metrics
+
+        html = response["html"]
+
+        # Save debug HTML per site
+        debug_path = f"lab/debug_{label.replace('.', '_').replace(' ', '_').lower()}.html"
+        with open(debug_path, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        # Get or create scraping rule
+        rule = await ai_generator.get_or_create_rule(session, site_url, html)
+        if not rule:
+            metrics["error"] = "AI failed to create rule"
+            return metrics
+
+        logger.info(f"🧬 Rule loaded: {rule.site_name} | container: {rule.container_css}")
+
+        # Run scraper
+        items = await scraper_service.scrape_catalog(
+            session=session,
+            start_url=site_url,
+            initial_html=html,
+            max_items=limit,
+            enable_price_filter=False,
+        )
+
+        elapsed = time.time() - t_start
+        metrics["elapsed"] = elapsed
+
+        if not items:
+            metrics["error"] = "Scraper returned 0 items"
+            return metrics
+
+        metrics["total"] = len(items)
+        metrics["status"] = "✅ OK"
+
+        # Check DB for what was actually saved — filter by exact URLs from this run
+        scraped_urls = [item.url for item in items if item.url]
+        if scraped_urls:
+            stmt = select(Product).where(Product.url.in_(scraped_urls))
+            saved = (await session.execute(stmt)).scalars().all()
+
+            for p in saved:
+                # Separate unavailable (legitimately out of stock) from actual bugs
+                if not p.is_available and (p.last_price is None or p.last_price == 0):
+                    metrics["unavailable"] += 1
+                    continue  # Don't count unavailable items in quality metrics
+
+                metrics["available"] += 1
+
+                if p.last_price and p.last_price > 0:
+                    metrics["with_price"] += 1
+                else:
+                    metrics["zero_prices"] += 1
+
+                if p.brand:
+                    metrics["with_brand"] += 1
+                else:
+                    metrics["no_brand"] += 1
+
+                if p.volume:
+                    metrics["with_volume"] += 1
+                else:
+                    metrics["no_volume"] += 1
+
+                if p.group_id:
+                    metrics["with_group"] += 1
+
+    except Exception as e:
+        metrics["error"] = str(e)
+        logger.error(f"💥 [{label}] Exception: {e}")
+
+    return metrics
+
+
+def print_summary(all_metrics: list[dict]):
+    """Print a clean summary table of all site results."""
+    W = 88
+    print()
+    print(f"╔{'═' * W}╗")
+    print(f"║{'  🧪  MARKETPULSE STRESS TEST — RESULTS SUMMARY':<{W}}║")
+    print(f"╠{'═' * W}╣")
+    print(f"║  {'Site':<14} {'Status':<10} {'Avail':>6} {'OOS':>5} {'Price%':>7} {'Brand%':>7} {'Vol%':>7} {'Chain%':>7} {'Time':>7}  ║")
+    print(f"╠{'─' * W}╣")
+
+    total_items = 0
+    total_avail = 0
+    total_ok = 0
+
+    for m in all_metrics:
+        n = m["total"]
+        a = m["available"]
+        total_items += n
+        total_avail += a
+
+        # Calculate percentages based on AVAILABLE items only (not total)
+        price_pct = f"{m['with_price'] / a * 100:.0f}%" if a else "—"
+        brand_pct = f"{m['with_brand'] / a * 100:.0f}%" if a else "—"
+        vol_pct   = f"{m['with_volume'] / a * 100:.0f}%" if a else "—"
+        chain_pct = f"{m['with_group'] / a * 100:.0f}%" if a else "—"
+        elapsed   = f"{m['elapsed']:.1f}s"
+        oos       = m["unavailable"]
+
+        status = m["status"]
+        if m["status"] == "✅ OK":
+            total_ok += 1
+
+        err = f"  ← {m['error']}" if m.get("error") and m["status"] != "✅ OK" else ""
+
+        print(f"║  {m['label']:<14} {status:<10} {a:>6} {oos:>5} {price_pct:>7} {brand_pct:>7} {vol_pct:>7} {chain_pct:>7} {elapsed:>7}  ║{err}")
+
+    print(f"╠{'═' * W}╣")
+    overall = "✅ ALL PASS" if total_ok == len(all_metrics) else f"⚠️  {total_ok}/{len(all_metrics)} PASSED"
+    print(f"║  {overall:<20} Available: {total_avail} / Total: {total_items:<8}{'':<{W-52}}║")
+    print(f"╚{'═' * W}╝")
+    print()
+
+    # Detailed issues report
+    issues_found = False
+    for m in all_metrics:
+        n = m["total"]
+        if n == 0:
+            continue
+        a = m["available"]
+        site_issues = []
+        if m["zero_prices"] > 0:
+            site_issues.append(f"{m['zero_prices']} available items with zero price (BUG)")
+        if m["unavailable"] > 0:
+            site_issues.append(f"{m['unavailable']} items out of stock (excluded from metrics)")
+        if a > 0 and m["no_brand"] / a > 0.3:
+            site_issues.append(f"{m['no_brand']} items missing brand ({m['no_brand']/a*100:.0f}%)")
+        if a > 0 and m["no_volume"] / a > 0.5:
+            site_issues.append(f"{m['no_volume']} items missing volume ({m['no_volume']/a*100:.0f}%)")
+        if a > 0 and m["with_group"] / a < 0.5:
+            site_issues.append(f"Low chaining rate: only {m['with_group']}/{a} got a ProductGroup")
+
+        if site_issues:
+            issues_found = True
+            print(f"⚠️  [{m['label']}] Issues:")
+            for issue in site_issues:
+                print(f"     - {issue}")
+
+    if not issues_found:
+        print("✅ No critical data quality issues found across all sites.")
+    print()
+
+
 async def main():
-    if not os.path.exists('lab'):
-        os.makedirs('lab')
-        
+    if not os.path.exists("lab"):
+        os.makedirs("lab")
+
     await init_lab_db()
-    
-    # --- SITES TO TEST ---
-    # Comment/uncomment as needed. force_refresh=True purges any stale DB rule first.
-    test_sites = [
-        {
-            "url": "https://www.notino.lv/viriesu-smarzas/",
-            "label": "Notino.lv",
-            "force_refresh": True,
-            "limit": 20,
-        },
-    ]
-    
+    await stealth_client.init_session()
+
     async_session = sessionmaker(lab_engine, class_=AsyncSession, expire_on_commit=False)
+    all_metrics = []
 
-    for site in test_sites:
-        print("\n" + "="*55)
-        print(f"  🧪 MARKETPULSE LABORATORY: {site['label']}")
+    for site in TEST_SITES:
+        print()
+        print(f"{'='*55}")
+        print(f"  🧪 TESTING: {site['label']}")
         print(f"  URL: {site['url']}")
-        print("="*55)
+        print(f"{'='*55}")
 
-        # Force-clear old rule so VERIFIED_DETAIL_RULES override is always applied
+        # Clear stale rule if force_refresh
         if site.get("force_refresh"):
             async with async_session() as session:
                 from urllib.parse import urlparse
                 domain = urlparse(site["url"]).netloc.replace("www.", "")
                 await clear_rule(session, domain)
 
-        await run_lab_test(site["url"], limit=site["limit"])
+        async with async_session() as session:
+            metrics = await run_site_test(session, site["url"], site["label"], site["limit"])
+            all_metrics.append(metrics)
+
+        logger.info(f"✔ [{site['label']}] done — {metrics['total']} items in {metrics['elapsed']:.1f}s")
+
+    # Cleanup
+    from app.core.browser import browser_manager
+    await browser_manager.stop()
+    await stealth_client.close()
+
+    # Print full summary
+    print_summary(all_metrics)
+
 
 if __name__ == "__main__":
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())

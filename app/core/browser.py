@@ -281,12 +281,9 @@ class BrowserManager:
             # Since we can't easily pass complex objects, we'll rely on the caller to handle complex flows
             # But for simple pagination clicks, we can add a helper arg in future.
             
-            # Wait for any dynamic content
+            # Wait for dynamic content (React fragments, SPA hydration, etc.)
             try:
-                if fast_mode:
-                    await page.wait_for_load_state("networkidle", timeout=5000)
-                else:
-                    await page.wait_for_load_state("domcontentloaded")
+                await page.wait_for_load_state("networkidle", timeout=10000)
             except Exception:
                 pass
 

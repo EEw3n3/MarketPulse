@@ -32,6 +32,8 @@ class PerfumeNormalizer:
         "Aedes de Venustas", "Affinessence", "Agonist", "Altaia", "Anatole Lebreton",
         "Angela Ciampagna", "Annick Goutal", "Goutal Paris", "Areej Le Dore",
         "Abercrombie & Fitch", "Fitch", "& Fitch", "Maurer & Wirtz", "4711", "Alfred Dunhill", "Dunhill",
+        "Burberry", "Gisada", "Clive Christian", "BellaVita", "Afnan",
+        "Jacques Zolty", "Arabiyat Prestige", "Maison Alhambra", "Bugatti",
         "Cristiano Ronaldo", "Antonio Banderas", "Banderas",
         "Salvador Dali", "Elizabeth Taylor", "Elizabeth Arden", "Sarah Jessica Parker", "SJP",
         "Juicy Couture", "Couture", "Britney Spears", "Spears", "Katy Perry"
@@ -144,7 +146,10 @@ class PerfumeNormalizer:
                 first_word = words[0].strip(",.- ")
                 forbidden_heuristics = {
                     "man", "men", "woman", "women", "homme", "femme",
-                    "for", "pour", "the", "with", "eau", "de", "parfum"
+                    "for", "pour", "the", "with", "eau", "de", "parfum",
+                    # Latvian product type prefixes that appear at the start of 220.lv/1a.lv titles
+                    "vīriešu", "sieviešu", "tualetes", "parfimērijas", "smaržas",
+                    "smaržūdens", "odekolons", "viriesu", "sieviesu",
                 }
                 is_valid = (
                     first_word.lower() not in forbidden_heuristics

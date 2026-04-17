@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +10,7 @@ import uvicorn
 
 from app.api.deps import get_db
 from app.api import schemas
-from app.domain.models import ProductGroup, Product, PriceHistory
+from app.domain.models import Product, PriceHistory
 
 app = FastAPI(
     title="MarketPulse API",
@@ -32,25 +33,27 @@ app.add_middleware(
 
 # --- Helper Functions ---
 
+_STORE_INITIALS = {
+    "notino": "N", "notino.lv": "N",
+    "douglas latvia": "D", "douglas.lv": "D",
+    "makeup.lv": "M", "makeup": "M",
+    "1a.lv": "1",
+    "220.lv": "2",
+}
+
+_STORE_COLORS = {
+    "notino": "bg-[hsl(var(--success))]", "notino.lv": "bg-[hsl(var(--success))]",
+    "douglas latvia": "bg-blue-500", "douglas.lv": "bg-blue-500",
+    "makeup.lv": "bg-pink-500", "makeup": "bg-pink-500",
+    "1a.lv": "bg-orange-500",
+    "220.lv": "bg-amber-500",
+}
+
 def get_store_initial(store_name: str) -> str:
-    mapping = {
-        "douglas.lv": "D",
-        "notino.lv": "N",
-        "makeup.lv": "M",
-        "1a.lv": "1",
-        "220.lv": "2"
-    }
-    return mapping.get(store_name.lower(), "?")
+    return _STORE_INITIALS.get(store_name.lower(), store_name[0].upper() if store_name else "?")
 
 def get_store_color(store_name: str) -> str:
-    mapping = {
-        "douglas.lv": "bg-blue-500",
-        "notino.lv": "bg-[hsl(var(--success))]",
-        "makeup.lv": "bg-pink-500",
-        "1a.lv": "bg-orange-500",
-        "220.lv": "bg-amber-500"
-    }
-    return mapping.get(store_name.lower(), "bg-gray-500")
+    return _STORE_COLORS.get(store_name.lower(), "bg-gray-500")
 
 # --- API Endpoints ---
 
@@ -201,14 +204,48 @@ async def get_analytics_stats(db: AsyncSession = Depends(get_db)):
     """KPIs for the analytics page."""
     total_products = await db.scalar(select(func.count(Product.id)))
     stores_count = await db.scalar(select(func.count(func.distinct(Product.search_term))))
-    
-    # Simple mockup for other stats until we have more history
+
+    # Average % price change across products that have an old price
+    avg_raw = await db.scalar(
+        select(func.avg(
+            (Product.last_price - Product.old_price) / Product.old_price * 100
+        )).where(
+            Product.old_price.isnot(None),
+            Product.old_price > 0,
+            Product.last_price.isnot(None),
+            Product.last_price > 0,
+        )
+    )
+    avg_change = float(avg_raw) if avg_raw is not None else 0.0
+    avg_change_str = f"{avg_change:+.1f}%"
+
+    # Potential savings: for each ProductGroup with multiple offers, sum (max - min) price
+    savings_subq = (
+        select(func.max(Product.last_price) - func.min(Product.last_price))
+        .where(Product.group_id.isnot(None), Product.last_price.isnot(None), Product.last_price > 0)
+        .group_by(Product.group_id)
+        .having(func.count(Product.id) > 1)
+        .subquery()
+    )
+    savings_raw = await db.scalar(select(func.sum(savings_subq.c[0])))
+    savings = float(savings_raw) if savings_raw else 0.0
+    savings_str = f"€{savings:.0f}"
+
+    # Alerts: price drops and restocks in the last 7 days
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    alerts_count = await db.scalar(
+        select(func.count(PriceHistory.id)).where(
+            PriceHistory.change_type.in_(["price_down", "back_in_stock"]),
+            PriceHistory.parsed_at >= week_ago,
+        )
+    )
+
     return schemas.DashboardStats(
         total_products=f"{total_products:,}",
-        avg_price_change="-2.4%",
+        avg_price_change=avg_change_str,
         stores_monitored=stores_count or 0,
-        potential_savings="€1,240",
-        alerts_triggered=12
+        potential_savings=savings_str,
+        alerts_triggered=int(alerts_count or 0),
     )
 
 if __name__ == "__main__":
