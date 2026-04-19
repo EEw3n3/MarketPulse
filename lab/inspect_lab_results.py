@@ -3,6 +3,7 @@ Lab Results Inspector — MarketPulse
 Shows scraped products grouped by source domain with clean formatting.
 """
 import asyncio
+import re
 from datetime import datetime
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -11,7 +12,7 @@ import sys
 import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.domain.models import ScrapingRule, Product, PriceHistory
+from app.domain.models import ScrapingRule, Product
 
 LAB_DB_URL = "sqlite+aiosqlite:///lab/lab_test.db"
 lab_engine = create_async_engine(LAB_DB_URL, echo=False)
@@ -42,13 +43,18 @@ BOLD    = lambda t, w=0: pc("1",  t, w)
 RED     = lambda t, w=0: pc("91", t, w)
 
 CHANGE_MAP = {
-    "initial":      ("  new",    "2"),
-    "no_change":    ("  ——",     "2"),
-    "price_up":     ("  ↑ up",   "91"),
-    "price_down":   ("  ↓ down", "92"),
-    "back_in_stock":("  ✔ back", "92"),
-    "out_of_stock": ("  ✘ out",  "91"),
+    "initial":      ("new",    "2"),
+    "no_change":    ("——",     "2"),
+    "price_up":     ("↑ up",   "91"),
+    "price_down":   ("↓ down", "92"),
+    "back_in_stock":("✔ back", "92"),
+    "out_of_stock": ("✘ out",  "91"),
 }
+
+_VOL_RE = re.compile(r',?\s*\d+[.,]?\d*\s*(ml|l|oz|мл|л)\b', re.IGNORECASE)
+
+def strip_vol(title: str) -> str:
+    return _VOL_RE.sub('', title).strip(' ,')
 
 def fmt_price(price) -> str:
     return f"{float(price):>8.2f} €"
@@ -107,7 +113,7 @@ async def inspect():
         print(BOLD(f"  {emoji}  {store}") + DIM(f"  ({domain})") + f"  {health_str}")
         print(DIM("  " + "─" * W))
         # Column header (plain, dims)
-        print(DIM(f"  {'ID':<6} {'BRAND':<20} {'PRICE':>10}  {'CHANGE':<10}  {'VOL':<10}  TITLE"))
+        print(DIM(f"  {'ID':<6} {'BRAND':<20} {'PRICE':>10}  {'CHANGE':<10}  {'VOL':<8}  {'CONC':<7}  TITLE"))
         print(DIM("  " + "─" * W))
 
         for p in sorted(prods, key=lambda x: -x.id):
@@ -116,15 +122,16 @@ async def inspect():
 
             id_str     = str(p.id).ljust(6)
             brand_str  = trunc(p.brand or "—", 20).ljust(20)
-            price_str  = fmt_price(rec.price).rjust(10) if rec else "        — €"
-            vol_str    = trunc(p.volume or "—", 10).ljust(10)
-            title_str  = trunc(p.title, 40)
+            price_str  = fmt_price(rec.price) if rec else "       — €"
+            vol_str    = trunc(p.volume or "—", 8).ljust(8)
+            conc_str   = trunc(p.concentration or "—", 7).ljust(7)
+            title_str  = trunc(strip_vol(p.title), 40)
             avail_str  = "" if p.is_available else col("91", " ✘")
 
-            change_disp = "  —"
+            change_disp = "—"
             c_code = "2"
             if rec:
-                label, c_code = CHANGE_MAP.get(rec.change_type, ("  ?", "2"))
+                label, c_code = CHANGE_MAP.get(rec.change_type, ("?", "2"))
                 change_disp = label
 
             print(
@@ -133,6 +140,7 @@ async def inspect():
                 f" {GREEN(price_str) if rec else DIM(price_str)}"
                 f"  {col(c_code, change_disp.ljust(10))}"
                 f"  {CYAN(vol_str)}"
+                f"  {YELLOW(conc_str)}"
                 f"  {title_str}{avail_str}"
             )
 

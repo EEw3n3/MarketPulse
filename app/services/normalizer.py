@@ -35,6 +35,10 @@ class PerfumeNormalizer:
         "Burberry", "Gisada", "Clive Christian", "BellaVita", "Afnan",
         "Jacques Zolty", "Arabiyat Prestige", "Maison Alhambra", "Bugatti",
         "Cristiano Ronaldo", "Antonio Banderas", "Banderas",
+        "Davidoff", "Adidas", "Hermès", "Boucheron", "Van Cleef & Arpels",
+        "La Rive", "Ungaro", "Emanuel Ungaro", "Cerruti", "Nino Cerruti",
+        "BI-ES", "Jacques Bogart", "Nikos", "Bruno Banani", "Jesus Del Pozo",
+        "Moncler", "Mercedes-Benz", "18.21. Man Made", "Chabaud",
         "Salvador Dali", "Elizabeth Taylor", "Elizabeth Arden", "Sarah Jessica Parker", "SJP",
         "Juicy Couture", "Couture", "Britney Spears", "Spears", "Katy Perry"
     ]
@@ -89,7 +93,16 @@ class PerfumeNormalizer:
         r"\bkvepalai\b", r"\bvyrams\b", r"\bmoterims\b", r"\bparfumerija\b",
         r"\btualetes ūdens\b", r"\bparfimērijas ūdens\b", r"\bsmaržūdens\b", r"\bsmaržas\b", r"\bodekolons\b",
         r"\btualetes udens\b", r"\bparfimerijas udens\b", r"\bsmarzudens\b", r"\bsmarzas\b",
-        r"\beau de toilette\b", r"\beau de parfum\b", r"\bedt\b", r"\bedp\b"
+        r"\beau de toilette\b", r"\beau de parfum\b", r"\bedt\b", r"\bedp\b", r"\bedc\b",
+        # Latvian artifacts that survive CONC_MAP stripping but pollute clean_name
+        r"\bar\s+uzpildīšānas\s+iespēju\b", r"\buzpildīšānas\b", r"\buzpildāms\b", r"\buzpildes\b",
+        r"\bar\s+uzpildīsanas\s+iespēju\b", r"\buzpildisanas\b", r"\buzpildams\b",
+        r"\bizsmidzināms\b", r"\bizsmidzinams\b",
+        r"\babiem\s+dzimumiem\b", r"\bdzimumiem\b",
+        r"\bviriešu\b", r"\bvīrieši\b", r"\bvīriesi\b",  # genitive/nominative variants
+        r"\bsievietes\b", r"\bsievietēm\b",
+        r"\baerosols\b",  # explicitly add (was accidentally losing word boundary in some cases)
+        r"\(\s*\)",       # orphan empty brackets left after stripping (EDT)/(EDP)
     ]
 
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
@@ -139,36 +152,46 @@ class PerfumeNormalizer:
         elif brand_in_title_canonical:
             brand = brand_in_title_canonical
         else:
-            # Heuristic: first word as brand (only when no explicit and nothing found)
+            # Heuristic: first non-forbidden word as brand
             brand = None
             words = title.split()
-            if words:
-                first_word = words[0].strip(",.- ")
-                forbidden_heuristics = {
-                    "man", "men", "woman", "women", "homme", "femme",
-                    "for", "pour", "the", "with", "eau", "de", "parfum",
-                    # Latvian product type prefixes that appear at the start of 220.lv/1a.lv titles
-                    "vīriešu", "sieviešu", "tualetes", "parfimērijas", "smaržas",
-                    "smaržūdens", "odekolons", "viriesu", "sieviesu",
-                }
-                is_valid = (
-                    first_word.lower() not in forbidden_heuristics
-                    and first_word.lower() not in PerfumeNormalizer.CONC_MAP
-                    and not any(
-                        re.search(rf'\b{re.escape(first_word.lower())}\b', noise, re.IGNORECASE)
-                        for noise in PerfumeNormalizer.NOISE
-                    )
-                )
-                if is_valid:
-                    brand = first_word
-                    if len(first_word) <= 3 and len(words) > 1:
-                        second_word = words[1].strip(',.- ')
-                        if second_word.lower() not in forbidden_heuristics:
-                            brand = f"{first_word} {second_word}"
+            forbidden_heuristics = {
+                "man", "men", "woman", "women", "homme", "femme",
+                "for", "pour", "the", "with", "eau", "de", "parfum",
+                # Latvian product type prefixes (all grammatical forms)
+                "vīriešu", "sieviešu", "tualetes", "parfimērijas", "smaržas",
+                "smaržūdens", "odekolons", "viriesu", "sieviesu",
+                "smaržu", "uzpildes",  # genitive form + refill indicator
+            }
+            for i, raw_word in enumerate(words):
+                candidate = raw_word.strip(",.- ")
+                cand_low = candidate.lower()
+                if not candidate:
+                    continue
+                if cand_low in forbidden_heuristics:
+                    continue
+                if cand_low in PerfumeNormalizer.CONC_MAP:
+                    continue
+                if any(re.search(rf'\b{re.escape(cand_low)}\b', noise, re.IGNORECASE)
+                       for noise in PerfumeNormalizer.NOISE):
+                    continue
+                # Found the first valid word — use it as brand candidate
+                brand = candidate
+                # Short prefix (≤3 chars like "YSL", "CK", "La") → try to grab next word too
+                if len(candidate) <= 3 and i + 1 < len(words):
+                    next_word = words[i + 1].strip(',.- ')
+                    if next_word.lower() not in forbidden_heuristics:
+                        brand = f"{candidate} {next_word}"
+                break
         
         # 4. Concentration
+        # Priority: specific EDT/EDP/EDC markers first; generic "Parfum"/"Smaržas"
+        # last (they're fallback labels that should lose to explicit EDT/EDP in the same title).
         concentration = None
-        sorted_conc_keys = sorted(PerfumeNormalizer.CONC_MAP.keys(), key=len, reverse=True)
+        sorted_conc_keys = sorted(
+            PerfumeNormalizer.CONC_MAP.keys(),
+            key=lambda k: (PerfumeNormalizer.CONC_MAP[k] == "Parfum", -len(k))
+        )
         for key in sorted_conc_keys:
             pattern = rf'\b{re.escape(key)}\b'
             if re.search(pattern, title_lower):

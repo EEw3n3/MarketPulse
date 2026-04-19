@@ -760,8 +760,20 @@ class ScraperService:
 
                 # regular_price = standard retail price (non-loyalty)
                 # price         = loyalty/PLUS member price (requires subscription)
-                regular_price = Decimal(str(dl.get('regular_price') or 0)).quantize(Decimal('0.01'))
-                sell_price    = Decimal(str(dl.get('price') or 0)).quantize(Decimal('0.01'))
+                # 220.lv widget-data is inconsistent across deploys: sometimes int cents (4499),
+                # sometimes float cents (2389.00), rarely float euros (44.99). Type-based detection
+                # fails on float-cents. Use value-based heuristic: anything > 500 is cents (a single
+                # perfume bottle at retail never exceeds 500€ in the Latvian market).
+                def _norm_220_price(raw) -> Decimal:
+                    if raw is None:
+                        return Decimal('0.00')
+                    v = Decimal(str(raw))
+                    if v > Decimal('500'):
+                        v = v / 100
+                    return v.quantize(Decimal('0.01'))
+
+                regular_price = _norm_220_price(dl.get('regular_price'))
+                sell_price    = _norm_220_price(dl.get('price'))
 
                 # Use regular_price as the reference; fall back to sell_price if missing
                 final_price = regular_price if regular_price > 0 else sell_price
@@ -781,6 +793,22 @@ class ScraperService:
                 logger.debug(f'220.lv widget-data parse error: {e}')
 
         return results
+
+    def _extract_douglas_catalog_volume(self, card: Selector) -> str | None:
+        """Read single-variant volume (e.g. '50ml') from a Douglas catalog card's
+        data-tealium-info attribute. Needed because the product detail page
+        returns an EMPTY variant name for single-size products, losing volume."""
+        import json
+        import html as html_lib
+        ti_raw = card.css('a::attr(data-tealium-info)').get('') or ''
+        if not ti_raw:
+            return None
+        try:
+            d = json.loads(ti_raw)
+            cv = ((d.get('primary_product_variant_name') or [''])[0] or '').strip()
+            return html_lib.unescape(cv) if cv else None
+        except Exception:
+            return None
 
     async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True, site_name_ui: str = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
@@ -845,7 +873,11 @@ class ScraperService:
 
             sel = Selector(text=html)
             rule_updated = False
-            
+            # Set by any successful JSON-injection path; suppresses the
+            # "cards not found" fallback/error that would otherwise break
+            # pagination when we intentionally empty `cards` after injection.
+            injection_ok = False
+
             # --- 220.LV WIDGET-DATA JSON INJECTION (SPA / Pigu platform) ---
             if "220.lv" in domain:
                 items_220 = self._extract_220_from_widget_data(html)
@@ -862,6 +894,7 @@ class ScraperService:
                         self._add_candidate(candidates, full_title, mi['price'], mi['is_available'], mi['url'], mi['image_url'], mi['brand'], base_norm)
                     processed_cards += len(unique_products_220)
                     cards = []  # Skip standard DOM loop
+                    injection_ok = True
                 else:
                     logger.warning("⚠️ 220.lv widget-data yielded 0 items — falling back to DOM selectors")
                     cards, winner = self._try_selectors(sel, rule.container_css)
@@ -872,28 +905,29 @@ class ScraperService:
                 if makeup_items:
                     logger.success(f"🎯 Makeup JSON parsing yielded {len(makeup_items)} variant entries!")
                     from app.services.normalizer import perfume_normalizer
-                    
+
                     unique_products = set()
-                    
+
                     for mi in makeup_items:
                         lower_title = mi['base_title'].lower()
                         if any(b in lower_title for b in PRODUCT_BLACKLIST): continue
-                        
+
                         unique_products.add(mi['url'])
-                        
+
                         base_norm = perfume_normalizer.extract_all(mi["base_title"])
                         full_title = f"{mi['base_title']} {mi['volume']}".strip()
                         self._add_candidate(candidates, full_title, mi["price"], mi["is_available"], mi["url"], mi["image_url"], mi["brand"], base_norm)
-                    
+
                     processed_cards += len(unique_products)
                     cards = [] # Emulate no DOM cards to skip the standard loop
+                    injection_ok = True
                 else:
                    cards, winner = self._try_selectors(sel, rule.container_css)
             else:
                 cards, winner = self._try_selectors(sel, rule.container_css)
-            
+
             # 1. CARDS
-            if not cards and not ("makeup." in domain and makeup_items):
+            if not cards and not injection_ok:
                  # Universal fallback for generic store structures
                  cards, winner = self._try_selectors(sel, FALLBACK_CONTAINER_CSS)
                  if cards and winner:
@@ -901,7 +935,7 @@ class ScraperService:
                      rule.container_css = winner
                      rule_updated = True
 
-            if not cards and not ("makeup." in domain and makeup_items):
+            if not cards and not injection_ok:
                  logger.error(f"❌ Cards not found ({rule.container_css})")
                  
                  if not ai_retry_attempted:
@@ -1037,6 +1071,14 @@ class ScraperService:
                                 perform_deep_dive = False
                                 logger.debug(f"⚡ Fast-track: No trigger '{rule.detail_trigger_text}' found. Skipping deep dive.")
 
+                        # Douglas: single-variant products have empty variant_name on detail pages;
+                        # pull volume from catalog card's data-tealium-info so we don't lose it.
+                        catalog_volume = None
+                        if "douglas.lv" in current_url.lower():
+                            catalog_volume = self._extract_douglas_catalog_volume(card)
+                            if catalog_volume and not re.search(r'\d+\s*(ml|l|oz)\b', title, re.IGNORECASE):
+                                title = f"{title} {catalog_volume}".strip()
+
                         if perform_deep_dive:
                             # --- PHASE 1: Collect deep-dive job (no blocking IO here) ---
                             deep_dive_queue.append({
@@ -1044,6 +1086,7 @@ class ScraperService:
                                 "title": title,
                                 "brand": brand,
                                 "image_url": image_url,
+                                "catalog_volume": catalog_volume,
                             })
                         else:
                             # Standard mode: process variants from card JSON if available
@@ -1087,23 +1130,25 @@ class ScraperService:
                             title = job["title"]
                             brand = job["brand"]
                             image_url = job["image_url"]
+                            catalog_volume = job.get("catalog_volume")
+                            catalog_concentration = job.get("catalog_concentration")
                             details = await self.scrape_product_details(url, rule, session=session, browser_context=None)
-                            from app.services.normalizer import perfume_normalizer
-                            base_norm = perfume_normalizer.extract_all(title)
-                            
+
                             results = []
                             for d in details:
                                 full_title = f"{title} {d['title_suffix']}".strip()
-                                v_norm = perfume_normalizer.extract_all(full_title)
+                                # Fallback: single-variant Douglas products have empty title_suffix;
+                                # stitch catalog volume onto the title so normalizer can pick it up.
+                                if catalog_volume and not re.search(r'\d+\s*(ml|l|oz)\b', full_title, re.IGNORECASE):
+                                    full_title = f"{full_title} {catalog_volume}".strip()
                                 results.append({
                                     "url": url,
                                     "image_url": image_url,
-                                    "brand": brand or v_norm["brand"] or base_norm["brand"],
-                                    "volume": v_norm["volume"] or base_norm["volume"],
-                                    "concentration": v_norm["concentration"] or base_norm["concentration"],
+                                    "brand": brand,
                                     "title": full_title,
                                     "price": d["price"],
-                                    "is_available": d["is_available"]
+                                    "is_available": d["is_available"],
+                                    "catalog_concentration": catalog_concentration,
                                 })
                             return results
 
@@ -1112,9 +1157,17 @@ class ScraperService:
                         db.update_status(site_name_ui, f"Deep Diving: {items_completed_overall}/{max_items}", progress=progress_pct)
 
                     tasks = [process_job(job) for job in deep_dive_queue]
+                    from app.services.normalizer import perfume_normalizer
                     for f in asyncio.as_completed(tasks):
                         res = await f
-                        candidates.extend(res)
+                        for d in res:
+                            base_norm = perfume_normalizer.extract_all(d["title"])
+                            if d.get("catalog_concentration") and not base_norm.get("concentration"):
+                                base_norm["concentration"] = d["catalog_concentration"]
+                            self._add_candidate(
+                                candidates, d["title"], d["price"], d["is_available"],
+                                d["url"], d["image_url"], d["brand"], base_norm,
+                            )
                         items_completed_overall += 1
                         if db and site_name_ui:
                             progress_pct = round((items_completed_overall / max_items) * 100, 1)
@@ -1390,17 +1443,35 @@ class ScraperService:
         return saved_items
 
     def _add_candidate(self, candidates, title, price, is_available, url, image_url, brand, norm):
-        """Standardizes and adds a product to the candidates list."""
+        """Standardizes and adds a product to the candidates list.
+
+        Builds a clean display title: "{brand} {clean_name} {volume}".
+        Raw scraped title (with Latvian fluff / EDT/EDP markers) is discarded —
+        concentration lives in its own column, not the title.
+        """
         from app.services.normalizer import perfume_normalizer
-        v_norm = perfume_normalizer.extract_all(title)
-        
+        v_norm = perfume_normalizer.extract_all(title, explicit_brand=brand)
+
+        final_brand = brand or v_norm["brand"] or norm["brand"]
+        final_volume = v_norm["volume"] or norm["volume"]
+        final_concentration = v_norm["concentration"] or norm["concentration"]
+        clean_name = v_norm.get("clean_name") or ""
+
+        parts = [p for p in [final_brand, clean_name, final_volume] if p]
+        display_title = " ".join(parts).strip()
+
+        # Fallback: if normalization produced garbage (empty / too short),
+        # keep the raw title so we never lose the product identity.
+        if len(display_title) < 3:
+            display_title = title
+
         candidates.append({
             "url": url,
             "image_url": image_url,
-            "brand": brand or v_norm["brand"] or norm["brand"],
-            "volume": v_norm["volume"] or norm["volume"],
-            "concentration": v_norm["concentration"] or norm["concentration"],
-            "title": title,
+            "brand": final_brand,
+            "volume": final_volume,
+            "concentration": final_concentration,
+            "title": display_title,
             "price": price,
             "is_available": is_available
         })

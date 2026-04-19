@@ -5,6 +5,7 @@ Runs all 5 sites sequentially, collects quality metrics, prints summary.
 Usage:
   python lab/lab_runner.py           # stress test: 20 items per site, regenerate rules
   python lab/lab_runner.py --full    # full run: all items per site, reuse existing rules
+  python lab/lab_runner.py --clear   # wipe stale Product/PriceHistory rows before run
 """
 import asyncio
 import sys
@@ -26,9 +27,10 @@ from app.core.client import stealth_client
 LAB_DB_URL = "sqlite+aiosqlite:///lab/lab_test.db"
 lab_engine = create_async_engine(LAB_DB_URL, echo=False)
 
-FULL_RUN = "--full" in sys.argv
+FULL_RUN   = "--full"  in sys.argv
+CLEAR_DATA = "--clear" in sys.argv   # wipe all Product/PriceHistory rows before run
 # 9999 = effectively unlimited; scraper stops on its own when pagination ends
-_FULL_LIMIT = 9999
+_FULL_LIMIT = 100
 
 # --skip notino,douglas  → comma-separated site labels to exclude
 _skip_arg = next((a for a in sys.argv if a.startswith("--skip=")), None)
@@ -75,6 +77,15 @@ async def init_lab_db():
     async with lab_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
     logger.info("🧪 Lab Database initialized.")
+
+
+async def clear_product_data():
+    """Wipe all Product and PriceHistory rows (keeps ScrapingRules intact)."""
+    from app.domain.models import PriceHistory
+    async with lab_engine.begin() as conn:
+        await conn.execute(PriceHistory.__table__.delete())
+        await conn.execute(Product.__table__.delete())
+    logger.warning("🗑️  Cleared all Product and PriceHistory rows from lab DB.")
 
 
 async def clear_rule(session: AsyncSession, domain: str):
@@ -275,6 +286,8 @@ async def main():
         os.makedirs("lab")
 
     await init_lab_db()
+    if CLEAR_DATA:
+        await clear_product_data()
     await stealth_client.init_session()
 
     async_session = sessionmaker(lab_engine, class_=AsyncSession, expire_on_commit=False)
