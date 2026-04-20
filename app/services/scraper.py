@@ -700,12 +700,14 @@ class ScraperService:
                     elif isinstance(media, dict):
                         image_url = media.get('url')
                         
+                    sub_title = item.get('subTitle', '') or ''
+
                     variants_data = item.get('analytics', {}).get('variantsData', {})
                     if variants_data and isinstance(variants_data, dict):
                         for v_id, info in variants_data.items():
                             vol = info.get('value', '')
                             price_val = Decimal(str(info.get('price', 0))).quantize(Decimal("0.01"))
-                            
+
                             results.append({
                                 "base_title": base_title,
                                 "price": price_val,
@@ -713,7 +715,8 @@ class ScraperService:
                                 "url": full_link,
                                 "image_url": image_url,
                                 "brand": brand,
-                                "volume": vol
+                                "volume": vol,
+                                "sub_title": sub_title,
                             })
                     else:
                         price_val = Decimal(str(item.get('analytics', {}).get('price', 0))).quantize(Decimal("0.01"))
@@ -725,7 +728,8 @@ class ScraperService:
                                 "url": full_link,
                                 "image_url": image_url,
                                 "brand": brand,
-                                "volume": item.get('analytics', {}).get('variant', '')
+                                "volume": item.get('analytics', {}).get('variant', ''),
+                                "sub_title": sub_title,
                             })
                             
         except Exception as e:
@@ -915,6 +919,11 @@ class ScraperService:
                         unique_products.add(mi['url'])
 
                         base_norm = perfume_normalizer.extract_all(mi["base_title"])
+                        sub = mi.get("sub_title")
+                        if sub and not base_norm.get("concentration"):
+                            sub_conc = perfume_normalizer.extract_all(sub).get("concentration")
+                            if sub_conc:
+                                base_norm["concentration"] = sub_conc
                         full_title = f"{mi['base_title']} {mi['volume']}".strip()
                         self._add_candidate(candidates, full_title, mi["price"], mi["is_available"], mi["url"], mi["image_url"], mi["brand"], base_norm)
 
@@ -989,6 +998,17 @@ class ScraperService:
                         if rule.brand_css:
                             brand_el, _ = self._try_selectors(card, rule.brand_css)
                             brand = self.extract_clean_text(brand_el)
+
+                        # 2.6 CONCENTRATION — optional DOM source (Douglas/Makeup etc.).
+                        # Text is in site-native language (e.g. "Tualetes ūdens"),
+                        # CONC_MAP translates it to EDT/EDP/EDC inside the normalizer.
+                        catalog_concentration = None
+                        if rule.concentration_css:
+                            conc_el, _ = self._try_selectors(card, rule.concentration_css)
+                            conc_text = self.extract_clean_text(conc_el)
+                            if conc_text:
+                                from app.services.normalizer import perfume_normalizer as _pn
+                                catalog_concentration = _pn.extract_all(conc_text).get("concentration")
 
                         # 2. TITLE — strip brand prefix if it bleeds in (e.g. Douglas.lv nests .brand_caps inside .name)
                         title_el, winner = self._try_selectors(card, rule.title_css)
@@ -1087,11 +1107,16 @@ class ScraperService:
                                 "brand": brand,
                                 "image_url": image_url,
                                 "catalog_volume": catalog_volume,
+                                "catalog_concentration": catalog_concentration,
                             })
                         else:
                             # Standard mode: process variants from card JSON if available
                             from app.services.normalizer import perfume_normalizer
                             norm = perfume_normalizer.extract_all(title)
+                            # DOM-sourced concentration (rule.concentration_css) wins over
+                            # title-parsed one — the dedicated element is more reliable.
+                            if catalog_concentration:
+                                norm["concentration"] = catalog_concentration
                             listing_variants = self._extract_variants(card, norm["clean_name"])
                             if listing_variants:
                                 for v in listing_variants:
@@ -1457,8 +1482,32 @@ class ScraperService:
         final_concentration = v_norm["concentration"] or norm["concentration"]
         clean_name = v_norm.get("clean_name") or ""
 
+        # Strip stray punctuation from each part BEFORE concatenation —
+        # otherwise ":" / "?" / "'s" gets sandwiched between clean_name and volume
+        # and the final .strip() at the end never sees it.
+        _PUNCT = " ,.:;?!'\"|-"
+        clean_name = clean_name.strip(_PUNCT)
+        if final_brand:
+            final_brand = final_brand.strip(_PUNCT)
+        # Drop clean_name leftovers like a lone "s" / "'" / ":" after stripping
+        if clean_name and len(clean_name) <= 2 and not any(c.isalnum() for c in clean_name):
+            clean_name = ""
+
         parts = [p for p in [final_brand, clean_name, final_volume] if p]
         display_title = " ".join(parts).strip()
+
+        # Collapse accidental brand duplication ("Guy Laroche Guy Laroche Drakkar")
+        if final_brand:
+            display_title = re.sub(
+                rf'\b({re.escape(final_brand)})(\s+\1\b)+',
+                r'\1',
+                display_title,
+                flags=re.IGNORECASE,
+            )
+            display_title = re.sub(r'\s+', ' ', display_title).strip()
+
+        # Trim trailing punctuation artifacts ("Name :", "Name ?", "brand's")
+        display_title = display_title.strip(" ,.:;?!'\"|-")
 
         # Fallback: if normalization produced garbage (empty / too short),
         # keep the raw title so we never lose the product identity.

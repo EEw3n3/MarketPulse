@@ -10,20 +10,39 @@
         "title": ".product-tile__brand-name, .text-name",
         "price": ".product-tile__price-amount, .price-sale",
         "image": ".product-tile__image img",
-        "stock": null
+        "stock": null,
+        "concentration": "span.type, span.product_type"
     },
     "notino.lv": {
         "container": "[data-testid='product-container']",
         "title": "h3[class*='styled__ProductName']",
         "price": "span[class*='styled__Price']",
         "image": "img[class*='styled__Image']",
-        "stock": null
+        "stock": null,
+        "concentration": null
     },
     "220.lv": {
         "container": ".product-list-item",
         "title": ".product-name, .c-product-card__name",
         "price": ".product-price .price, .c-price__value",
         "image": ".product-image img, .c-product-card__image",
-        "stock": ".label-stock"
+        "stock": ".label-stock",
+        "concentration": null
+    },
+    "makeup.lv": {
+        "container": null,
+        "title": null,
+        "price": null,
+        "image": null,
+        "stock": null,
+        "concentration": "div.ProductCard__subTitle"
+    },
+    "1a.lv": {
+        "container": null,
+        "title": null,
+        "price": null,
+        "image": null,
+        "stock": null,
+        "concentration": null
     }
 }

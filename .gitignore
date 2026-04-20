@@ -65,3 +65,10 @@ Thumbs.db
 # SSH Keys
 MarketPulse
 MarketPulse.pub
+
+# iGO Navigation
+igo_nav/
+IGO/
+*.ui
+*.lua
+diMkaWA_aP133_default.zip

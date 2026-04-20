@@ -103,6 +103,26 @@ class PerfumeNormalizer:
         r"\bsievietes\b", r"\bsievietēm\b",
         r"\baerosols\b",  # explicitly add (was accidentally losing word boundary in some cases)
         r"\(\s*\)",       # orphan empty brackets left after stripping (EDT)/(EDP)
+        # Session 5 additions
+        r"\bparfimēts\b", r"\bparfimets\b",
+        r"\bsmaržu\b",
+        r"\buzpildāmais\b", r"\buzpildamais\b",
+        # NOTE: 'bottled' is intentionally NOT in NOISE — it is part of real
+        # product names (e.g. Hugo Boss Bottled). `pudelēs pildīts` is
+        # normalized to 'Bottled' in extract_all() so LV and EN forms match.
+        # Session 5 follow-up additions
+        r"\bunisex\b",
+        r"\bpapildinājums\b", r"\bpapildinajums\b",
+        r"\baromāts\b", r"\baromats\b", r"\baromātu\b", r"\baromatu\b",
+    ]
+
+    # Latvian ↔ English canonical replacements applied before NOISE stripping.
+    # Purpose: enable cross-site chaining between localized variants (e.g.
+    # "Hugo Boss pudelēs pildīts 30ml" on a LV site must match
+    # "Hugo Boss Bottled 30ml" on an EN/mixed site).
+    LOCALIZATION_MAP = [
+        (re.compile(r'\bpudelēs\s+pildīts\b', re.IGNORECASE), 'Bottled'),
+        (re.compile(r'\bpudeles\s+pildits\b', re.IGNORECASE), 'Bottled'),
     ]
 
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
@@ -116,6 +136,10 @@ class PerfumeNormalizer:
         """
         # 0. Initial Cleanup: remove HTML entities and normalize spaces
         title = html.unescape(title)
+        # Localization: map Latvian phrases to their English canonical form
+        # BEFORE any further processing, so both sides chain symmetrically.
+        for _loc_re, _loc_repl in PerfumeNormalizer.LOCALIZATION_MAP:
+            title = _loc_re.sub(_loc_repl, title)
         title_lower = title.lower()
         # 0. Preparation: remove only strictly annoying leading punctuation for brand search
         # but keep symbols that might be part of the brand (like &)
@@ -285,6 +309,11 @@ class PerfumeNormalizer:
                 for key, val in PerfumeNormalizer.CONC_MAP.items():
                     if val == concentration:
                         _fallback = re.sub(rf'\b{re.escape(key)}\b', "", _fallback, flags=re.IGNORECASE)
+            # Re-apply the full NOISE list — fallback must not let Latvian noise
+            # (Smaržas / vīriešiem / aerosols / uzpildīšānas …) slip back in
+            # just because _before_noise preserved it.
+            for _noise_pat in PerfumeNormalizer.NOISE:
+                _fallback = re.sub(_noise_pat, " ", _fallback, flags=re.IGNORECASE)
             # Only strip truly useless words — keep 'pour homme', 'man', 'intense', etc.
             _min_filter = {"eau", "parfum", "edt", "edp", "de", "set"}
             _fallback = " ".join(w for w in _fallback.split() if w.lower().strip("-,.") not in _min_filter)

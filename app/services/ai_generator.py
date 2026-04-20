@@ -66,6 +66,10 @@ class AIGenerator:
                 "title_css": "span.name",
                 "brand_css": "span.brand_caps",
                 "price_css": "span.price span.now",
+                # Catalog card concentration element ("Parfimērijas ūdens …",
+                # "Tualetes ūdens …"); detail page uses span.product_type as
+                # fallback — both match the same CONC_MAP keys.
+                "concentration_css": "span.type, span.product_type",
                 "image_css": "img.product-photo",
                 "next_page_css": "a.page.next",
                 "use_detail_page": True,
@@ -263,6 +267,7 @@ class AIGenerator:
             "title_css": "selector for product name inside container",
             "brand_css": "selector for brand name inside container (often above title)",
             "price_css": "selector for price text inside container",
+            "concentration_css": "selector for a dedicated element holding perfume concentration type (e.g. 'Tualetes ūdens', 'Parfimērijas ūdens', 'Eau de Parfum'). Return null if no such standalone element exists — the concentration often lives inline in the title and will be parsed from there.",
             "image_css": "selector for img tag inside container",
             "next_page_css": "robust selector for 'Next' button",
             "detail_trigger_text": "text pattern that indicates multiple variants (e.g. 'sākot', 'from'). If none, null.",
@@ -308,6 +313,7 @@ class AIGenerator:
                 container_css=parsed_response.get("container_css") or "div", # Safe default
                 title_css=parsed_response.get("title_css") or "h1",
                 brand_css=parsed_response.get("brand_css"), # New field
+                concentration_css=parsed_response.get("concentration_css"),
                 price_css=parsed_response.get("price_css"),
                 image_css=parsed_response.get("image_css"),
                 next_page_css=parsed_response.get("next_page_css"),

@@ -26,6 +26,7 @@ class ScrapingRule(SQLModel, table=True):
     price_css: Optional[str] = Field(default=None)
     image_css: Optional[str] = Field(default=None)
     brand_css: Optional[str] = Field(default=None) # Added for better brand accuracy
+    concentration_css: Optional[str] = Field(default=None) # Latvian site CONC element (Douglas/Makeup); null for sites where CONC lives inline in title
     stock_css: Optional[str] = Field(default=None)
     next_page_css: Optional[str] = Field(default=None)
     

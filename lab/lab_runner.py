@@ -76,7 +76,55 @@ TEST_SITES = [
 async def init_lab_db():
     async with lab_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+        # Idempotent schema patches for columns added after the first create_all
+        await _ensure_column(conn, "scrapingrule", "concentration_css", "TEXT")
     logger.info("🧪 Lab Database initialized.")
+    await seed_concentration_css()
+
+
+async def seed_concentration_css():
+    """Backfill concentration_css from configs/selectors.json for rules that have NULL.
+
+    AI regenerates the field on rule creation, but pre-existing rules created
+    before the column was added stay NULL forever otherwise. We treat
+    selectors.json as the canonical fallback (matches the rest of the
+    selector pipeline).
+    """
+    import json
+    from sqlalchemy import text
+
+    cfg_path = os.path.join(os.path.dirname(__file__), "..", "configs", "selectors.json")
+    if not os.path.exists(cfg_path):
+        return
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    async with lab_engine.begin() as conn:
+        for domain, sel in cfg.items():
+            css = sel.get("concentration")
+            if not css:
+                continue
+            res = await conn.execute(
+                text("UPDATE scrapingrule SET concentration_css = :css "
+                     "WHERE domain = :d AND (concentration_css IS NULL OR concentration_css = '')"),
+                {"css": css, "d": domain},
+            )
+            if res.rowcount:
+                logger.info(f"🌱 Seeded concentration_css for {domain}: {css}")
+
+
+async def _ensure_column(conn, table: str, column: str, col_type: str):
+    """SQLite-only: add a nullable column if it does not exist yet.
+
+    create_all does not evolve existing tables, so new optional fields
+    (e.g. concentration_css) need a manual ALTER for pre-existing lab DBs.
+    """
+    from sqlalchemy import text
+    rows = (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
+    existing = {r[1] for r in rows}
+    if column not in existing:
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+        logger.info(f"🧪 Added column {table}.{column}")
 
 
 async def clear_product_data():
