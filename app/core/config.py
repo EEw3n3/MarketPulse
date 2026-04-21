@@ -31,7 +31,15 @@ class Settings:
     # Cooldown when a 429 / 503 rate-limit response is received (seconds)
     RATE_LIMIT_COOLDOWN_MIN: float = 30.0
     RATE_LIMIT_COOLDOWN_MAX: float = 60.0
-    
+
+    # Auth (JWT)
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "insecure-default-change-in-production")
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+
+    # Admin bootstrap: email that auto-receives is_admin=True on registration.
+    ADMIN_EMAIL: str | None = os.getenv("ADMIN_EMAIL")
+
     # Check that key is loaded
     def validate(self):
         if not self.GOOGLE_API_KEY:

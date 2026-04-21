@@ -27,6 +27,7 @@ class ProductFeedItem(BaseModel):
     changeDirection: Literal["up", "down", "none"]
     storeInitial: str  # e.g., "D", "N", "M"
     storeName: str     # e.g., "Douglas.lv"
+    storeColor: str    # Tailwind class e.g., "bg-blue-500"
     image_url: Optional[str] = None
 
 class CatalogItem(BaseModel):

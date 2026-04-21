@@ -12,7 +12,8 @@ from sqlmodel import SQLModel
 
 # Import all models so their metadata is registered
 from app.domain.models import (  # noqa: F401
-    Product, ProductGroup, ScrapingRule, PriceHistory, SharedPattern
+    Product, ProductGroup, ScrapingRule, PriceHistory, SharedPattern,
+    User, UserPreferences,
 )
 from app.core.config import settings
 

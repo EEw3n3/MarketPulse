@@ -1,7 +1,7 @@
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 
 # --- 1. PRODUCT GROUP (Aggregation for comparison) ---
 class ProductGroup(SQLModel, table=True):
@@ -108,3 +108,23 @@ class SharedPattern(SQLModel, table=True):
     css_selector: str = Field(unique=True)
     success_count: int = Field(default=1)
     last_used: datetime = Field(default_factory=datetime.utcnow)
+
+
+# --- 6. USER (Auth) ---
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True, max_length=255)
+    full_name: Optional[str] = Field(default=None, max_length=100)
+    hashed_password: str
+    is_active: bool = Field(default=True)
+    is_admin: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# --- 7. USER PREFERENCES (Onboarding + personalization) ---
+class UserPreferences(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", unique=True, index=True)
+    monitored_stores: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+    interested_brands: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+    onboarding_completed: bool = Field(default=False)

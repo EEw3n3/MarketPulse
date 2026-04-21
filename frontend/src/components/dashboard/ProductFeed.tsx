@@ -1,21 +1,9 @@
 import { useRef, useState, useEffect } from "react";
 import { RefreshCw, ChevronLeft, ChevronRight, Package, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { api } from "@/lib/api";
+import { api, ProductFeedItem } from "@/lib/api";
 
-type Product = {
-  id: number;
-  brand: string;
-  title: string;
-  currentPrice: number;
-  previousPrice: number;
-  changePercent: number;
-  changeDirection: "up" | "down" | "none";
-  storeInitial: string;
-  storeName?: string;
-};
-
-function ProductCard({ product, small = false }: { product: Product; small?: boolean }) {
+function ProductCard({ product, small = false }: { product: ProductFeedItem; small?: boolean }) {
   const navigate = useNavigate();
   const [clicking, setClicking] = useState(false);
   const width = small ? "w-48" : "w-[220px]";
@@ -36,7 +24,16 @@ function ProductCard({ product, small = false }: { product: Product; small?: boo
       {...(!small && product.id === 1 ? { "data-tutorial": "product-card" } : {})}
     >
       <div className={`${imgHeight} bg-surface-2 relative overflow-hidden rounded-t-xl flex items-center justify-center`}>
-        <Package className="text-muted-foreground opacity-20" size={small ? 32 : 48} strokeWidth={1.5} />
+        {product.image_url ? (
+          <img
+            src={product.image_url}
+            alt={product.title}
+            className="w-full h-full object-contain p-2"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+        ) : (
+          <Package className="text-muted-foreground opacity-20" size={small ? 32 : 48} strokeWidth={1.5} />
+        )}
         <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white flex items-center justify-center shadow-sm">
           <span className="text-[9px] font-bold text-[hsl(240,50%,14%)]">{product.storeInitial}</span>
         </div>
@@ -67,7 +64,7 @@ function ProductCard({ product, small = false }: { product: Product; small?: boo
   );
 }
 
-function ScrollableRow({ products, small = false }: { products: Product[]; small?: boolean }) {
+function ScrollableRow({ products, small = false }: { products: ProductFeedItem[]; small?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showArrows, setShowArrows] = useState(false);
 
@@ -114,7 +111,7 @@ function ScrollableRow({ products, small = false }: { products: Product[]; small
   );
 }
 
-function StoreSection({ name, dotColor, products }: { name: string; dotColor: string; products: Product[] }) {
+function StoreSection({ name, dotColor, products }: { name: string; dotColor: string; products: ProductFeedItem[] }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -130,7 +127,7 @@ function StoreSection({ name, dotColor, products }: { name: string; dotColor: st
 }
 
 export default function ProductFeed() {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProductFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,8 +148,8 @@ export default function ProductFeed() {
     loadFeed();
   }, []);
 
-  const douglasProducts = products.filter(p => p.storeName?.toLowerCase() === "douglas.lv");
-  const notinoProducts = products.filter(p => p.storeName?.toLowerCase() === "notino.lv");
+  const douglasProductFeedItems = products.filter(p => p.storeName?.toLowerCase() === "douglas.lv");
+  const notinoProductFeedItems = products.filter(p => p.storeName?.toLowerCase() === "notino.lv");
 
   if (loading) {
     return (
@@ -190,11 +187,11 @@ export default function ProductFeed() {
 
       {/* Per-store sections */}
       <div className="px-4 md:px-6 flex flex-col gap-8 pb-6">
-        {douglasProducts.length > 0 && (
-          <StoreSection name="Douglas.lv" dotColor="bg-blue-500" products={douglasProducts} />
+        {douglasProductFeedItems.length > 0 && (
+          <StoreSection name="Douglas.lv" dotColor="bg-blue-500" products={douglasProductFeedItems} />
         )}
-        {notinoProducts.length > 0 && (
-          <StoreSection name="Notino.lv" dotColor="bg-[hsl(var(--success))]" products={notinoProducts} />
+        {notinoProductFeedItems.length > 0 && (
+          <StoreSection name="Notino.lv" dotColor="bg-[hsl(var(--success))]" products={notinoProductFeedItems} />
         )}
       </div>
     </div>

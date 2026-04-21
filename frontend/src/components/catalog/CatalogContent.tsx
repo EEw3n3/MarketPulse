@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "@/lib/api";
+import { api, CatalogItem } from "@/lib/api";
 import {
   Search,
   ArrowUpDown,
@@ -25,23 +25,6 @@ import CatalogFilterPanel, { FilterState, defaultFilters } from "./CatalogFilter
 type SortField = "brand" | "name" | "price" | "change" | "store";
 type SortDir = "asc" | "desc";
 
-type CatalogProduct = {
-  id: number;
-  sku: string;
-  brand: string;
-  name: string;
-  volume: string;
-  type: string;
-  price: number;
-  previousPrice: number;
-  changePercent: number;
-  changeDirection: "up" | "down" | "none";
-  store: string;
-  storeColor: string;
-  inStock: boolean;
-  lastUpdated: string;
-};
-
 const stores = ["All Stores", "Douglas.lv", "Notino.lv", "1a.lv", "Makeup.lv", "220.lv"];
 const types = ["All Types", "EDP", "EDT", "Parfum", "Cologne"];
 const ROWS_PER_PAGE = 12;
@@ -53,29 +36,31 @@ export default function CatalogContent() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
-  const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [products, setProducts] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadCatalog = async () => {
-      setLoading(true);
-      try {
-        const queryParams = new URLSearchParams();
-        if (filters.search) queryParams.append("search", filters.search);
-        filters.brands.forEach(b => queryParams.append("brands", b));
-        filters.stores.forEach(s => queryParams.append("stores", s.toLowerCase()));
-        queryParams.append("skip", String((page - 1) * ROWS_PER_PAGE));
-        queryParams.append("limit", String(ROWS_PER_PAGE));
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-        const data = await api.getCatalog(queryParams.toString());
-        setProducts(data);
-      } catch (err) {
+    const queryParams = new URLSearchParams();
+    if (filters.search) queryParams.append("search", filters.search);
+    filters.brands.forEach(b => queryParams.append("brands", b));
+    filters.stores.forEach(s => queryParams.append("stores", s.toLowerCase()));
+    queryParams.append("skip", String((page - 1) * ROWS_PER_PAGE));
+    queryParams.append("limit", String(ROWS_PER_PAGE));
+
+    api.getCatalog(queryParams.toString())
+      .then(data => { if (!cancelled) setProducts(data); })
+      .catch(err => {
         console.error("Failed to load catalog:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCatalog();
+        if (!cancelled) setError(err?.message ?? "Could not load catalog.");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [filters, page]);
 
   const toggleSort = (field: SortField) => {
@@ -163,11 +148,22 @@ export default function CatalogContent() {
         </div>
       </div>
 
-      {/* Loading State */}
+      {/* Loading / Error / Empty / Data */}
       {loading ? (
         <div className="flex flex-col items-center justify-center h-[400px] gap-4">
           <RefreshCw className="animate-spin text-primary" size={32} />
           <p className="text-muted-foreground">Fetching products...</p>
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center h-[400px] gap-3 px-6 text-center">
+          <X className="text-destructive" size={28} />
+          <p className="text-foreground font-medium">{error}</p>
+          <p className="text-[13px] text-muted-foreground">Try refreshing the page.</p>
+        </div>
+      ) : products.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-[400px] gap-2 px-6 text-center">
+          <p className="text-foreground font-medium">No products match your filters.</p>
+          <p className="text-[13px] text-muted-foreground">Adjust search or filter criteria.</p>
         </div>
       ) : (
         <>
@@ -236,12 +232,12 @@ export default function CatalogContent() {
                           variant="secondary"
                           className={cn(
                             "text-[11px] font-normal border-0",
-                            p.inStock
+                            p.in_stock
                               ? "bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]"
                               : "bg-destructive/15 text-destructive"
                           )}
                         >
-                          {p.inStock ? "In Stock" : "OOS"}
+                          {p.in_stock ? "In Stock" : "OOS"}
                         </Badge>
                       </td>
                       <td className="px-6 py-3 text-right">

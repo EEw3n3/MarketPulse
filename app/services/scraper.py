@@ -1418,6 +1418,9 @@ class ScraperService:
                 if not product.brand: product.brand = item.get("brand")
                 if not product.volume: product.volume = item.get("volume")
                 if not product.concentration: product.concentration = item.get("concentration")
+                # Always overwrite title with the freshly-computed clean display_title.
+                # This heals old records that were saved before the clean-title pipeline existed.
+                product.title = item["title"]
 
                 change_type = "no_change"
                 if product.last_price is not None:

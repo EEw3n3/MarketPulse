@@ -6,62 +6,68 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
+import { PriceHistoryRead } from "@/lib/api";
 
 const periods = ["1W", "1M", "3M", "6M", "1Y"] as const;
-
-// Generate mock data
-function generateData(days: number) {
-  const data: Record<string, any>[] = [];
-  const now = new Date(2026, 2, 16);
-  const baseD = 130, baseN = 135, base1 = 140;
-  for (let i = days; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    data.push({
-      date: d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
-      fullDate: d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
-      douglas: +(baseD - Math.sin(i * 0.15) * 8 - i * 0.12).toFixed(2),
-      notino: +(baseN - Math.cos(i * 0.12) * 6 - i * 0.1).toFixed(2),
-      "1a": +(base1 - Math.sin(i * 0.1 + 1) * 5 - i * 0.08).toFixed(2),
-    });
-  }
-  return data;
-}
 
 const daysByPeriod: Record<string, number> = {
   "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365,
 };
 
-const storeColors: Record<string, string> = {
-  douglas: "hsl(263, 70%, 58%)",
-  notino: "hsl(187, 94%, 43%)",
-  "1a": "hsl(220, 9%, 46%)",
+const STORE_CHART_COLORS: Record<string, string> = {
+  "notino":         "hsl(187, 94%, 43%)",
+  "notino.lv":      "hsl(187, 94%, 43%)",
+  "douglas latvia": "hsl(217, 91%, 60%)",
+  "douglas.lv":     "hsl(217, 91%, 60%)",
+  "makeup.lv":      "hsl(330, 81%, 60%)",
+  "makeup":         "hsl(330, 81%, 60%)",
+  "1a.lv":          "hsl(25, 95%, 53%)",
+  "220.lv":         "hsl(43, 96%, 56%)",
 };
 
-const storeLabels: Record<string, string> = {
-  douglas: "Douglas.lv",
-  notino: "Notino.lv",
-  "1a": "1a.lv",
-};
+function storeChartColor(name: string): string {
+  return STORE_CHART_COLORS[name.toLowerCase()] ?? "hsl(263, 70%, 58%)";
+}
 
-function CustomTooltip({ active, payload, label }: any) {
+interface ChartPoint {
+  date: string;
+  fullDate: string;
+  price: number;
+}
+
+function buildChartData(history: PriceHistoryRead[], days: number): ChartPoint[] {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  return history
+    .filter(h => new Date(h.parsed_at) >= cutoff)
+    .sort((a, b) => new Date(a.parsed_at).getTime() - new Date(b.parsed_at).getTime())
+    .map(h => {
+      const d = new Date(h.parsed_at);
+      return {
+        date: d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+        fullDate: d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+        price: +Number(h.price).toFixed(2),
+      };
+    });
+}
+
+function CustomTooltip({ active, payload, storeName }: any) {
   if (!active || !payload?.length) return null;
   const item = payload[0];
   return (
     <div className="rounded-modal border border-primary/30 bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] shadow-card px-4 py-3 min-w-[180px] animate-tooltip-fade">
       <p className="text-[13px] font-semibold text-foreground mb-2">{item.payload.fullDate}</p>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4 py-0.5">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-            <span className="text-[12px] text-muted-foreground">{storeLabels[p.dataKey]}</span>
-          </div>
-          <span className="text-[13px] font-semibold text-foreground price-display">{p.value.toFixed(2)} €</span>
+      <div className="flex items-center justify-between gap-4 py-0.5">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ background: item.color }} />
+          <span className="text-[12px] text-muted-foreground">{storeName}</span>
         </div>
-      ))}
+        <span className="text-[13px] font-semibold text-foreground price-display">
+          {item.value.toFixed(2)} €
+        </span>
+      </div>
     </div>
   );
 }
@@ -69,28 +75,16 @@ function CustomTooltip({ active, payload, label }: any) {
 interface Props {
   period: string;
   onPeriodChange: (p: string) => void;
+  history: PriceHistoryRead[];
+  storeName: string;
 }
 
-export default function PriceChart({ period, onPeriodChange }: Props) {
-  const [visibleStores, setVisibleStores] = useState<Set<string>>(
-    new Set(["douglas", "notino", "1a"])
+export default function PriceChart({ period, onPeriodChange, history, storeName }: Props) {
+  const color = storeChartColor(storeName);
+  const data = useMemo(
+    () => buildChartData(history, daysByPeriod[period] ?? 30),
+    [history, period]
   );
-
-  const data = useMemo(() => generateData(daysByPeriod[period] || 30), [period]);
-
-  const toggleStore = (key: string) => {
-    setVisibleStores((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        if (next.size > 1) next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
-  // Determine tick interval based on data length
   const tickInterval = data.length <= 14 ? 1 : Math.floor(data.length / 7);
 
   return (
@@ -117,84 +111,63 @@ export default function PriceChart({ period, onPeriodChange }: Props) {
 
       {/* Chart */}
       <div className="flex-1 min-h-[340px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              {Object.entries(storeColors).map(([key, color]) => (
-                <linearGradient key={key} id={`gradient-${key}`} x1="0" y1="0" x2="0" y2="1">
+        {data.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-muted-foreground text-[13px]">
+            No price history for this period.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gradient-main" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={color} stopOpacity={0.15} />
                   <stop offset="100%" stopColor={color} stopOpacity={0} />
                 </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="hsl(0 0% 100% / 0.05)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "hsl(220, 9%, 46%)" }}
-              tickLine={false}
-              axisLine={false}
-              interval={tickInterval}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "hsl(220, 9%, 46%)" }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v: number) => `${v} €`}
-              width={60}
-              domain={["auto", "auto"]}
-            />
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{
-                stroke: "hsl(263, 70%, 58%)",
-                strokeDasharray: "4 4",
-                strokeWidth: 1,
-              }}
-            />
-            {Object.keys(storeColors).map((key) =>
-              visibleStores.has(key) ? (
-                <Area
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  stroke={storeColors[key]}
-                  strokeWidth={2.5}
-                  fill={`url(#gradient-${key})`}
-                  dot={false}
-                  activeDot={{
-                    r: 5,
-                    strokeWidth: 2,
-                    stroke: storeColors[key],
-                    fill: "hsl(240, 33%, 5%)",
-                  }}
-                />
-              ) : null
-            )}
-          </AreaChart>
-        </ResponsiveContainer>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(0 0% 100% / 0.05)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: "hsl(220, 9%, 46%)" }}
+                tickLine={false}
+                axisLine={false}
+                interval={tickInterval}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: "hsl(220, 9%, 46%)" }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `${v} €`}
+                width={60}
+                domain={["auto", "auto"]}
+              />
+              <Tooltip
+                content={<CustomTooltip storeName={storeName} />}
+                cursor={{ stroke: color, strokeDasharray: "4 4", strokeWidth: 1 }}
+              />
+              <Area
+                type="monotone"
+                dataKey="price"
+                stroke={color}
+                strokeWidth={2.5}
+                fill="url(#gradient-main)"
+                dot={false}
+                activeDot={{ r: 5, strokeWidth: 2, stroke: color, fill: "hsl(240, 33%, 5%)" }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Legend */}
       <div className="flex items-center gap-4">
-        {Object.entries(storeLabels).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => toggleStore(key)}
-            className={`flex items-center gap-2 text-[12px] transition-opacity ${
-              visibleStores.has(key) ? "opacity-100" : "opacity-40"
-            }`}
-          >
-            <div
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ background: storeColors[key] }}
-            />
-            <span className="text-muted-foreground">{label}</span>
-          </button>
-        ))}
+        <div className="flex items-center gap-2 text-[12px]">
+          <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+          <span className="text-muted-foreground">{storeName}</span>
+        </div>
       </div>
     </div>
   );

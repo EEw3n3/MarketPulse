@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { api } from "@/lib/api";
+import { api, DashboardStats } from "@/lib/api";
 import {
   TrendingDown,
   TrendingUp,
@@ -10,6 +10,7 @@ import {
   ArrowUp,
   ArrowDown,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,21 +53,22 @@ const kpiBase = [
 
 export default function AnalyticsContent() {
   const [period, setPeriod] = useState<string>("1Y");
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadStats = async () => {
-      try {
-        const data = await api.getStats();
-        setStats(data);
-      } catch (err) {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.getStats()
+      .then(data => { if (!cancelled) setStats(data); })
+      .catch(err => {
         console.error("Failed to load analytics stats:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadStats();
+        if (!cancelled) setError(err?.message ?? "Could not load analytics.");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   const kpis = useMemo(() => {
@@ -85,6 +87,16 @@ export default function AnalyticsContent() {
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-4">
         <RefreshCw className="animate-spin text-primary" size={32} />
         <p className="text-muted-foreground animate-pulse">Analyzing market data...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[400px] gap-3 px-6 text-center">
+        <AlertCircle className="text-destructive" size={28} />
+        <p className="text-foreground font-medium">{error}</p>
+        <p className="text-[13px] text-muted-foreground">Try refreshing the page.</p>
       </div>
     );
   }

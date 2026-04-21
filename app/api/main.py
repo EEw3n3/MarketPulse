@@ -55,6 +55,20 @@ def get_store_initial(store_name: str) -> str:
 def get_store_color(store_name: str) -> str:
     return _STORE_COLORS.get(store_name.lower(), "bg-gray-500")
 
+def _price_delta(last_price, old_price) -> tuple[int, str]:
+    """Returns (rounded_percent, direction) for a price change."""
+    if not old_price or float(old_price) == 0:
+        return 0, "none"
+    diff = float(last_price) - float(old_price)
+    if diff > 0.01:
+        direction = "up"
+    elif diff < -0.01:
+        direction = "down"
+    else:
+        return 0, "none"
+    percent = int(round(abs(diff) / float(old_price) * 100))
+    return percent, direction
+
 # --- API Endpoints ---
 
 @app.get("/")
@@ -76,16 +90,9 @@ async def get_product_feed(limit: int = 20, db: AsyncSession = Depends(get_db)):
     
     feed_items = []
     for p in products:
-        diff = float(p.last_price - p.old_price) if p.old_price else 0
-        direction = "none"
-        if diff > 0.01: direction = "up"
-        elif diff < -0.01: direction = "down"
-        
-        # Calculate percentage and round to nearest integer for "clean" UI
-        percent = abs(diff / float(p.old_price)) * 100 if p.old_price and p.old_price != 0 else 0
-        rounded_percent = int(round(percent))
-        
-        # Skip items with no significant change (the "garbage" the user mentioned)
+        rounded_percent, direction = _price_delta(p.last_price, p.old_price)
+
+        # Skip items with no significant change
         if direction == "none" or rounded_percent == 0:
             continue
 
@@ -99,6 +106,7 @@ async def get_product_feed(limit: int = 20, db: AsyncSession = Depends(get_db)):
             changeDirection=direction,
             storeInitial=get_store_initial(p.search_term),
             storeName=p.search_term.capitalize(),
+            storeColor=get_store_color(p.search_term),
             image_url=p.image_url
         ))
     return feed_items
@@ -128,14 +136,8 @@ async def get_catalog(
     
     catalog_items = []
     for p in products:
-        diff = float(p.last_price - p.old_price) if p.old_price else 0
-        direction = "none"
-        if diff > 0.01: direction = "up"
-        elif diff < -0.01: direction = "down"
-        
-        percent = abs(diff / float(p.old_price)) * 100 if p.old_price and p.old_price != 0 else 0
-        rounded_percent = int(round(percent))
-        
+        rounded_percent, direction = _price_delta(p.last_price, p.old_price)
+
         catalog_items.append(schemas.CatalogItem(
             id=p.id,
             sku=f"MP-{p.id}",
@@ -174,14 +176,26 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         comp_stmt = select(Product).where(Product.group_id == product.group_id, Product.id != product.id)
         comp_res = await db.execute(comp_stmt)
         for cp in comp_res.scalars().all():
+            cp_percent, cp_direction = _price_delta(cp.last_price, cp.old_price)
             competitors.append(schemas.ProductFeedItem(
                 id=cp.id, brand=cp.brand or "", title=cp.title,
-                currentPrice=float(cp.last_price), previousPrice=float(cp.old_price or cp.last_price),
-                changePercent=0, changeDirection="none",
-                storeInitial=get_store_initial(cp.search_term), storeName=cp.search_term.capitalize(),
+                currentPrice=float(cp.last_price),
+                previousPrice=float(cp.old_price) if cp.old_price else float(cp.last_price),
+                changePercent=cp_percent, changeDirection=cp_direction,
+                storeInitial=get_store_initial(cp.search_term),
+                storeName=cp.search_term.capitalize(),
+                storeColor=get_store_color(cp.search_term),
                 image_url=cp.image_url
             ))
             
+    # Prefer a high-res competitor image when the main product has none or a 220.lv thumbnail.
+    display_image = product.image_url
+    if not display_image or "220.lv" in (product.url or ""):
+        for cp in competitors:
+            if cp.image_url and "220.lv" not in (cp.image_url or ""):
+                display_image = cp.image_url
+                break
+
     return schemas.ProductCardDetail(
         id=product.id,
         url=product.url,
@@ -189,7 +203,7 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         brand=product.brand,
         volume=product.volume,
         concentration=product.concentration,
-        image_url=product.image_url,
+        image_url=display_image,
         description=product.description,
         current_price=float(product.last_price),
         old_price=float(product.old_price) if product.old_price else None,
