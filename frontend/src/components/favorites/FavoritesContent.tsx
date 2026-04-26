@@ -10,8 +10,10 @@ import {
   RefreshCw,
   AlertCircle,
   Package,
+  AlertTriangle,
 } from "lucide-react";
 import { api, FavoriteItem } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
 type SortKey = "added" | "price_asc" | "price_desc" | "change";
@@ -53,6 +55,7 @@ function ChangePill({ direction, percent }: { direction: "up" | "down" | "none";
 
 export default function FavoritesContent() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [items, setItems] = useState<FavoriteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,8 +128,29 @@ export default function FavoritesContent() {
     }
   };
 
+  const hasAlertsOn = items.some((f) => f.alert_enabled);
+  const channelsConfigured = (user?.preferences?.notification_channels?.length ?? 0) > 0;
+  const showChannelWarning = !loading && hasAlertsOn && !channelsConfigured;
+
   return (
     <div className="flex-1 overflow-y-auto">
+      {/* ── No-channel warning ─────────────────────────────────── */}
+      {showChannelWarning && (
+        <div className="mx-5 lg:mx-7 mt-4 flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
+          <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" strokeWidth={2} />
+          <p className="text-[12.5px] text-amber-200/90 leading-relaxed">
+            Alerts are on, but no delivery channel is configured.{" "}
+            <button
+              onClick={() => navigate("/settings")}
+              className="underline underline-offset-2 hover:text-amber-100 transition-colors"
+            >
+              Set up notifications in Settings
+            </button>
+            .
+          </p>
+        </div>
+      )}
+
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="px-5 lg:px-7 pt-7 pb-5 border-b border-border">
         <div className="flex items-end justify-between gap-3 flex-wrap">

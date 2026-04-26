@@ -1,7 +1,9 @@
 import { ArrowLeft, Upload, Bell, BellRing, Package, ArrowDown, ArrowUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { ProductCardDetail, ProductFeedItem } from "@/lib/api";
 import { useFavorites } from "@/contexts/FavoritesContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Props {
   product: ProductCardDetail;
@@ -27,7 +29,25 @@ function calcChange(current: number, old: number | null): { percent: number; dir
 export default function ProductInfoColumn({ product, onExport }: Props) {
   const navigate = useNavigate();
   const { isFavorite, toggleFavorite } = useFavorites();
+  const { user } = useAuth();
   const fav = isFavorite(product.id);
+
+  const handleTrack = async () => {
+    const wasTracking = fav;
+    await toggleFavorite(product.id);
+    if (!wasTracking) {
+      const channels = user?.preferences?.notification_channels ?? [];
+      if (channels.length > 0) {
+        const labels = channels.map((c) => (c === "telegram" ? "Telegram" : "Email")).join(" + ");
+        toast.success(`Tracking. Alerts via ${labels}.`);
+      } else {
+        toast("Tracking.", {
+          description: "Configure alert channels in Settings to receive notifications.",
+          action: { label: "Settings", onClick: () => navigate("/settings") },
+        });
+      }
+    }
+  };
 
   const { percent, direction } = calcChange(product.current_price, product.old_price ?? null);
 
@@ -48,7 +68,7 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
       <div className="p-6 flex flex-col gap-6">
         {/* Back */}
         <button
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(-1)}
           className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors w-fit"
         >
           <ArrowLeft size={13} strokeWidth={1.75} />
@@ -184,7 +204,7 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
         {/* Action buttons */}
         <div className="flex flex-col gap-2 mt-1">
           <button
-            onClick={() => toggleFavorite(product.id)}
+            onClick={handleTrack}
             className={`w-full h-10 rounded-md text-[12.5px] font-medium flex items-center justify-center gap-2 transition-colors ${
               fav
                 ? "border border-primary/40 text-primary bg-primary/[0.08] hover:bg-primary/[0.12]"

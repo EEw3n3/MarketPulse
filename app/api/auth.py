@@ -109,6 +109,21 @@ async def me(
     return _build_user_read(user, prefs)
 
 
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the authenticated user and all their data."""
+    from sqlalchemy import delete
+    from app.domain.models import Favorite
+
+    await db.execute(delete(Favorite).where(Favorite.user_id == user.id))
+    await db.execute(delete(UserPreferences).where(UserPreferences.user_id == user.id))
+    await db.execute(delete(User).where(User.id == user.id))
+    await db.commit()
+
+
 @router.patch("/preferences", response_model=schemas.UserPreferencesRead)
 async def update_preferences(
     payload: schemas.UserPreferencesUpdate,
@@ -127,6 +142,11 @@ async def update_preferences(
         prefs.interested_brands = payload.interested_brands
     if payload.onboarding_completed is not None:
         prefs.onboarding_completed = payload.onboarding_completed
+    if payload.notification_channels is not None:
+        prefs.notification_channels = payload.notification_channels
+    if payload.notification_threshold_percent is not None:
+        from decimal import Decimal
+        prefs.notification_threshold_percent = Decimal(str(payload.notification_threshold_percent))
 
     await db.commit()
     await db.refresh(prefs)

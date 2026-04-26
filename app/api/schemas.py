@@ -179,6 +179,9 @@ class UserPreferencesRead(BaseModel):
     monitored_stores: List[str] = []
     interested_brands: List[str] = []
     onboarding_completed: bool = False
+    notification_channels: List[str] = []
+    notification_threshold_percent: float = 5.0
+    telegram_chat_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -188,6 +191,13 @@ class UserPreferencesUpdate(BaseModel):
     monitored_stores: Optional[List[str]] = None
     interested_brands: Optional[List[str]] = None
     onboarding_completed: Optional[bool] = None
+    notification_channels: Optional[List[str]] = None
+    notification_threshold_percent: Optional[float] = None
+
+
+class TelegramConnectResponse(BaseModel):
+    deep_link: str
+    expires_at: datetime
 
 
 class UserCreate(BaseModel):

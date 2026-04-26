@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Price Alert — MarketPulse</title>
+  <style>
+    body { margin: 0; padding: 0; background: #0f0f0f; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .wrapper { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; }
+    .header { background: #111; padding: 20px 24px; border-bottom: 1px solid #2a2a2a; }
+    .logo { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+    .logo span { color: #22c55e; }
+    .body { padding: 24px; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+    .badge-down { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .badge-up   { background: rgba(239,68,68,0.15);  color: #ef4444; }
+    .badge-restock { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .product-row { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
+    .product-img { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; background: #2a2a2a; flex-shrink: 0; }
+    .product-img-placeholder { width: 72px; height: 72px; border-radius: 8px; background: #2a2a2a; flex-shrink: 0; }
+    .product-meta { flex: 1; }
+    .product-brand { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .product-title { font-size: 15px; font-weight: 600; color: #fff; line-height: 1.4; margin-bottom: 4px; }
+    .product-store { font-size: 12px; color: #888; }
+    .price-row { display: flex; align-items: baseline; gap: 12px; padding: 16px; background: #111; border-radius: 8px; margin-bottom: 20px; }
+    .price-new { font-size: 28px; font-weight: 700; color: #fff; }
+    .price-old { font-size: 16px; color: #666; text-decoration: line-through; }
+    .price-change-down { font-size: 14px; font-weight: 600; color: #22c55e; }
+    .price-change-up   { font-size: 14px; font-weight: 600; color: #ef4444; }
+    .cta { display: block; text-align: center; background: #22c55e; color: #000; font-weight: 700; font-size: 14px; padding: 12px 24px; border-radius: 8px; text-decoration: none; }
+    .footer { padding: 16px 24px; border-top: 1px solid #2a2a2a; font-size: 11px; color: #444; text-align: center; line-height: 1.6; }
+    .footer a { color: #666; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header">
+        <div class="logo">Market<span>Pulse</span></div>
+      </div>
+      <div class="body">
+
+        {% if change_type == "price_down" %}
+          <div class="badge badge-down">📉 Price Drop</div>
+        {% elif change_type == "back_in_stock" %}
+          <div class="badge badge-restock">📦 Back in Stock</div>
+        {% else %}
+          <div class="badge badge-up">📈 Price Increase</div>
+        {% endif %}
+
+        <div class="product-row">
+          {% if image_url %}
+            <img class="product-img" src="{{ image_url }}" alt="{{ title }}" />
+          {% else %}
+            <div class="product-img-placeholder"></div>
+          {% endif %}
+          <div class="product-meta">
+            {% if brand %}<div class="product-brand">{{ brand }}</div>{% endif %}
+            <div class="product-title">{{ title }}</div>
+            <div class="product-store">{{ store_name }}</div>
+          </div>
+        </div>
+
+        <div class="price-row">
+          <span class="price-new">€{{ "%.2f"|format(new_price) }}</span>
+          {% if old_price %}
+            <span class="price-old">€{{ "%.2f"|format(old_price) }}</span>
+            {% if change_type == "price_down" %}
+              <span class="price-change-down">−{{ change_percent|abs|round(1) }}%</span>
+            {% elif change_type == "price_up" %}
+              <span class="price-change-up">+{{ change_percent|abs|round(1) }}%</span>
+            {% endif %}
+          {% endif %}
+        </div>
+
+        <a class="cta" href="{{ product_url }}">View Product →</a>
+      </div>
+      <div class="footer">
+        You're receiving this because you're tracking this product on MarketPulse.<br />
+        <a href="{{ settings_url }}">Manage notification settings</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

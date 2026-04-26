@@ -130,6 +130,14 @@ class UserPreferences(SQLModel, table=True):
     interested_brands: List[str] = Field(default_factory=list, sa_column=Column(JSON))
     onboarding_completed: bool = Field(default=False)
 
+    # Notification channels — Phase 4
+    notification_channels: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+    notification_threshold_percent: Decimal = Field(default=Decimal("5.0"))
+    telegram_chat_id: Optional[str] = Field(default=None, max_length=64)
+    # One-time token for deep-link verification — cleared after successful /start
+    telegram_link_token: Optional[str] = Field(default=None, max_length=64)
+    telegram_link_token_expires_at: Optional[datetime] = Field(default=None)
+
 
 # --- 8. FAVORITE (User watchlist entry) ---
 class Favorite(SQLModel, table=True):

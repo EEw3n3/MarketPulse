@@ -34,6 +34,21 @@ services:
       - GEMINI_MODEL=${GEMINI_MODEL}
       # Если используешь прокси, добавь переменную сюда тоже
       - PROXY_LIST=${PROXY_LIST}
+      # Auth
+      - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      # Telegram (Phase 4)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
+      - TELEGRAM_POLLING=${TELEGRAM_POLLING}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
+      # SMTP (Phase 4)
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
     depends_on:
       - db
       - redis

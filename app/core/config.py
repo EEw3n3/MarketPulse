@@ -40,6 +40,23 @@ class Settings:
     # Admin bootstrap: email that auto-receives is_admin=True on registration.
     ADMIN_EMAIL: str | None = os.getenv("ADMIN_EMAIL")
 
+    # Telegram Bot
+    TELEGRAM_BOT_TOKEN: str | None = os.getenv("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_BOT_USERNAME: str = os.getenv("TELEGRAM_BOT_USERNAME", "MarketPulseBot")
+    TELEGRAM_WEBHOOK_SECRET: str | None = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+    # Set to "true" to use long-polling instead of webhook (dev without public URL)
+    TELEGRAM_POLLING: bool = os.getenv("TELEGRAM_POLLING", "false").lower() == "true"
+
+    # Public base URL for webhook registration (e.g. https://api.marketpulse.app)
+    PUBLIC_BASE_URL: str | None = os.getenv("PUBLIC_BASE_URL")
+
+    # Email / SMTP
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str | None = os.getenv("SMTP_USER")
+    SMTP_PASSWORD: str | None = os.getenv("SMTP_PASSWORD")  # Gmail App Password (16 chars)
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "MarketPulse <noreply@marketpulse.app>")
+
     # Check that key is loaded
     def validate(self):
         if not self.GOOGLE_API_KEY:

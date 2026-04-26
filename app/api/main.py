@@ -14,7 +14,9 @@ from app.api.auth import router as auth_router
 from app.api.favorites import router as favorites_router
 from app.api.analytics import router as analytics_router
 from app.api.admin import router as admin_router
+from app.api.telegram import router as telegram_router
 from app.domain.models import Product, PriceHistory
+from app.core.config import settings
 
 app = FastAPI(
     title="MarketPulse API",
@@ -40,6 +42,25 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(telegram_router, prefix="/api")
+
+# --- Startup ---
+
+@app.on_event("startup")
+async def register_telegram_webhook() -> None:
+    """Telegram setup — polling for dev, webhook for prod."""
+    from app.services.telegram_bot import bot
+    if not settings.TELEGRAM_BOT_TOKEN:
+        return
+    if settings.TELEGRAM_POLLING:
+        # Polling overrides any webhook — clear it first to avoid conflicts.
+        import asyncio
+        await bot.delete_webhook()
+        asyncio.create_task(bot.start_polling())
+    elif settings.PUBLIC_BASE_URL and settings.PUBLIC_BASE_URL.startswith("https://"):
+        webhook_url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/auth/telegram/webhook"
+        await bot.set_webhook(webhook_url, secret_token=settings.TELEGRAM_WEBHOOK_SECRET)
+
 
 # --- Helper Functions ---
 

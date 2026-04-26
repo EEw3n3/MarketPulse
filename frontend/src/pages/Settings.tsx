@@ -1,15 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Moon, Sun, Check, LogOut, Trash2, ArrowLeft } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Moon, Sun, Check, LogOut, Trash2, ArrowLeft, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
+import NotificationChannelsCard from "@/components/settings/NotificationChannelsCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,21 +66,48 @@ const baseInput =
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, updatePreferences } = useAuth();
 
   const [name, setName] = useState(user?.full_name ?? "");
   const [showPasswordFields, setShowPasswordFields] = useState(false);
 
-  const [trackedStores, setTrackedStores] = useState<Set<string>>(new Set(["douglas", "notino"]));
-  const [favBrands, setFavBrands] = useState<Set<string>>(new Set(["Dior", "Chanel", "Tom Ford"]));
-
-  const [priceDropAlerts, setPriceDropAlerts] = useState(true);
-  const [priceIncreaseAlerts, setPriceIncreaseAlerts] = useState(false);
-  const [newProductAlerts, setNewProductAlerts] = useState(true);
-  const [weeklyDigest, setWeeklyDigest] = useState(true);
-  const [minChange, setMinChange] = useState("5");
+  const [trackedStores, setTrackedStores] = useState<Set<string>>(
+    new Set(user?.preferences?.monitored_stores ?? [])
+  );
+  const [favBrands, setFavBrands] = useState<Set<string>>(
+    new Set(user?.preferences?.interested_brands ?? [])
+  );
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const [isDark, setIsDark] = useState(!document.documentElement.classList.contains("light"));
+
+  const handleSavePrefs = async () => {
+    setSavingPrefs(true);
+    try {
+      await updatePreferences({
+        monitored_stores: [...trackedStores],
+        interested_brands: [...favBrands],
+      });
+      toast.success("Preferences saved");
+    } catch {
+      toast.error("Failed to save preferences");
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await api.deleteAccount();
+      logout();
+      navigate("/");
+    } catch {
+      toast.error("Failed to delete account. Try again.");
+      setDeletingAccount(false);
+    }
+  };
 
   const toggleStore = (id: string) => {
     setTrackedStores((prev) => {
@@ -259,41 +281,26 @@ export default function Settings() {
                 })}
               </div>
             </div>
+
+            <button
+              onClick={handleSavePrefs}
+              disabled={savingPrefs}
+              className="mt-5 self-start h-9 px-4 rounded-md bg-foreground text-background text-[12.5px] font-medium hover:bg-foreground/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              {savingPrefs && <Loader2 size={13} className="animate-spin" />}
+              Save preferences
+            </button>
           </section>
 
-          {/* ── 3. Notifications ────────────────────────────── */}
+          {/* ── 3. Notification channels ────────────────────── */}
           <section className="mb-6 rounded-md border border-border bg-surface/40 p-6">
             <SectionHeader
               index="03"
               label="Alerts"
-              title="Notifications"
-              description="When MarketPulse should reach out to you."
+              title="Notification channels"
+              description="Choose where price-change alerts are delivered."
             />
-
-            <div className="flex flex-col divide-y divide-border">
-              <NotifRow label="Price drop alerts" description="Immediate notification when a tracked product drops in price." checked={priceDropAlerts} onChange={setPriceDropAlerts} />
-              <NotifRow label="Price increase alerts" description="Daily digest of price increases." checked={priceIncreaseAlerts} onChange={setPriceIncreaseAlerts} />
-              <NotifRow label="New products in your brands" description="Alert when a new product from your favorite brands appears." checked={newProductAlerts} onChange={setNewProductAlerts} />
-              <NotifRow label="Weekly email digest" description="Summary report sent every Monday." checked={weeklyDigest} onChange={setWeeklyDigest} />
-            </div>
-
-            <div className="flex flex-col gap-1.5 mt-6 pt-6 border-t border-border">
-              <FieldLabel>Sensitivity threshold</FieldLabel>
-              <p className="text-[11.5px] text-muted-foreground -mt-0.5 mb-1">
-                Minimum price change required to trigger an alert.
-              </p>
-              <Select value={minChange} onValueChange={setMinChange}>
-                <SelectTrigger className="bg-surface border-border h-9 text-[13px] focus:ring-1 focus:ring-primary focus:border-primary max-w-[280px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-background border-border">
-                  <SelectItem value="3">3% — high sensitivity</SelectItem>
-                  <SelectItem value="5">5% — recommended</SelectItem>
-                  <SelectItem value="10">10% — medium</SelectItem>
-                  <SelectItem value="20">20% — major drops only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <NotificationChannelsCard />
           </section>
 
           {/* ── 4. Appearance ───────────────────────────────── */}
@@ -361,8 +368,15 @@ export default function Settings() {
                     <AlertDialogCancel className="border-border bg-transparent text-muted-foreground hover:text-foreground hover:bg-surface text-[12.5px]">
                       Cancel
                     </AlertDialogCancel>
-                    <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-[12.5px]">
-                      <Trash2 size={13} className="mr-1" /> Delete account
+                    <AlertDialogAction
+                      onClick={handleDeleteAccount}
+                      disabled={deletingAccount}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-[12.5px] flex items-center gap-1.5"
+                    >
+                      {deletingAccount
+                        ? <Loader2 size={13} className="animate-spin" />
+                        : <Trash2 size={13} />}
+                      Delete account
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -375,30 +389,3 @@ export default function Settings() {
   );
 }
 
-function NotifRow({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <p className="text-[13px] text-foreground font-medium">{label}</p>
-        <p className="text-[11.5px] text-muted-foreground mt-0.5 leading-relaxed pr-6">
-          {description}
-        </p>
-      </div>
-      <Switch
-        checked={checked}
-        onCheckedChange={onChange}
-        className="data-[state=checked]:bg-primary mt-0.5 shrink-0"
-      />
-    </div>
-  );
-}

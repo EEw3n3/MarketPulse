@@ -1342,6 +1342,7 @@ class ScraperService:
         from app.services.matcher import matcher_service
         from app.domain.models import ProductGroup
         from app.services.notifier import notification_service
+        from app.services.notification_dispatcher import dispatcher
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -1356,6 +1357,9 @@ class ScraperService:
                     all_forbidden.extend(ctx)
             except Exception:
                 pass
+
+        # Alerts collected here and dispatched AFTER commit — see dispatch block below.
+        pending_alerts: list[tuple] = []  # (product, history, percent_change)
 
         valid_items = []
         for item in candidates:
@@ -1457,6 +1461,8 @@ class ScraperService:
                 )
                 session.add(history)
                 notification_service.report_change(product, history, rule.site_name)
+                pct = self._compute_percent_change(item["price"], product.old_price)
+                pending_alerts.append((product, history, pct))
 
             saved_items.append(ScrapedItem(
                 title=product.title,
@@ -1468,7 +1474,25 @@ class ScraperService:
 
         await session.commit()
         logger.info(f"💾 Page flushed: {len(saved_items)} items saved.")
+
+        # Dispatch AFTER commit — transport failure must not roll back PriceHistory.
+        for product, history, pct in pending_alerts:
+            try:
+                await dispatcher.dispatch_price_alert(session, product, history, pct)
+            except Exception as exc:
+                logger.error(f"Alert dispatch failed for product {product.id}: {exc}")
+
         return saved_items
+
+    @staticmethod
+    def _compute_percent_change(new_price, old_price) -> float:
+        """Signed percent change: negative = price drop."""
+        try:
+            if not old_price or float(old_price) == 0:
+                return 0.0
+            return (float(new_price) - float(old_price)) / float(old_price) * 100
+        except Exception:
+            return 0.0
 
     def _add_candidate(self, candidates, title, price, is_available, url, image_url, brand, norm):
         """Standardizes and adds a product to the candidates list.
