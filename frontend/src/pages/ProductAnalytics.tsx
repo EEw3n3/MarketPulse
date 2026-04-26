@@ -10,7 +10,7 @@ import MobileBottomNav from "@/components/dashboard/MobileBottomNav";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAiPanel } from "@/hooks/use-ai-panel";
 import { api, ProductCardDetail } from "@/lib/api";
-import { RefreshCw, AlertCircle } from "lucide-react";
+import { LoadingState, ErrorState } from "@/components/ui/state-views";
 
 export default function ProductAnalytics() {
   const navigate = useNavigate();
@@ -41,26 +41,17 @@ export default function ProductAnalytics() {
   }, [id]);
 
   if (loading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-background gap-4 flex-col">
-        <RefreshCw className="animate-spin text-primary" size={32} />
-        <p className="text-muted-foreground animate-pulse">Loading product...</p>
-      </div>
-    );
+    return <LoadingState label="Loading product" fullscreen />;
   }
 
   if (error || !product) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background gap-3 flex-col px-6 text-center">
-        <AlertCircle className="text-destructive" size={28} />
-        <p className="text-foreground font-medium">{error ?? "Product not found."}</p>
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="text-[13px] text-primary hover:underline mt-1"
-        >
-          ← Back to Dashboard
-        </button>
-      </div>
+      <ErrorState
+        message={error ?? "Product not found."}
+        onRetry={() => navigate("/dashboard")}
+        retryLabel="Back to dashboard"
+        fullscreen
+      />
     );
   }
 

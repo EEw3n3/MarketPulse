@@ -1,26 +1,17 @@
-import { ArrowLeft, Upload, Bell, Package } from "lucide-react";
+import { ArrowLeft, Upload, Bell, BellRing, Package, ArrowDown, ArrowUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ProductCardDetail, ProductFeedItem } from "@/lib/api";
+import { useFavorites } from "@/contexts/FavoritesContext";
 
 interface Props {
   product: ProductCardDetail;
   onExport: () => void;
-  onTrack: () => void;
+  onTrack?: () => void;  // deprecated — Track button now toggles favorite directly
 }
 
-const STORE_COLORS: Record<string, string> = {
-  "notino":          "bg-[hsl(var(--success))]",
-  "notino.lv":       "bg-[hsl(var(--success))]",
-  "douglas latvia":  "bg-blue-500",
-  "douglas.lv":      "bg-blue-500",
-  "makeup.lv":       "bg-pink-500",
-  "makeup":          "bg-pink-500",
-  "1a.lv":           "bg-orange-500",
-  "220.lv":          "bg-amber-500",
-};
-
-function storeColor(name: string): string {
-  return STORE_COLORS[name.toLowerCase()] ?? "bg-gray-500";
+function storeTag(name: string): string {
+  const cleaned = name.replace(/\.lv$/i, "").replace(/\s+latvia$/i, "").trim();
+  return cleaned.slice(0, 2).toUpperCase();
 }
 
 function calcChange(current: number, old: number | null): { percent: number; direction: "up" | "down" | "none" } {
@@ -33,135 +24,192 @@ function calcChange(current: number, old: number | null): { percent: number; dir
   };
 }
 
-export default function ProductInfoColumn({ product, onExport, onTrack }: Props) {
+export default function ProductInfoColumn({ product, onExport }: Props) {
   const navigate = useNavigate();
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const fav = isFavorite(product.id);
 
   const { percent, direction } = calcChange(product.current_price, product.old_price ?? null);
 
-  // Build price comparison rows: main product + competitors, sorted cheapest first
-  type StoreRow = { name: string; price: number; dot: string; item?: ProductFeedItem };
+  type StoreRow = { name: string; price: number; item?: ProductFeedItem };
   const rows: StoreRow[] = [
-    { name: product.store_name, price: product.current_price, dot: storeColor(product.store_name) },
-    ...product.competitors.map(c => ({ name: c.storeName, price: c.currentPrice, dot: c.storeColor, item: c })),
+    { name: product.store_name, price: product.current_price },
+    ...product.competitors.map(c => ({ name: c.storeName, price: c.currentPrice, item: c })),
   ].sort((a, b) => a.price - b.price);
-  if (rows.length) rows[0] = { ...rows[0] };
   const bestPrice = rows[0]?.price;
+  const worstPrice = rows[rows.length - 1]?.price;
+  const spreadPct =
+    rows.length > 1 && bestPrice > 0
+      ? Math.round(((worstPrice - bestPrice) / bestPrice) * 100)
+      : 0;
 
   return (
-    <div className="w-full md:w-[380px] md:h-full flex flex-col md:overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-surface shrink-0 scrollbar-hide">
-      <div className="p-6 flex flex-col gap-5">
+    <div className="w-full md:w-[380px] md:h-full flex flex-col md:overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-background shrink-0 scrollbar-hide">
+      <div className="p-6 flex flex-col gap-6">
         {/* Back */}
         <button
           onClick={() => navigate("/dashboard")}
-          className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-primary transition-colors w-fit"
+          className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors w-fit"
         >
-          <ArrowLeft size={14} />
-          All Products
+          <ArrowLeft size={13} strokeWidth={1.75} />
+          All products
         </button>
 
         {/* Product image */}
-        <div className="w-[320px] h-[320px] mx-auto rounded-card border border-border bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] shadow-[0_0_40px_rgba(124,58,237,0.15)] flex items-center justify-center transition-transform duration-250 ease-brand hover:scale-[1.03] cursor-pointer overflow-hidden">
+        <div className="w-full aspect-square rounded-md border border-border bg-surface flex items-center justify-center overflow-hidden">
           {product.image_url ? (
             <img
               src={product.image_url}
               alt={product.title}
-              className="w-full h-full object-contain p-4"
+              className="w-full h-full object-contain p-6"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
           ) : (
-            <Package className="text-muted-foreground opacity-20" size={80} strokeWidth={1} />
+            <Package className="text-muted-foreground/30" size={64} strokeWidth={1} />
           )}
         </div>
 
         {/* Brand + Name */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+        <div className="flex flex-col gap-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             {product.brand ?? "—"}
           </span>
-          <h1 className="text-[32px] font-bold font-display leading-tight text-foreground">
+          <h1 className="font-['Inter'] font-semibold text-foreground text-[22px] leading-[1.25] tracking-[-0.01em]">
             {product.title}
           </h1>
         </div>
 
         {/* Volume / concentration chips */}
-        <div className="flex gap-2 flex-wrap">
-          {product.volume && (
-            <span className="px-3 py-1 rounded-full bg-surface-2 text-[12px] text-muted-foreground">
-              {product.volume}
-            </span>
-          )}
-          {product.concentration && (
-            <span className="px-3 py-1 rounded-full bg-surface-2 text-[12px] text-muted-foreground">
-              {product.concentration}
-            </span>
-          )}
-        </div>
-
-        {/* Current price */}
-        <div className="flex items-end gap-3">
-          <span className={`text-[48px] font-bold font-display leading-none price-display ${direction === "down" ? "text-[hsl(var(--success))]" : "text-foreground"}`}>
-            {product.current_price.toFixed(2)} €
-          </span>
-        </div>
-
-        {/* Previous price + change badge */}
-        {product.old_price && direction !== "none" && (
-          <div className="flex items-center gap-2 -mt-2">
-            <span className="text-[13px] text-muted-foreground line-through">
-              {product.old_price.toFixed(2)} €
-            </span>
-            <span className={`px-2 py-0.5 rounded-full text-[12px] font-semibold ${
-              direction === "down"
-                ? "bg-[hsl(var(--success))]/20 text-[hsl(var(--success))]"
-                : "bg-destructive/20 text-destructive"
-            }`}>
-              {direction === "down" ? "↓" : "↑"} {direction === "down" ? "−" : "+"}{percent}%
-            </span>
+        {(product.volume || product.concentration) && (
+          <div className="flex gap-1.5 flex-wrap">
+            {product.volume && (
+              <span className="px-2 py-1 rounded-md bg-surface-2 border border-border font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                {product.volume}
+              </span>
+            )}
+            {product.concentration && (
+              <span className="px-2 py-1 rounded-md bg-surface-2 border border-border font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                {product.concentration}
+              </span>
+            )}
           </div>
         )}
 
-        {/* Cross-site comparison */}
-        {rows.length > 0 && (
-          <div className="flex flex-col gap-1.5 mt-2">
-            <span className="text-[13px] font-semibold text-foreground mb-1">Price Comparison</span>
-            {rows.map((s, i) => {
-              const isBest = s.price === bestPrice && i === 0;
-              return (
-                <div
-                  key={`${s.name}-${s.price}`}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                    isBest ? "bg-[hsl(var(--success))]/10 border border-[hsl(var(--success))]/20" : "bg-surface-2"
+        {/* Current price block */}
+        <div className="flex flex-col gap-1.5 pt-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            Current · {product.store_name}
+          </span>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span
+              className={`font-mono font-semibold tabular-nums tracking-tight text-[40px] leading-none ${
+                direction === "down" ? "text-[hsl(var(--success))]" : "text-foreground"
+              }`}
+            >
+              {product.current_price.toFixed(2)} €
+            </span>
+            {product.old_price && direction !== "none" && (
+              <>
+                <span className="font-mono tabular-nums text-[13px] text-muted-foreground line-through">
+                  {product.old_price.toFixed(2)}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                    direction === "down"
+                      ? "text-[hsl(var(--success))] border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/[0.08]"
+                      : "text-destructive border-destructive/30 bg-destructive/[0.08]"
                   }`}
                 >
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${s.dot || "bg-gray-500"}`} />
-                  <span className="text-[13px] text-foreground flex-1">{s.name}</span>
-                  <span className={`text-[13px] font-semibold price-display ${isBest ? "text-[hsl(var(--success))]" : "text-foreground"}`}>
-                    {s.price.toFixed(2)} €
-                  </span>
-                  {isBest && (
-                    <span className="text-[11px] text-[hsl(var(--success))] font-semibold">Best ✓</span>
+                  {direction === "down" ? (
+                    <ArrowDown size={9} strokeWidth={2.75} />
+                  ) : (
+                    <ArrowUp size={9} strokeWidth={2.75} />
                   )}
-                </div>
-              );
-            })}
+                  {direction === "down" ? "−" : "+"}
+                  {percent}%
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Cross-site comparison */}
+        {rows.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                Price comparison · {rows.length} {rows.length === 1 ? "store" : "stores"}
+              </span>
+              {spreadPct > 0 && (
+                <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+                  spread {spreadPct}%
+                </span>
+              )}
+            </div>
+            <div className="border border-border rounded-md divide-y divide-border overflow-hidden bg-surface">
+              {rows.map((s, i) => {
+                const isBest = i === 0 && rows.length > 1;
+                return (
+                  <div
+                    key={`${s.name}-${s.price}-${i}`}
+                    className={`flex items-center gap-3 px-3 py-2.5 ${
+                      isBest ? "bg-[hsl(var(--success))]/[0.06]" : ""
+                    }`}
+                  >
+                    <span className="w-8 h-6 rounded-sm bg-surface-2 border border-border font-mono text-[10px] font-medium text-muted-foreground flex items-center justify-center shrink-0">
+                      {storeTag(s.name)}
+                    </span>
+                    <span className="text-[12.5px] text-foreground flex-1 truncate">
+                      {s.name}
+                    </span>
+                    <span
+                      className={`font-mono tabular-nums font-semibold text-[13px] ${
+                        isBest ? "text-[hsl(var(--success))]" : "text-foreground"
+                      }`}
+                    >
+                      {s.price.toFixed(2)} €
+                    </span>
+                    {isBest && (
+                      <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[hsl(var(--success))] font-semibold">
+                        Best
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
         {/* Action buttons */}
-        <div className="flex flex-col gap-2 mt-3">
+        <div className="flex flex-col gap-2 mt-1">
           <button
-            onClick={onExport}
-            className="w-full h-11 rounded-button border border-primary text-primary text-[13px] font-semibold flex items-center justify-center gap-2 hover:bg-primary/10 transition-colors"
+            onClick={() => toggleFavorite(product.id)}
+            className={`w-full h-10 rounded-md text-[12.5px] font-medium flex items-center justify-center gap-2 transition-colors ${
+              fav
+                ? "border border-primary/40 text-primary bg-primary/[0.08] hover:bg-primary/[0.12]"
+                : "bg-foreground text-background hover:bg-foreground/90"
+            }`}
+            aria-label={fav ? "Stop tracking price" : "Track price"}
           >
-            <Upload size={15} />
-            Export
+            {fav ? (
+              <>
+                <BellRing size={14} strokeWidth={2} />
+                Tracking
+              </>
+            ) : (
+              <>
+                <Bell size={14} strokeWidth={2} />
+                Track price
+              </>
+            )}
           </button>
           <button
-            onClick={onTrack}
-            className="w-full h-11 rounded-button bg-primary text-primary-foreground text-[13px] font-semibold flex items-center justify-center gap-2 shadow-glow hover:brightness-110 transition-all"
+            onClick={onExport}
+            className="w-full h-10 rounded-md border border-border text-muted-foreground text-[12.5px] font-medium flex items-center justify-center gap-2 hover:text-foreground hover:border-muted-foreground transition-colors"
           >
-            <Bell size={15} />
-            Track Price
+            <Upload size={14} strokeWidth={1.75} />
+            Export CSV
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Plus, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -10,58 +10,83 @@ export default function DashboardFilterBar() {
   const [activeBrands, setActiveBrands] = useState<string[]>([]);
 
   const toggleBrand = (b: string) =>
-    setActiveBrands((prev) =>
-      prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]
-    );
+    setActiveBrands((prev) => (prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]));
 
-  const pillBase = "px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors whitespace-nowrap";
+  const chip =
+    "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition-colors whitespace-nowrap border";
 
   return (
-    <div data-tutorial="filters" className="h-12 flex items-center gap-3 px-6 overflow-x-auto scrollbar-hide">
-      {/* Store pills */}
-      {stores.map((s) => (
-        <button
-          key={s}
-          onClick={() => setActiveStore(s)}
-          className={cn(
-            pillBase,
-            activeStore === s
-              ? "bg-primary text-primary-foreground"
-              : "bg-surface-2 text-muted-foreground border border-border hover:text-foreground"
-          )}
-        >
-          {s}
-        </button>
-      ))}
+    <div
+      data-tutorial="filters"
+      className="h-12 flex items-center gap-5 px-5 lg:px-7 overflow-x-auto scrollbar-hide border-b border-border bg-background"
+    >
+      {/* Stores group */}
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          Store
+        </span>
+        <div className="flex items-center gap-1.5">
+          {stores.map((s) => (
+            <button
+              key={s}
+              onClick={() => setActiveStore(s)}
+              className={cn(
+                chip,
+                activeStore === s
+                  ? "bg-foreground text-background border-foreground"
+                  : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-muted-foreground"
+              )}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {/* Divider */}
       <div className="w-px h-5 bg-border shrink-0" />
 
-      {/* Brand pills */}
-      {brands.map((b) => (
-        <button
-          key={b}
-          onClick={() => toggleBrand(b)}
-          className={cn(
-            pillBase,
-            activeBrands.includes(b)
-              ? "bg-primary text-primary-foreground"
-              : "bg-surface-2 text-muted-foreground border border-border hover:text-foreground"
-          )}
-        >
-          {b}
-        </button>
-      ))}
+      {/* Brands group */}
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          Brand
+        </span>
+        <div className="flex items-center gap-1.5">
+          {brands.map((b) => {
+            const active = activeBrands.includes(b);
+            return (
+              <button
+                key={b}
+                onClick={() => toggleBrand(b)}
+                className={cn(
+                  chip,
+                  active
+                    ? "bg-surface text-foreground border-primary/60"
+                    : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-muted-foreground"
+                )}
+              >
+                {active && <span className="w-1 h-1 rounded-full bg-primary" />}
+                {b}
+              </button>
+            );
+          })}
+          <button
+            className={cn(
+              chip,
+              "border-dashed text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+            )}
+          >
+            <Plus size={11} strokeWidth={2} />
+            Add
+          </button>
+        </div>
+      </div>
 
-      {/* Add button */}
-      <button
-        className={cn(
-          pillBase,
-          "border border-dashed border-muted-foreground text-muted-foreground hover:text-foreground flex items-center gap-1"
-        )}
-      >
-        <Plus size={12} />
-        Add
+      <div className="flex-1" />
+
+      {/* More filters */}
+      <button className="shrink-0 inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+        <SlidersHorizontal size={13} strokeWidth={1.75} />
+        More filters
       </button>
     </div>
   );

@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Moon, Sun, Check, LogOut, Trash2, Camera, ArrowLeft, User, Sliders, Bell, Palette, ShieldAlert } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
-import { Input } from "@/components/ui/input";
+import { useAuth } from "@/contexts/AuthContext";
+import { Moon, Sun, Check, LogOut, Trash2, ArrowLeft } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -26,6 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
+import { cn } from "@/lib/utils";
 
 import storeDouglas from "@/assets/store-douglas.png";
 import storeNotino from "@/assets/store-notino.png";
@@ -47,25 +44,47 @@ const BRANDS = [
   "Burberry", "Dolce & Gabbana", "Guerlain", "Givenchy",
 ];
 
+function SectionHeader({ index, label, title, description }: { index: string; label: string; title: string; description?: string }) {
+  return (
+    <div className="flex flex-col gap-1.5 mb-5">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        {index} · {label}
+      </p>
+      <h2 className="font-['Inter'] font-semibold text-foreground text-[16px] tracking-[-0.005em]">
+        {title}
+      </h2>
+      {description && <p className="text-[12.5px] text-muted-foreground">{description}</p>}
+    </div>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+const baseInput =
+  "w-full h-9 px-3 rounded-md bg-surface border border-border text-[13px] text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors";
+
 export default function Settings() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
-  // Profile
-  const [name, setName] = useState("Ervin Mihailovic");
+  const [name, setName] = useState(user?.full_name ?? "");
   const [showPasswordFields, setShowPasswordFields] = useState(false);
 
-  // Preferences
   const [trackedStores, setTrackedStores] = useState<Set<string>>(new Set(["douglas", "notino"]));
   const [favBrands, setFavBrands] = useState<Set<string>>(new Set(["Dior", "Chanel", "Tom Ford"]));
 
-  // Notifications
   const [priceDropAlerts, setPriceDropAlerts] = useState(true);
   const [priceIncreaseAlerts, setPriceIncreaseAlerts] = useState(false);
   const [newProductAlerts, setNewProductAlerts] = useState(true);
   const [weeklyDigest, setWeeklyDigest] = useState(true);
   const [minChange, setMinChange] = useState("5");
 
-  // Appearance
   const [isDark, setIsDark] = useState(!document.documentElement.classList.contains("light"));
 
   const toggleStore = (id: string) => {
@@ -89,250 +108,297 @@ export default function Settings() {
     setIsDark(!isDark);
   };
 
+  const initial = (user?.full_name?.[0] ?? user?.email?.[0] ?? "?").toUpperCase();
+  const email = user?.email ?? "";
+
   return (
     <div className="h-screen flex overflow-hidden bg-background">
       <DashboardSidebar onSettingsClick={() => {}} />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-[600px] mx-auto py-10 px-6 animate-fade-in">
+        <div className="max-w-[720px] mx-auto py-10 px-6">
           {/* Back */}
           <button
             onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-primary transition-colors mb-6"
+            className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-6"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft size={13} strokeWidth={1.75} />
             Back
           </button>
 
-          <h1 className="text-2xl font-display font-bold text-foreground mb-8">Settings</h1>
+          {/* Page header */}
+          <div className="mb-10 flex flex-col gap-1.5">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Account
+            </p>
+            <h1 className="font-['Inter'] font-semibold text-foreground text-[28px] tracking-[-0.015em]">
+              Settings
+            </h1>
+            <p className="text-[13px] text-muted-foreground">
+              Manage your profile, preferences, and notifications.
+            </p>
+          </div>
 
-          {/* ── 1. Profile ─────────────────────────────────── */}
-          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
-            <CardHeader className="pb-4 border-b border-border/50">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <User className="w-4 h-4 text-primary" /> Profile
-              </CardTitle>
-              <CardDescription className="text-xs">Manage your personal details and account security.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5 pt-5">
-              <div className="flex items-center gap-5">
-                <div className="relative group cursor-pointer">
-                  <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl font-bold shrink-0 ring-2 ring-primary/20 ring-offset-2 ring-offset-background group-hover:ring-primary/40 transition-all duration-300">
-                    E
-                  </div>
-                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Camera className="w-5 h-5 text-white" />
-                  </div>
-                </div>
-                <div>
-                  <button className="text-[13px] font-medium text-primary hover:text-primary/80 transition-colors">
-                    Upload new picture
-                  </button>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">JPG, GIF or PNG. Max size 2MB.</p>
-                </div>
+          {/* ── 1. Profile ──────────────────────────────────── */}
+          <section className="mb-6 rounded-md border border-border bg-surface/40 p-6">
+            <SectionHeader index="01" label="Identity" title="Profile" description="Your personal details." />
+
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 rounded-md bg-surface-2 border border-border flex items-center justify-center text-foreground text-[18px] font-medium font-['Inter']">
+                {initial}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] text-foreground font-medium">{user?.full_name ?? email}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">{email}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel>Name</FieldLabel>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={baseInput}
+                />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[12px] font-medium text-foreground">Name</label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 transition-all h-9 text-sm" />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[12px] font-medium text-foreground">Email</label>
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel>Email</FieldLabel>
                 <div className="relative">
-                  <Input value="ervin@example.com" disabled className="bg-surface border-border pr-20 opacity-70 h-9 text-sm" />
-                  <Badge className="absolute right-2 top-1/2 -translate-y-1/2 bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] border-[hsl(var(--success))]/30 text-[10px] px-1.5">Verified</Badge>
+                  <input
+                    type="email"
+                    value={email}
+                    disabled
+                    className={cn(baseInput, "pr-24 opacity-70 cursor-not-allowed")}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.1em] text-[hsl(var(--success))] border border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/[0.08] px-1.5 py-0.5 rounded">
+                    <Check size={10} strokeWidth={2.5} />
+                    Verified
+                  </span>
                 </div>
               </div>
 
-              <div className="pt-2">
-                <button onClick={() => setShowPasswordFields(!showPasswordFields)} className="text-[13px] font-medium text-primary hover:text-primary/80 transition-colors">
-                  {showPasswordFields ? "Cancel" : "Change Password"}
+              <div>
+                <button
+                  onClick={() => setShowPasswordFields(!showPasswordFields)}
+                  className="text-[12px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                >
+                  {showPasswordFields ? "Cancel password change" : "Change password"}
                 </button>
               </div>
 
               {showPasswordFields && (
-                <div className="space-y-3 animate-fade-in p-4 bg-surface-2/30 rounded-[var(--radius-card)] border border-border/50">
-                  <Input type="password" placeholder="Current password" className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 h-9 text-sm" />
-                  <Input type="password" placeholder="New password" className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 h-9 text-sm" />
-                  <Input type="password" placeholder="Confirm new password" className="bg-surface border-border focus-visible:ring-primary/30 focus-visible:border-primary/50 h-9 text-sm" />
+                <div className="flex flex-col gap-2 p-4 rounded-md bg-surface border border-border">
+                  <input type="password" placeholder="Current password" className={baseInput} />
+                  <input type="password" placeholder="New password" className={baseInput} />
+                  <input type="password" placeholder="Confirm new password" className={baseInput} />
                 </div>
               )}
 
-              <Button className="w-full btn-primary h-9 shadow-glow hover:scale-[1.01] transition-transform">Save Changes</Button>
-            </CardContent>
-          </Card>
+              <button className="self-start h-9 px-4 rounded-md bg-foreground text-background text-[12.5px] font-medium hover:bg-foreground/90 transition-colors">
+                Save changes
+              </button>
+            </div>
+          </section>
 
-          {/* ── 2. Preferences ─────────────────────────────── */}
-          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
-            <CardHeader className="pb-4 border-b border-border/50">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-primary" /> Personalization
-              </CardTitle>
-              <CardDescription className="text-xs">Select your priority stores and brands for the dashboard.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-5">
-              <div className="space-y-2.5">
-                <label className="text-[13px] text-foreground font-medium">Tracked Stores</label>
-              <div className="flex flex-wrap gap-2">
+          {/* ── 2. Preferences ──────────────────────────────── */}
+          <section className="mb-6 rounded-md border border-border bg-surface/40 p-6">
+            <SectionHeader
+              index="02"
+              label="Personalization"
+              title="Tracked sources"
+              description="Pick the stores and brands surfaced on your dashboard."
+            />
+
+            <div className="flex flex-col gap-2.5 mb-6">
+              <FieldLabel>Stores</FieldLabel>
+              <div className="flex flex-wrap gap-1.5">
                 {STORES.map((store) => {
                   const isSelected = trackedStores.has(store.id);
                   return (
                     <button
                       key={store.id}
                       onClick={() => toggleStore(store.id)}
-                      className={`relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium border transition-colors whitespace-nowrap",
                         isSelected
-                          ? "bg-primary/[0.08] text-foreground border-primary shadow-[0_0_12px_rgba(124,58,237,0.15)]"
-                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground bg-transparent"
-                      }`}
+                          ? "bg-foreground text-background border-foreground"
+                          : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-muted-foreground"
+                      )}
                     >
-                      <img src={store.logo} alt={store.name} className="w-4 h-4 object-contain" />
+                      <img src={store.logo} alt={store.name} className="w-3.5 h-3.5 object-contain" />
                       {store.name}
-                      {isSelected && <Check className="w-3 h-3 text-primary" />}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="space-y-2.5">
-              <label className="text-[13px] text-foreground font-medium">Favorite Brands</label>
-              <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2.5">
+              <FieldLabel>Brands</FieldLabel>
+              <div className="flex flex-wrap gap-1.5">
                 {BRANDS.map((brand) => {
                   const isSelected = favBrands.has(brand);
                   return (
                     <button
                       key={brand}
                       onClick={() => toggleBrand(brand)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium border transition-colors whitespace-nowrap",
                         isSelected
-                          ? "bg-primary text-primary-foreground border-primary shadow-[0_0_12px_rgba(124,58,237,0.25)]"
-                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground bg-transparent"
-                      }`}
+                          ? "bg-surface text-foreground border-primary/60"
+                          : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-muted-foreground"
+                      )}
                     >
-                      {isSelected && <Check className="w-3 h-3" />}
+                      {isSelected && <span className="w-1 h-1 rounded-full bg-primary" />}
                       {brand}
                     </button>
                   );
                 })}
               </div>
             </div>
-            </CardContent>
-          </Card>
+          </section>
 
-          {/* ── 3. Notifications ───────────────────────────── */}
-          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
-            <CardHeader className="pb-4 border-b border-border/50">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Bell className="w-4 h-4 text-primary" /> Notifications
-              </CardTitle>
-              <CardDescription className="text-xs">Configure how and when you receive price alerts.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-5">
-            <div className="space-y-4">
+          {/* ── 3. Notifications ────────────────────────────── */}
+          <section className="mb-6 rounded-md border border-border bg-surface/40 p-6">
+            <SectionHeader
+              index="03"
+              label="Alerts"
+              title="Notifications"
+              description="When MarketPulse should reach out to you."
+            />
+
+            <div className="flex flex-col divide-y divide-border">
               <NotifRow label="Price drop alerts" description="Immediate notification when a tracked product drops in price." checked={priceDropAlerts} onChange={setPriceDropAlerts} />
               <NotifRow label="Price increase alerts" description="Daily digest of price increases." checked={priceIncreaseAlerts} onChange={setPriceIncreaseAlerts} />
-              <NotifRow label="New products in my brands" description="Alert when a new product from your favorite brands appears." checked={newProductAlerts} onChange={setNewProductAlerts} />
+              <NotifRow label="New products in your brands" description="Alert when a new product from your favorite brands appears." checked={newProductAlerts} onChange={setNewProductAlerts} />
               <NotifRow label="Weekly email digest" description="Summary report sent every Monday." checked={weeklyDigest} onChange={setWeeklyDigest} />
             </div>
-            
-            <Separator className="my-2 border-border/50" />
-            
-            <div className="space-y-2">
-              <label className="text-[12px] font-medium text-foreground">Sensitivy Threshold</label>
-              <p className="text-[11px] text-muted-foreground mb-1.5">Minimum price change required to trigger an alert.</p>
+
+            <div className="flex flex-col gap-1.5 mt-6 pt-6 border-t border-border">
+              <FieldLabel>Sensitivity threshold</FieldLabel>
+              <p className="text-[11.5px] text-muted-foreground -mt-0.5 mb-1">
+                Minimum price change required to trigger an alert.
+              </p>
               <Select value={minChange} onValueChange={setMinChange}>
-                <SelectTrigger className="bg-surface border-border focus-visible:ring-primary/30 h-9 text-sm">
+                <SelectTrigger className="bg-surface border-border h-9 text-[13px] focus:ring-1 focus:ring-primary focus:border-primary max-w-[280px]">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-surface border-border">
-                  <SelectItem value="3">3% (High sensitivity)</SelectItem>
-                  <SelectItem value="5">5% (Recommended)</SelectItem>
-                  <SelectItem value="10">10% (Medium)</SelectItem>
-                  <SelectItem value="20">20% (Major drops only)</SelectItem>
+                <SelectContent className="bg-background border-border">
+                  <SelectItem value="3">3% — high sensitivity</SelectItem>
+                  <SelectItem value="5">5% — recommended</SelectItem>
+                  <SelectItem value="10">10% — medium</SelectItem>
+                  <SelectItem value="20">20% — major drops only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            </CardContent>
-          </Card>
+          </section>
 
-          {/* ── 4. Appearance ──────────────────────────────── */}
-          <Card className="mb-6 bg-surface-2/30 backdrop-blur-md border-border">
-            <CardHeader className="pb-4 border-b border-border/50">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Palette className="w-4 h-4 text-primary" /> Appearance
-              </CardTitle>
-              <CardDescription className="text-xs">Customize the interface visual theme.</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-5">
-              <div className="flex items-center bg-surface border border-border rounded-full p-1 gap-1 w-fit">
-                <button
-                  onClick={() => { if (!isDark) toggleTheme(); }}
-                  className={`flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-medium transition-all duration-300 ${
-                    isDark ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground hover:bg-surface-2"
-                  }`}
-                >
-                  <Moon className="w-4 h-4" /> Dark
-                </button>
-                <button
-                  onClick={() => { if (isDark) toggleTheme(); }}
-                  className={`flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-medium transition-all duration-300 ${
-                    !isDark ? "bg-primary text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground hover:bg-surface-2"
-                  }`}
-                >
-                  <Sun className="w-4 h-4" /> Light
-                </button>
-              </div>
-            </CardContent>
-          </Card>
+          {/* ── 4. Appearance ───────────────────────────────── */}
+          <section className="mb-6 rounded-md border border-border bg-surface/40 p-6">
+            <SectionHeader index="04" label="Theme" title="Appearance" />
 
-          {/* ── 5. Account ─────────────────────────────────── */}
-          <Card className="mb-10 bg-destructive/[0.02] border-destructive/20 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-destructive/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-            <CardHeader className="pb-4 border-b border-destructive/10">
-              <CardTitle className="text-sm font-semibold text-destructive flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4" /> Danger Zone
-              </CardTitle>
-              <CardDescription className="text-xs">Irreversible and destructive actions.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-5 relative z-10">
-            <Button variant="outline" className="w-full border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive">
-              <LogOut className="w-4 h-4 mr-2" /> Sign Out
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button className="text-[11px] text-muted-foreground underline hover:text-destructive transition-colors">Delete Account</button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="bg-surface border-border rounded-modal">
-                <AlertDialogHeader>
-                  <AlertDialogTitle className="text-foreground">Delete your account?</AlertDialogTitle>
-                  <AlertDialogDescription>This action cannot be undone. All your data, tracked products, and preferences will be permanently deleted.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-                  <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    <Trash2 className="w-4 h-4 mr-1" /> Delete Account
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            </CardContent>
-          </Card>
+            <div className="flex items-center gap-1 p-0.5 rounded-md border border-border bg-surface w-fit">
+              <button
+                onClick={() => { if (!isDark) toggleTheme(); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded font-mono text-[11px] uppercase tracking-[0.1em] transition-colors",
+                  isDark ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Moon size={12} /> Dark
+              </button>
+              <button
+                onClick={() => { if (isDark) toggleTheme(); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded font-mono text-[11px] uppercase tracking-[0.1em] transition-colors",
+                  !isDark ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Sun size={12} /> Light
+              </button>
+            </div>
+          </section>
+
+          {/* ── 5. Account / Danger ─────────────────────────── */}
+          <section className="mb-12 rounded-md border border-destructive/30 bg-destructive/[0.03] p-6">
+            <SectionHeader
+              index="05"
+              label="Danger zone"
+              title="Sign out & account"
+              description="Irreversible actions affecting your account."
+            />
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => { logout(); navigate("/"); }}
+                className="w-full h-10 rounded-md border border-border text-foreground text-[12.5px] font-medium flex items-center justify-center gap-2 hover:bg-surface transition-colors"
+              >
+                <LogOut size={14} strokeWidth={1.75} />
+                Sign out
+              </button>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button className="w-full h-10 rounded-md border border-destructive/40 text-destructive text-[12.5px] font-medium flex items-center justify-center gap-2 hover:bg-destructive/[0.08] transition-colors">
+                    <Trash2 size={14} strokeWidth={1.75} />
+                    Delete account
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-background border border-border rounded-md">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="font-['Inter'] font-semibold text-foreground text-[16px] tracking-[-0.005em]">
+                      Delete your account?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="text-[13px] text-muted-foreground">
+                      This action cannot be undone. All your data, tracked products, and preferences
+                      will be permanently deleted.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="border-border bg-transparent text-muted-foreground hover:text-foreground hover:bg-surface text-[12.5px]">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-[12.5px]">
+                      <Trash2 size={13} className="mr-1" /> Delete account
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </section>
         </div>
       </main>
     </div>
   );
 }
 
-function NotifRow({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (v: boolean) => void }) {
+function NotifRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p className="text-[13px] font-medium text-foreground">{label}</p>
-        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed pr-6">{description}</p>
+    <div className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <p className="text-[13px] text-foreground font-medium">{label}</p>
+        <p className="text-[11.5px] text-muted-foreground mt-0.5 leading-relaxed pr-6">
+          {description}
+        </p>
       </div>
-      <Switch checked={checked} onCheckedChange={onChange} className="data-[state=checked]:bg-primary mt-1" />
+      <Switch
+        checked={checked}
+        onCheckedChange={onChange}
+        className="data-[state=checked]:bg-primary mt-0.5 shrink-0"
+      />
     </div>
   );
 }

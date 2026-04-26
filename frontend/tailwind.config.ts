@@ -14,8 +14,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        display: ["Outfit", "system-ui", "sans-serif"],
+        sans: ["Geist", "Inter", "system-ui", "sans-serif"],
+        display: ["Geist", "Inter", "system-ui", "sans-serif"],
+        mono: ['"Geist Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -38,6 +39,10 @@ export default {
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
@@ -102,20 +107,20 @@ export default {
           to: { height: "0", opacity: "0" },
         },
         "fade-in": {
-          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "0%": { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
         "fade-out": {
           "0%": { opacity: "1", transform: "translateY(0)" },
-          "100%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "0", transform: "translateY(8px)" },
         },
         "scale-in": {
-          "0%": { transform: "scale(0.95)", opacity: "0" },
+          "0%": { transform: "scale(0.97)", opacity: "0" },
           "100%": { transform: "scale(1)", opacity: "1" },
         },
         "scale-out": {
           from: { transform: "scale(1)", opacity: "1" },
-          to: { transform: "scale(0.95)", opacity: "0" },
+          to: { transform: "scale(0.97)", opacity: "0" },
         },
         "slide-in-right": {
           "0%": { transform: "translateX(100%)" },
@@ -125,47 +130,24 @@ export default {
           "0%": { transform: "translateX(0)" },
           "100%": { transform: "translateX(100%)" },
         },
-        "float": {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-10px)" },
-        },
-        "twinkle": {
-          "0%, 100%": { opacity: "0.15" },
-          "50%": { opacity: "0.45" },
-        },
-        "gradient-shift": {
-          "0%": { backgroundPosition: "0% 50%" },
-          "50%": { backgroundPosition: "100% 50%" },
-          "100%": { backgroundPosition: "0% 50%" },
-        },
         shake: {
           "0%, 100%": { transform: "translateX(0)" },
-          "20%, 60%": { transform: "translateX(-6px)" },
-          "40%, 80%": { transform: "translateX(6px)" },
+          "20%, 60%": { transform: "translateX(-4px)" },
+          "40%, 80%": { transform: "translateX(4px)" },
         },
         pop: {
           "0%": { transform: "scale(0.5)", opacity: "0" },
-          "60%": { transform: "scale(1.15)" },
+          "60%": { transform: "scale(1.1)" },
           "100%": { transform: "scale(1)", opacity: "1" },
         },
         "card-click": {
           "0%": { transform: "scale(1)" },
-          "50%": { transform: "scale(0.97)" },
+          "50%": { transform: "scale(0.98)" },
           "100%": { transform: "scale(1)" },
         },
         "typing-dot": {
           "0%, 80%, 100%": { transform: "translateY(0)", opacity: "0.4" },
           "40%": { transform: "translateY(-6px)", opacity: "1" },
-        },
-        "price-glow-green": {
-          "0%": { boxShadow: "0 0 0 0 hsla(160,84%,39%,0)" },
-          "30%": { boxShadow: "0 0 12px 4px hsla(160,84%,39%,0.4)" },
-          "100%": { boxShadow: "0 0 0 0 hsla(160,84%,39%,0)" },
-        },
-        "price-glow-red": {
-          "0%": { boxShadow: "0 0 0 0 hsla(0,84%,60%,0)" },
-          "30%": { boxShadow: "0 0 12px 4px hsla(0,84%,60%,0.4)" },
-          "100%": { boxShadow: "0 0 0 0 hsla(0,84%,60%,0)" },
         },
         "sidebar-icon-scale": {
           "0%": { transform: "scale(0)", opacity: "0" },
@@ -177,36 +159,43 @@ export default {
         },
         "badge-bounce": {
           "0%": { transform: "scale(0.5)" },
-          "50%": { transform: "scale(1.3)" },
+          "50%": { transform: "scale(1.2)" },
           "100%": { transform: "scale(1)" },
         },
-        "spotlight-pulse": {
-          "0%, 100%": { transform: "scale(1)", opacity: "0.6" },
-          "50%": { transform: "scale(1.05)", opacity: "1" },
+        "pulse-ring": {
+          "0%": { transform: "scale(1)", opacity: "0.8" },
+          "100%": { transform: "scale(1.6)", opacity: "0" },
+        },
+        "reveal-up": {
+          "0%": { opacity: "0", transform: "translateY(28px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "reveal-fade": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
         },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "fade-in": "fade-in 0.5s ease-out forwards",
-        "fade-out": "fade-out 0.3s ease-out",
-        "scale-in": "scale-in 0.2s ease-out",
-        "scale-out": "scale-out 0.2s ease-out",
+        "fade-in": "fade-in 0.35s ease-out forwards",
+        "fade-out": "fade-out 0.25s ease-out",
+        "scale-in": "scale-in 0.18s ease-out",
+        "scale-out": "scale-out 0.18s ease-out",
         "slide-in-right": "slide-in-right 0.3s ease-out",
         "slide-out-right": "slide-out-right 0.3s ease-out",
         enter: "fade-in 0.3s ease-out, scale-in 0.2s ease-out",
         exit: "fade-out 0.3s ease-out, scale-out 0.2s ease-out",
-        float: "float 6s ease-in-out infinite",
-        twinkle: "twinkle 4s ease-in-out infinite",
-        "gradient-shift": "gradient-shift 12s ease infinite",
+        shake: "shake 0.4s ease-in-out",
+        pop: "pop 0.3s ease-out",
         "card-click": "card-click 0.1s ease-out",
         "typing-dot": "typing-dot 1.4s ease-in-out infinite",
-        "price-glow-green": "price-glow-green 0.6s ease-out",
-        "price-glow-red": "price-glow-red 0.6s ease-out",
+        "reveal-up": "reveal-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards",
+        "reveal-fade": "reveal-fade 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards",
         "sidebar-icon-scale": "sidebar-icon-scale 0.2s ease-out",
         "tooltip-fade": "tooltip-fade 0.1s ease-out",
         "badge-bounce": "badge-bounce 0.3s ease-out",
-        "spotlight-pulse": "spotlight-pulse 1.5s ease-in-out infinite",
+        "pulse-ring": "pulse-ring 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite",
       },
     },
   },

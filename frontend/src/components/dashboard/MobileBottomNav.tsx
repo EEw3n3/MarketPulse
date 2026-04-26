@@ -18,7 +18,7 @@ export default function MobileBottomNav({ onSettingsClick }: MobileBottomNavProp
   const [active, setActive] = useState("dashboard");
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 h-16 bg-surface border-t border-border flex items-center justify-around px-2 md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 h-14 bg-background border-t border-border flex items-center justify-around px-2 md:hidden">
       {navItems.map((item) => (
         <button
           key={item.id}
@@ -27,17 +27,15 @@ export default function MobileBottomNav({ onSettingsClick }: MobileBottomNavProp
             if (item.id === "settings" && onSettingsClick) onSettingsClick();
           }}
           className={cn(
-            "flex flex-col items-center justify-center gap-0.5 w-14 h-14 rounded-xl transition-colors relative",
-            active === item.id
-              ? "text-primary"
-              : "text-muted-foreground"
+            "relative flex flex-col items-center justify-center gap-0.5 w-14 h-full transition-colors",
+            active === item.id ? "text-foreground" : "text-muted-foreground"
           )}
         >
           {active === item.id && (
-            <span className="absolute inset-1 rounded-xl bg-primary/15 animate-sidebar-icon-scale" />
+            <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] bg-primary rounded-b" />
           )}
-          <item.icon size={20} className="relative z-10" />
-          <span className="text-[10px] font-medium relative z-10">{item.label}</span>
+          <item.icon size={18} strokeWidth={active === item.id ? 2 : 1.75} />
+          <span className="text-[10px] font-medium">{item.label}</span>
         </button>
       ))}
     </nav>

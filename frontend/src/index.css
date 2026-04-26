@@ -4,108 +4,119 @@
 
 @layer base {
   :root {
-    --background: 240 33% 5%;
-    --foreground: 240 20% 95%;
+    /* ─── Dark mode (default) — deep navy + teal, B2B ─── */
+    --background: 220 30% 8%;
+    --foreground: 210 20% 96%;
 
-    --card: 240 25% 8%;
-    --card-foreground: 240 20% 95%;
+    --card: 220 25% 12%;
+    --card-foreground: 210 20% 96%;
 
-    --popover: 240 25% 8%;
-    --popover-foreground: 240 20% 95%;
+    --popover: 220 25% 12%;
+    --popover-foreground: 210 20% 96%;
 
-    --primary: 263 70% 58%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 180 70% 45%;
+    --primary-foreground: 220 30% 8%;
 
-    --secondary: 187 94% 43%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 210 50% 45%;
+    --secondary-foreground: 210 20% 96%;
 
-    --muted: 240 15% 15%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 220 18% 18%;
+    --muted-foreground: 220 12% 65%;
 
-    --accent: 263 70% 58%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 180 70% 45%;
+    --accent-foreground: 220 30% 8%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 160 84% 39%;
+    --success: 142 70% 45%;
     --success-foreground: 0 0% 100%;
 
-    --surface: 240 25% 8%;
-    --surface-foreground: 240 20% 95%;
+    --warning: 38 90% 55%;
+    --warning-foreground: 220 30% 8%;
 
-    --surface-2: 240 22% 13%;
-    --surface-2-foreground: 240 20% 95%;
+    --surface: 220 25% 12%;
+    --surface-foreground: 210 20% 96%;
 
-    --border: 0 0% 100% / 0.07;
-    --input: 0 0% 100% / 0.07;
-    --ring: 263 70% 58%;
+    --surface-2: 220 22% 16%;
+    --surface-2-foreground: 210 20% 96%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 180 70% 45%;
 
     --radius: 0.5rem;
-    --radius-card: 12px;
+    --radius-card: 10px;
     --radius-button: 8px;
-    --radius-modal: 24px;
+    --radius-modal: 16px;
 
     --bezier-brand: cubic-bezier(0.4, 0, 0.2, 1);
-    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4);
-    --shadow-glow: 0 0 40px rgba(124, 58, 237, 0.25);
+    --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.3);
+    --shadow-glow: 0 0 24px hsl(var(--primary) / 0.18);
 
-    --sidebar-background: 240 25% 8%;
-    --sidebar-foreground: 240 20% 95%;
-    --sidebar-primary: 263 70% 58%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 22% 13%;
-    --sidebar-accent-foreground: 240 20% 95%;
-    --sidebar-border: 0 0% 100% / 0.07;
-    --sidebar-ring: 263 70% 58%;
+    --sidebar-background: 220 28% 10%;
+    --sidebar-foreground: 210 20% 96%;
+    --sidebar-primary: 180 70% 45%;
+    --sidebar-primary-foreground: 220 30% 8%;
+    --sidebar-accent: 220 22% 16%;
+    --sidebar-accent-foreground: 210 20% 96%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 180 70% 45%;
   }
 
   .light {
-    --background: 240 14% 97%;
-    --foreground: 240 50% 14%;
+    /* ─── Light mode — clean off-white + darker teal ─── */
+    --background: 220 20% 98%;
+    --foreground: 220 40% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 50% 14%;
+    --card-foreground: 220 40% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 50% 14%;
+    --popover-foreground: 220 40% 12%;
 
-    --primary: 263 70% 58%;
+    --primary: 180 72% 35%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 187 94% 43%;
+    --secondary: 210 50% 40%;
     --secondary-foreground: 0 0% 100%;
 
-    --muted: 240 14% 93%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 15% 42%;
 
-    --accent: 263 70% 58%;
+    --accent: 180 72% 35%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 160 84% 39%;
+    --success: 142 72% 35%;
     --success-foreground: 0 0% 100%;
 
+    --warning: 38 90% 45%;
+    --warning-foreground: 0 0% 100%;
+
     --surface: 0 0% 100%;
-    --surface-foreground: 240 50% 14%;
+    --surface-foreground: 220 40% 12%;
 
-    --surface-2: 240 33% 95%;
-    --surface-2-foreground: 240 50% 14%;
+    --surface-2: 220 20% 95%;
+    --surface-2-foreground: 220 40% 12%;
 
-    --border: 240 14% 90%;
-    --input: 240 14% 90%;
-    --ring: 263 70% 58%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --ring: 180 72% 35%;
+
+    --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.04);
+    --shadow-glow: 0 0 20px hsl(var(--primary) / 0.15);
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 240 50% 14%;
-    --sidebar-primary: 263 70% 58%;
+    --sidebar-foreground: 220 40% 12%;
+    --sidebar-primary: 180 72% 35%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 14% 93%;
-    --sidebar-accent-foreground: 240 50% 14%;
-    --sidebar-border: 240 14% 90%;
-    --sidebar-ring: 263 70% 58%;
+    --sidebar-accent: 220 14% 94%;
+    --sidebar-accent-foreground: 220 40% 12%;
+    --sidebar-border: 220 14% 88%;
+    --sidebar-ring: 180 72% 35%;
   }
 
   * {
@@ -115,79 +126,77 @@
   body {
     @apply bg-background text-foreground font-sans;
     transition: background-color 0.25s var(--bezier-brand), color 0.25s var(--bezier-brand);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Hide native browser password reveal buttons — we render our own Eye toggle */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear,
+  input[type="password"]::-webkit-credentials-auto-fill-button {
+    display: none !important;
+  }
+
+  /* Selection — teal tint */
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
+    color: hsl(var(--foreground));
   }
 }
 
 @layer components {
+  /* ── Glass card — reserved for AiPanel only; kept minimal ── */
   .glass-card {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(16px);
+    background: hsl(var(--surface) / 0.8);
+    backdrop-filter: blur(12px);
     border-radius: var(--radius-card);
     border: 1px solid hsl(var(--border));
     box-shadow: var(--shadow-card);
-    transition: all 0.25s var(--bezier-brand);
+    transition: all 0.2s var(--bezier-brand);
   }
 
   .light .glass-card {
-    background: rgba(255, 255, 255, 0.8);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    background: hsl(var(--surface) / 0.85);
   }
 
-  /* ── Feature card: stronger hover with gradient border glow ── */
+  /* ── Feature card — flat surface, subtle hover lift ── */
   .feature-card {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(16px);
+    background: hsl(var(--surface));
     border-radius: var(--radius-card);
     border: 1px solid hsl(var(--border));
     box-shadow: var(--shadow-card);
-    transition: all 0.3s var(--bezier-brand);
-    position: relative;
-  }
-
-  .feature-card::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: var(--radius-card);
-    background: linear-gradient(135deg, hsl(var(--primary) / 0), hsl(var(--primary) / 0.4), hsl(var(--secondary) / 0.3));
-    opacity: 0;
-    transition: opacity 0.3s var(--bezier-brand);
-    z-index: -1;
+    transition: border-color 0.2s var(--bezier-brand), transform 0.2s var(--bezier-brand),
+      box-shadow 0.2s var(--bezier-brand);
   }
 
   .feature-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 30px hsl(var(--primary) / 0.15);
-    border-color: hsl(var(--primary) / 0.35);
+    transform: translateY(-2px);
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   }
 
-  .feature-card:hover::after {
-    opacity: 1;
+  .light .feature-card:hover {
+    box-shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
   }
 
-  .light .feature-card {
-    background: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-  }
-
-  /* ── Hero blob backgrounds ── */
+  /* ── Hero blob (background accent, navy-teal) ── */
   .hero-blob {
     position: absolute;
     border-radius: 50%;
-    filter: blur(100px);
+    filter: blur(120px);
     pointer-events: none;
     z-index: 0;
+    opacity: 0.35;
   }
 
-  /* ── Badge pill (stats bar) ── */
+  /* ── Badge pill — subtle indicator ── */
   .badge-pill {
     @apply inline-flex items-center gap-1.5 text-xs font-medium;
-    background: hsl(var(--primary) / 0.08);
+    background: hsl(var(--primary) / 0.1);
     border: 1px solid hsl(var(--primary) / 0.2);
     border-radius: 9999px;
     padding: 0.25rem 0.75rem;
-    color: hsl(var(--foreground) / 0.7);
-    transition: all 0.2s var(--bezier-brand);
+    color: hsl(var(--foreground) / 0.75);
+    transition: all 0.15s var(--bezier-brand);
   }
 
   .badge-pill .dot {
@@ -202,7 +211,7 @@
   /* ── Check badge (trust indicators) ── */
   .check-badge {
     @apply inline-flex items-center gap-1.5 text-xs;
-    color: hsl(var(--foreground) / 0.55);
+    color: hsl(var(--muted-foreground));
   }
 
   .check-badge svg {
@@ -212,30 +221,23 @@
   /* ── Stat number (animated counters) ── */
   .stat-number {
     font-variant-numeric: tabular-nums;
-    background: linear-gradient(135deg, hsl(var(--foreground)), hsl(var(--foreground) / 0.85));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: hsl(var(--foreground));
+    letter-spacing: -0.02em;
   }
 
-  /* ── Stats strip section ── */
+  /* ── Stats strip — subtle teal tint ── */
   .stats-strip {
-    background: linear-gradient(
-      90deg,
-      hsl(var(--primary) / 0.06),
-      hsl(var(--secondary) / 0.04),
-      hsl(var(--primary) / 0.06)
-    );
+    background: hsl(var(--surface) / 0.5);
     border-top: 1px solid hsl(var(--border));
     border-bottom: 1px solid hsl(var(--border));
   }
 
-  /* ── CTA card with gradient border ── */
+  /* ── CTA card — flat with teal border accent ── */
   .cta-card {
     position: relative;
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(16px);
-    border-radius: 20px;
+    background: hsl(var(--surface));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-card);
     padding: 3rem 2rem;
   }
 
@@ -243,9 +245,9 @@
     content: '';
     position: absolute;
     inset: 0;
-    border-radius: 20px;
+    border-radius: var(--radius-card);
     padding: 1px;
-    background: linear-gradient(135deg, hsl(var(--primary) / 0.4), hsl(var(--secondary) / 0.3), hsl(var(--border)));
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.5), hsl(var(--secondary) / 0.3), transparent);
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -256,7 +258,7 @@
   .cta-glow {
     position: absolute;
     inset: 0;
-    border-radius: 20px;
+    border-radius: var(--radius-card);
     background: radial-gradient(ellipse at 50% 100%, hsl(var(--primary) / 0.12) 0%, transparent 70%);
     pointer-events: none;
   }
@@ -268,13 +270,19 @@
     border-radius: var(--radius-button);
     padding: 0.625rem 1.5rem;
     box-shadow: var(--shadow-glow);
-    transition: all 0.25s var(--bezier-brand);
+    transition: filter 0.15s var(--bezier-brand), transform 0.15s var(--bezier-brand),
+      box-shadow 0.15s var(--bezier-brand);
   }
 
   .btn-primary:hover {
-    filter: brightness(1.12);
-    transform: scale(1.025);
-    box-shadow: 0 0 56px rgba(124, 58, 237, 0.4);
+    filter: brightness(1.08);
+    transform: translateY(-0.5px);
+    box-shadow: 0 0 32px hsl(var(--primary) / 0.35);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+    filter: brightness(0.95);
   }
 
   .price-display {
@@ -294,9 +302,10 @@
   }
 
   .hover-scale {
-    @apply transition-transform duration-200 hover:scale-105;
+    @apply transition-transform duration-200 hover:scale-[1.02];
   }
 
+  /* Gradient text — teal → steel-blue, token-driven */
   .gradient-text {
     background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
     -webkit-background-clip: text;
@@ -318,5 +327,10 @@
 
   .animate-count-up {
     animation: count-up 0.6s ease-out forwards;
+  }
+
+  /* Tabular-lining numerals for data UI (KPIs, prices, timestamps) */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }

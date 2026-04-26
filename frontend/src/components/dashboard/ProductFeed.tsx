@@ -1,109 +1,160 @@
 import { useRef, useState, useEffect } from "react";
-import { RefreshCw, ChevronLeft, ChevronRight, Package, AlertCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Package, ArrowDown, ArrowUp, ArrowUpRight, Heart } from "lucide-react";
+import { LoadingState, ErrorState } from "@/components/ui/state-views";
 import { useNavigate } from "react-router-dom";
 import { api, ProductFeedItem } from "@/lib/api";
+import { useFavorites } from "@/contexts/FavoritesContext";
 
-function ProductCard({ product, small = false }: { product: ProductFeedItem; small?: boolean }) {
+function ChangeBadge({ direction, percent }: { direction: "up" | "down" | "none"; percent: number }) {
+  if (direction === "none") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium text-muted-foreground px-1.5 py-0.5 rounded bg-surface-2/70 border border-border">
+        · flat
+      </span>
+    );
+  }
+  const isDown = direction === "down";
+  const Icon = isDown ? ArrowDown : ArrowUp;
+  const tone = isDown ? "text-[hsl(var(--success))]" : "text-destructive";
+  const border = isDown ? "border-[hsl(var(--success))]/30" : "border-destructive/30";
+  const bg = isDown ? "bg-[hsl(var(--success))]/[0.08]" : "bg-destructive/[0.08]";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded ${tone} ${border} ${bg} border`}
+    >
+      <Icon size={9} strokeWidth={2.75} />
+      {isDown ? "−" : "+"}
+      {percent}%
+    </span>
+  );
+}
+
+function ProductCard({ product, compact = false }: { product: ProductFeedItem; compact?: boolean }) {
   const navigate = useNavigate();
-  const [clicking, setClicking] = useState(false);
-  const width = small ? "w-48" : "w-[220px]";
-  const height = small ? "h-64" : "h-[300px]";
-  const imgHeight = small ? "h-24" : "h-40";
-  const priceSize = small ? "text-lg" : "text-2xl";
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const width = compact ? "w-48" : "w-[220px]";
+  const imgHeight = compact ? "h-28" : "h-36";
 
-  const handleClick = () => {
-    setClicking(true);
-    setTimeout(() => navigate(`/product/${product.id}`), 100);
-  };
+  const handleClick = () => navigate(`/product/${product.id}`);
+  const fav = isFavorite(product.id);
+
+  const isDown = product.changeDirection === "down";
 
   return (
     <div
       onClick={handleClick}
-      className={`${width} ${height} flex-none scroll-snap-align-start group relative rounded-xl border border-border bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_16px_40px_rgba(0,0,0,0.6)] overflow-hidden cursor-pointer ${clicking ? "animate-card-click" : ""}`}
+      className={`${width} shrink-0 group relative rounded-lg border border-border bg-surface hover:border-muted-foreground/50 transition-colors overflow-hidden cursor-pointer`}
       style={{ scrollSnapAlign: "start" }}
-      {...(!small && product.id === 1 ? { "data-tutorial": "product-card" } : {})}
+      {...(!compact && product.id === 1 ? { "data-tutorial": "product-card" } : {})}
     >
-      <div className={`${imgHeight} bg-surface-2 relative overflow-hidden rounded-t-xl flex items-center justify-center`}>
+      {/* Image area */}
+      <div className={`${imgHeight} relative overflow-hidden bg-surface-2 border-b border-border flex items-center justify-center`}>
         {product.image_url ? (
           <img
             src={product.image_url}
             alt={product.title}
-            className="w-full h-full object-contain p-2"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            className="w-full h-full object-contain p-3"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
           />
         ) : (
-          <Package className="text-muted-foreground opacity-20" size={small ? 32 : 48} strokeWidth={1.5} />
+          <Package className="text-muted-foreground/40" size={compact ? 28 : 36} strokeWidth={1.25} />
         )}
-        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white flex items-center justify-center shadow-sm">
-          <span className="text-[9px] font-bold text-[hsl(240,50%,14%)]">{product.storeInitial}</span>
+
+        {/* Store tag */}
+        <span className="absolute top-2 left-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground bg-background/90 border border-border px-1.5 py-0.5 rounded">
+          {product.storeInitial}
+        </span>
+
+        {/* Change badge */}
+        <div className="absolute top-2 right-2">
+          <ChangeBadge direction={product.changeDirection} percent={product.changePercent} />
         </div>
-        <div
-          className={`absolute top-2 left-2 px-1.5 py-0.5 rounded-full text-[11px] font-bold ${product.changeDirection === "down"
-              ? "bg-[hsl(var(--success))]/20 text-[hsl(var(--success))] animate-price-glow-green"
-              : product.changeDirection === "up"
-                ? "bg-destructive/20 text-destructive animate-price-glow-red"
-                : "bg-muted text-muted-foreground"
-            }`}
+
+        {/* Favorite heart */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFavorite(product.id);
+          }}
+          className={`absolute bottom-2 left-2 w-7 h-7 rounded-md flex items-center justify-center transition-all ${
+            fav
+              ? "bg-background/90 border border-border text-primary opacity-100"
+              : "bg-background/80 border border-border text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
+          }`}
+          aria-label={fav ? "Remove from favorites" : "Add to favorites"}
         >
-          {product.changeDirection === "down" ? "↓" : product.changeDirection === "up" ? "↑" : "•"} {product.changeDirection !== "none" ? (product.changeDirection === "down" ? "−" : "+") : ""}
-          {product.changePercent}%
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-background/95 via-background/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
-          <span className="text-primary-foreground text-sm font-semibold translate-y-2 group-hover:translate-y-0 transition-transform duration-300">Learn More →</span>
+          <Heart size={13} strokeWidth={1.75} fill={fav ? "currentColor" : "none"} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="p-3 flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium truncate">
+          {product.brand}
+        </span>
+        <span className={`${compact ? "text-[12px]" : "text-[13px]"} font-medium text-foreground line-clamp-2 leading-snug min-h-[34px]`}>
+          {product.title}
+        </span>
+        <div className="flex items-baseline gap-2 mt-1">
+          <span
+            className={`font-mono font-semibold tabular-nums tracking-tight ${compact ? "text-[16px]" : "text-[18px]"} ${
+              isDown ? "text-[hsl(var(--success))]" : "text-foreground"
+            }`}
+          >
+            {product.currentPrice.toFixed(2)} €
+          </span>
+          {product.previousPrice !== product.currentPrice && (
+            <span className="text-[11px] text-muted-foreground line-through tabular-nums font-mono">
+              {product.previousPrice.toFixed(2)}
+            </span>
+          )}
         </div>
       </div>
-      <div className={`${small ? "p-2" : "p-3"} flex flex-col gap-1`}>
-        <span className="text-[11px] uppercase tracking-widest text-muted-foreground">{product.brand}</span>
-        <span className={`${small ? "text-xs" : "text-[13px]"} font-semibold text-foreground line-clamp-2`}>{product.title}</span>
-        <span className={`${priceSize} font-bold font-display tabular-nums tracking-tight ${product.changeDirection === "down" ? "text-[hsl(var(--success))]" : "text-foreground"}`}>
-          {product.currentPrice.toFixed(2)} €
-        </span>
-        <span className="text-[11px] text-muted-foreground line-through tabular-nums">{product.previousPrice.toFixed(2)} €</span>
+
+      {/* Hover arrow */}
+      <div className="absolute bottom-2 right-2 w-6 h-6 rounded-md bg-background/0 group-hover:bg-foreground group-hover:text-background text-muted-foreground flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100">
+        <ArrowUpRight size={12} strokeWidth={2} />
       </div>
     </div>
   );
 }
 
-function ScrollableRow({ products, small = false }: { products: ProductFeedItem[]; small?: boolean }) {
+function ScrollableRow({ products, compact = false }: { products: ProductFeedItem[]; compact?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [showArrows, setShowArrows] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const scroll = (dir: "left" | "right") => {
     if (!scrollRef.current) return;
-    const amount = dir === "left" ? -240 : 240;
-    scrollRef.current.scrollBy({ left: amount, behavior: "smooth" });
+    scrollRef.current.scrollBy({ left: dir === "left" ? -240 : 240, behavior: "smooth" });
   };
 
   return (
-    <div
-      className="relative"
-      onMouseEnter={() => setShowArrows(true)}
-      onMouseLeave={() => setShowArrows(false)}
-    >
+    <div className="relative" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       <div
         ref={scrollRef}
-        className="flex gap-4 overflow-x-auto scrollbar-hide pb-2"
+        className="flex gap-3 overflow-x-auto scrollbar-hide pb-1"
         style={{ scrollSnapType: "x mandatory" }}
       >
         {products.map((p) => (
-          <ProductCard key={p.id} product={p} small={small} />
+          <ProductCard key={p.id} product={p} compact={compact} />
         ))}
       </div>
 
-      {/* Arrows */}
-      {showArrows && (
+      {hovered && products.length > 4 && (
         <>
           <button
             onClick={() => scroll("left")}
-            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 w-9 h-9 rounded-full bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] border border-border flex items-center justify-center text-foreground hover:bg-primary/20 transition-colors z-10"
+            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 w-8 h-8 rounded-md bg-background border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground flex items-center justify-center transition-colors z-10"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={14} />
           </button>
           <button
             onClick={() => scroll("right")}
-            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 w-9 h-9 rounded-full bg-[rgba(255,255,255,0.04)] backdrop-blur-[16px] border border-border flex items-center justify-center text-foreground hover:bg-primary/20 transition-colors z-10"
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 w-8 h-8 rounded-md bg-background border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground flex items-center justify-center transition-colors z-10"
           >
-            <ChevronRight size={18} />
+            <ChevronRight size={14} />
           </button>
         </>
       )}
@@ -111,17 +162,41 @@ function ScrollableRow({ products, small = false }: { products: ProductFeedItem[
   );
 }
 
-function StoreSection({ name, dotColor, products }: { name: string; dotColor: string; products: ProductFeedItem[] }) {
+function SectionHeader({
+  eyebrow,
+  title,
+  count,
+  cta,
+}: {
+  eyebrow: string;
+  title: string;
+  count?: number;
+  cta?: { label: string; onClick: () => void };
+}) {
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${dotColor}`} />
-          <span className="text-[15px] font-bold text-foreground">{name}</span>
+    <div className="flex items-end justify-between mb-4">
+      <div>
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-1.5">
+          {eyebrow}
+        </p>
+        <div className="flex items-baseline gap-2.5">
+          <h2 className="font-['Inter'] font-semibold text-foreground text-[18px] tracking-[-0.01em]">
+            {title}
+          </h2>
+          {count !== undefined && (
+            <span className="font-mono text-[12px] text-muted-foreground">{count}</span>
+          )}
         </div>
-        <button className="text-[13px] text-primary hover:underline">See All →</button>
       </div>
-      <ScrollableRow products={products} small />
+      {cta && (
+        <button
+          onClick={cta.onClick}
+          className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {cta.label}
+          <ArrowUpRight size={12} />
+        </button>
+      )}
     </div>
   );
 }
@@ -130,6 +205,7 @@ export default function ProductFeed() {
   const [products, setProducts] = useState<ProductFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadFeed = async () => {
@@ -148,52 +224,89 @@ export default function ProductFeed() {
     loadFeed();
   }, []);
 
-  const douglasProductFeedItems = products.filter(p => p.storeName?.toLowerCase() === "douglas.lv");
-  const notinoProductFeedItems = products.filter(p => p.storeName?.toLowerCase() === "notino.lv");
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[400px] gap-4">
-        <RefreshCw className="animate-spin text-primary" size={32} />
-        <p className="text-muted-foreground animate-pulse">Loading real-time market data...</p>
-      </div>
+      <LoadingState
+        label="Loading feed"
+        className="h-[400px] border-0 rounded-none bg-transparent"
+      />
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-[400px] gap-4 px-6 text-center">
-        <AlertCircle className="text-destructive" size={32} />
-        <p className="text-foreground font-medium">{error}</p>
-      </div>
+      <ErrorState
+        message={error}
+        onRetry={() => window.location.reload()}
+        className="h-[400px] border-0 rounded-none bg-transparent"
+      />
     );
   }
 
+  // Group by store
+  const byStore = products.reduce<Record<string, ProductFeedItem[]>>((acc, p) => {
+    const key = p.storeName ?? "Other";
+    (acc[key] ??= []).push(p);
+    return acc;
+  }, {});
+  const storeOrder = Object.keys(byStore).sort((a, b) => byStore[b].length - byStore[a].length);
+
+  const droppedCount = products.filter((p) => p.changeDirection === "down").length;
+  const increasedCount = products.filter((p) => p.changeDirection === "up").length;
+
   return (
-    <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 md:px-6 pt-6 pb-3">
-        <h2 className="text-lg font-bold font-display tracking-tight text-foreground">Latest Changes</h2>
-        <div className="flex items-center gap-1 text-[13px] text-muted-foreground">
-          <RefreshCw size={14} />
-          Live Update
+    <div className="flex flex-col gap-10 px-5 lg:px-7 pt-7 pb-10">
+      {/* Status strip */}
+      <div className="flex items-center justify-between flex-wrap gap-y-2">
+        <div className="flex items-center gap-6 text-[12px]">
+          <span className="font-mono text-muted-foreground">
+            Updated {timeStr} · {products.length} changes tracked
+          </span>
+          <span className="flex items-center gap-1.5 text-[hsl(var(--success))]">
+            <ArrowDown size={11} strokeWidth={2.5} />
+            <span className="font-mono tabular-nums">{droppedCount}</span>
+            <span className="text-muted-foreground">dropped</span>
+          </span>
+          <span className="flex items-center gap-1.5 text-destructive">
+            <ArrowUp size={11} strokeWidth={2.5} />
+            <span className="font-mono tabular-nums">{increasedCount}</span>
+            <span className="text-muted-foreground">increased</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="relative flex w-1.5 h-1.5">
+            <span className="absolute inline-flex w-full h-full rounded-full bg-[hsl(var(--success))] opacity-75 animate-ping" />
+            <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-[hsl(var(--success))]" />
+          </span>
+          <span className="font-mono uppercase tracking-[0.1em]">Live</span>
         </div>
       </div>
 
-      {/* Main carousel */}
-      <div className="px-4 md:px-6">
+      {/* Latest changes — main row */}
+      <section>
+        <SectionHeader
+          eyebrow="01 · Activity"
+          title="Latest changes"
+          count={products.length}
+        />
         <ScrollableRow products={products} />
-      </div>
+      </section>
 
       {/* Per-store sections */}
-      <div className="px-4 md:px-6 flex flex-col gap-8 pb-6">
-        {douglasProductFeedItems.length > 0 && (
-          <StoreSection name="Douglas.lv" dotColor="bg-blue-500" products={douglasProductFeedItems} />
-        )}
-        {notinoProductFeedItems.length > 0 && (
-          <StoreSection name="Notino.lv" dotColor="bg-[hsl(var(--success))]" products={notinoProductFeedItems} />
-        )}
-      </div>
+      {storeOrder.map((store, idx) => (
+        <section key={store}>
+          <SectionHeader
+            eyebrow={`0${idx + 2} · ${store}`}
+            title={`Movements on ${store}`}
+            count={byStore[store].length}
+            cta={{ label: "See all", onClick: () => navigate(`/catalog?store=${encodeURIComponent(store)}`) }}
+          />
+          <ScrollableRow products={byStore[store]} compact />
+        </section>
+      ))}
     </div>
   );
 }

@@ -1,576 +1,556 @@
-import { useState, useEffect, useRef } from "react";
-import logoImg from "@/assets/logo.png";
 import { useNavigate } from "react-router-dom";
+import logoImg from "@/assets/logo.png";
 import {
-  ChevronRight,
-  Bell,
-  BarChart3,
-  MessageSquare,
   ArrowDown,
-  ArrowUp,
-  Download,
-  Share2,
-  TrendingDown,
-  Store,
+  ArrowUpRight,
+  Bell,
   Bot,
-  Shield,
-  Zap,
-  Eye,
-  Check,
-  FileSpreadsheet,
+  Database,
+  Download,
   FileText,
-  FileJson,
-  File,
+  LineChart,
+  Lock,
+  Radio,
+  Shield,
 } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import AuthModal from "@/components/AuthModal";
-import OnboardingModal from "@/components/OnboardingModal";
-import OnboardingStep2 from "@/components/OnboardingStep2";
 
-/* ── Scroll-triggered fade-in ─────────────────────────────────── */
-const useFadeIn = () => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
+/* ─────────────────────────────────────────────────────────────────
+ *  MarketPulse — Landing page (editorial long-form, B2B analytics)
+ *  Pattern references: Snowflake, AWS Redshift, Kaggle.
+ *  No fake dashboard cards in hero. Typography-driven. Wide whitespace.
+ * ───────────────────────────────────────────────────────────────── */
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
-      { threshold: 0.15 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
+const STORES = [
+  { name: "Douglas", domain: "douglas.lv" },
+  { name: "Notino", domain: "notino.lv" },
+  { name: "Makeup", domain: "makeup.lv" },
+  { name: "1A.lv", domain: "1a.lv" },
+  { name: "220.lv", domain: "220.lv" },
+];
 
-  return { ref, className: visible ? "animate-fade-in" : "opacity-0" };
-};
+const STATS = [
+  { value: "5", label: "Retailers covered" },
+  { value: "1,200+", label: "SKUs monitored" },
+  { value: "4,800+", label: "Price checks / day" },
+  { value: "12mo", label: "History retained" },
+];
 
-const Section = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => {
-  const fade = useFadeIn();
+const PILLARS = [
+  {
+    icon: Database,
+    title: "Source-of-truth data",
+    desc: "Twice-daily scans against the live retailer pages — not feeds, not estimates. What the customer sees is what we record.",
+  },
+  {
+    icon: LineChart,
+    title: "Historical depth",
+    desc: "Every price point is kept indefinitely. Query twelve months of movement on any SKU without stitching exports.",
+  },
+  {
+    icon: Bot,
+    title: "Conversational analysis",
+    desc: "Ask questions in plain English. The assistant queries your monitored set and returns the numbers, not opinions.",
+  },
+  {
+    icon: Bell,
+    title: "Precision alerts",
+    desc: "Threshold-based, noise-free. No daily digest spam — only the drops that cross the filter you defined.",
+  },
+];
+
+const STEPS = [
+  {
+    n: "01",
+    title: "Select retailers and brands",
+    desc: "Pick the stores and brands relevant to your workflow. Coverage updates nightly.",
+  },
+  {
+    n: "02",
+    title: "Define alert thresholds",
+    desc: "Set percentage drops, absolute price targets, or leave defaults. Route to email or Telegram.",
+  },
+  {
+    n: "03",
+    title: "Export and analyse",
+    desc: "Pull any monitored window as CSV, Excel, JSON or PDF. Share history without leaking your config.",
+  },
+];
+
+/* ── Lightweight SVG price chart (real axis, no decorative gradients) ── */
+const PriceTimelineChart = () => {
+  const lines = [
+    { store: "Douglas", color: "hsl(217, 91%, 60%)", d: "M0 60 L50 55 L100 58 L150 50 L200 44 L250 40 L300 36 L350 35" },
+    { store: "Notino", color: "hsl(var(--primary))", d: "M0 70 L50 65 L100 60 L150 58 L200 50 L250 46 L300 42 L350 38" },
+    { store: "Makeup", color: "hsl(330, 70%, 55%)", d: "M0 80 L50 78 L100 72 L150 70 L200 66 L250 62 L300 58 L350 56" },
+    { store: "1a.lv", color: "hsl(25, 85%, 55%)", d: "M0 90 L50 92 L100 88 L150 90 L200 86 L250 85 L300 82 L350 80" },
+    { store: "220.lv", color: "hsl(45, 80%, 55%)", d: "M0 100 L50 102 L100 98 L150 100 L200 96 L250 94 L300 92 L350 90" },
+  ];
+
   return (
-    <section ref={fade.ref} className={`${fade.className} ${className}`}>
-      {children}
-    </section>
-  );
-};
+    <div className="bg-surface border border-border rounded-card overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">Tracked SKU</p>
+          <p className="text-sm font-semibold text-foreground mt-0.5">Dior Sauvage EDP 100 ml</p>
+        </div>
+        <div className="flex items-center gap-1 bg-surface-2 border border-border rounded-md p-0.5">
+          {["30D", "90D", "1Y"].map((p) => (
+            <span
+              key={p}
+              className={`px-2.5 py-1 rounded text-[11px] font-medium ${p === "90D" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+            >
+              {p}
+            </span>
+          ))}
+        </div>
+      </div>
 
-/* ── Animated counter hook (count up when visible) ───────────── */
-const useCountUp = (target: number, duration = 1200) => {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [count, setCount] = useState(0);
-  const [started, setStarted] = useState(false);
+      {/* Chart body */}
+      <div className="p-5">
+        <svg viewBox="0 0 380 140" className="w-full h-auto">
+          {/* Gridlines */}
+          {[20, 50, 80, 110].map((y) => (
+            <line key={y} x1="0" y1={y} x2="380" y2={y} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="2 3" />
+          ))}
+          {/* Y-axis price labels */}
+          <text x="360" y="24" fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="end" fontFamily="Geist Mono">
+            145 €
+          </text>
+          <text x="360" y="54" fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="end" fontFamily="Geist Mono">
+            135 €
+          </text>
+          <text x="360" y="84" fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="end" fontFamily="Geist Mono">
+            125 €
+          </text>
+          <text x="360" y="114" fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="end" fontFamily="Geist Mono">
+            115 €
+          </text>
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { setStarted(true); obs.disconnect(); } },
-      { threshold: 0.3 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
+          {lines.map((l) => (
+            <path key={l.store} d={l.d} stroke={l.color} strokeWidth="1.8" fill="none" strokeLinecap="round" />
+          ))}
 
-  useEffect(() => {
-    if (!started) return;
-    let start = 0;
-    const step = Math.ceil(target / (duration / 16));
-    const timer = setInterval(() => {
-      start += step;
-      if (start >= target) { setCount(target); clearInterval(timer); }
-      else setCount(start);
-    }, 16);
-    return () => clearInterval(timer);
-  }, [started, target, duration]);
+          {/* Highlight point — Douglas drop */}
+          <circle cx="300" cy="36" r="4" fill="hsl(var(--success))" />
+          <circle cx="300" cy="36" r="8" fill="hsl(var(--success))" fillOpacity="0.2" />
+        </svg>
 
-  return { ref, count };
-};
+        {/* X-axis */}
+        <div className="flex justify-between mt-2 text-[10px] text-muted-foreground tabular-nums font-mono">
+          <span>Dec</span>
+          <span>Jan</span>
+          <span>Feb</span>
+          <span>Mar</span>
+        </div>
 
-/* ── Stats counter item ───────────────────────────────────────── */
-const StatItem = ({ value, suffix, label }: { value: number; suffix: string; label: string }) => {
-  const { ref, count } = useCountUp(value);
-  return (
-    <div className="text-center px-8 py-6">
-      <p className="font-display text-3xl md:text-4xl font-extrabold stat-number">
-        <span ref={ref}>{count}</span>
-        <span>{suffix}</span>
-      </p>
-      <p className="text-xs text-muted-foreground mt-1.5 font-medium tracking-wide uppercase">{label}</p>
+        {/* Legend */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 pt-4 border-t border-border">
+          {lines.map((l) => (
+            <span key={l.store} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: l.color }} />
+              {l.store}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Annotation strip */}
+      <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-surface-2/40 text-[11px]">
+        <span className="text-muted-foreground">
+          Mar 14 · Douglas dropped to <span className="text-foreground font-semibold tabular-nums">125.00 €</span>
+        </span>
+        <span className="inline-flex items-center gap-1 text-success font-semibold tabular-nums">
+          <ArrowDown className="w-3 h-3" />
+          7.4% vs. 30-day avg
+        </span>
+      </div>
     </div>
   );
 };
 
-/* ── Mini UI Mockups ──────────────────────────────────────────── */
-const PriceDropCard = () => (
-  <div className="glass-card p-4 space-y-3">
-    <div className="flex items-center justify-between">
-      <span className="text-xs font-medium text-muted-foreground">Dior Sauvage EDP</span>
-      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">
-        <ArrowDown className="w-3 h-3" /> 8.5%
+/* ── AI conversation mock (Section D) ─────────────────────────── */
+const AiTranscript = () => (
+  <div className="bg-surface border border-border rounded-card overflow-hidden">
+    <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
+      <Bot className="w-4 h-4 text-primary" />
+      <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+        MarketPulse assistant
       </span>
     </div>
-    <p className="font-display text-2xl font-bold text-foreground price-display">125.00 €</p>
-    <div className="flex items-center gap-2">
-      <div className="h-1 flex-1 rounded-full bg-success/20"><div className="h-full w-3/4 rounded-full bg-success" /></div>
-      <span className="text-[10px] text-muted-foreground">Best in 30d</span>
-    </div>
-  </div>
-);
-
-const ComparisonTable = () => (
-  <div className="glass-card p-4 space-y-2">
-    <p className="text-xs font-semibold text-foreground mb-2">Store Comparison</p>
-    {[
-      { store: "Douglas.lv", price: "125.00 €", best: true },
-      { store: "Notino.lv", price: "129.99 €", best: false },
-      { store: "1a.lv", price: "134.95 €", best: false },
-    ].map((r) => (
-      <div key={r.store} className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${r.best ? "bg-success/10 border border-success/20" : "bg-surface-2"}`}>
-        <span className={r.best ? "text-success font-semibold" : "text-muted-foreground"}>{r.store}</span>
-        <span className={r.best ? "text-success font-bold" : "text-foreground"}>{r.price}</span>
-      </div>
-    ))}
-  </div>
-);
-
-const AiChatPreview = () => (
-  <div className="glass-card p-4 space-y-3">
-    <div className="flex items-center gap-2 mb-1">
-      <Bot className="w-4 h-4 text-primary" />
-      <span className="text-xs font-medium text-muted-foreground">AI Assistant</span>
-    </div>
-    <div className="bg-surface-2 rounded-lg p-2.5">
-      <p className="text-[11px] text-foreground">"What's the cheapest Hugo Boss right now?"</p>
-    </div>
-    <div className="bg-primary/10 rounded-lg p-2.5">
-      <p className="text-[11px] text-foreground">"Hugo Boss Bottled EDP is 62.90 € at Notino — lowest in 3 months."</p>
-    </div>
-  </div>
-);
-
-/* ExportPreview — Lucide SVG icons replacing emoji */
-const ExportPreview = () => (
-  <div className="glass-card p-4 space-y-3">
-    <p className="text-xs font-semibold text-foreground">Export Formats</p>
-    <div className="grid grid-cols-2 gap-2">
-      {[
-        { icon: FileSpreadsheet, label: "CSV" },
-        { icon: File, label: "Excel" },
-        { icon: FileText, label: "PDF" },
-        { icon: FileJson, label: "JSON" },
-      ].map(({ icon: Icon, label }) => (
-        <div key={label} className="bg-surface-2 rounded-lg px-3 py-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
-          <Icon className="w-3.5 h-3.5 shrink-0" />
-          {label}
-        </div>
-      ))}
-    </div>
-    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-      <Download className="w-3 h-3" /> <span>One-click download</span>
-      <Share2 className="w-3 h-3 ml-2" /> <span>Share link</span>
-    </div>
-  </div>
-);
-
-/* ── Dashboard Preview (for Hero) ────────────────────────────── */
-const DashboardPreview = () => (
-  <div className="glass-card p-5 space-y-3">
-    <div className="flex items-center gap-3 mb-2">
-      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center"><BarChart3 className="w-4 h-4 text-primary" /></div>
+    <div className="p-5 space-y-4">
       <div>
-        <p className="text-sm font-semibold text-foreground">Live Dashboard</p>
-        <p className="text-[10px] text-muted-foreground">Updated 2 min ago</p>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">You</p>
+        <p className="text-sm text-foreground">Which Hugo Boss EDP is cheapest right now across my monitored stores?</p>
       </div>
-    </div>
-    {[
-      { name: "Dior Sauvage EDP", price: "125.00 €", change: -7.4 },
-      { name: "Bleu de Chanel", price: "98.50 €", change: -3.2 },
-      { name: "Tom Ford Oud Wood", price: "189.00 €", change: 2.1 },
-    ].map((p) => (
-      <div key={p.name} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-        <span className="text-xs text-foreground">{p.name}</span>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-foreground price-display">{p.price}</span>
-          <span className={`text-[10px] font-semibold ${p.change < 0 ? "text-success" : "text-destructive"}`}>
-            {p.change < 0 ? "↓" : "↑"} {Math.abs(p.change)}%
-          </span>
+      <div className="border-l-2 border-primary pl-4">
+        <p className="text-[10px] text-primary uppercase tracking-wide mb-1 font-medium">Assistant</p>
+        <p className="text-sm text-foreground leading-relaxed">
+          Hugo Boss Bottled EDP 100 ml at{" "}
+          <span className="font-mono font-semibold text-foreground">62.90 €</span> on Notino — its lowest in 3 months.
+          Douglas is 68.50 € (+8.9%) and 1a.lv is out of stock.
+        </p>
+        <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="w-1 h-1 rounded-full bg-primary" />
+          Based on 247 price points · queried in 0.8s
         </div>
       </div>
-    ))}
-  </div>
-);
-
-/* ── Tab Previews ─────────────────────────────────────────────── */
-const DashboardTabContent = () => (
-  <div className="glass-card overflow-hidden">
-    <div className="grid grid-cols-4 gap-0 text-[11px] font-semibold text-muted-foreground border-b border-border px-4 py-3">
-      <span>Product</span><span>Store</span><span className="text-right">Price</span><span className="text-right">Change</span>
-    </div>
-    {[
-      { product: "Dior Sauvage EDP 100ml", store: "Douglas", price: "125.00 €", change: "-7.4%", down: true },
-      { product: "Bleu de Chanel EDT 50ml", store: "Notino", price: "72.90 €", change: "-3.2%", down: true },
-      { product: "Hugo Boss Bottled EDP", store: "1a.lv", price: "62.90 €", change: "+1.5%", down: false },
-      { product: "Tom Ford Oud Wood 50ml", store: "Douglas", price: "189.00 €", change: "-12.0%", down: true },
-      { product: "YSL La Nuit 100ml", store: "Notino", price: "88.50 €", change: "+0.8%", down: false },
-    ].map((r, i) => (
-      <div key={i} className="grid grid-cols-4 gap-0 text-xs px-4 py-3 border-b border-border/50 last:border-0 hover:bg-surface-2/50 transition-colors">
-        <span className="text-foreground font-medium truncate pr-2">{r.product}</span>
-        <span className="text-muted-foreground">{r.store}</span>
-        <span className="text-right text-foreground font-semibold price-display">{r.price}</span>
-        <span className={`text-right font-semibold ${r.down ? "text-success" : "text-destructive"}`}>{r.change}</span>
-      </div>
-    ))}
-  </div>
-);
-
-const ChartsTabContent = () => (
-  <div className="glass-card p-6">
-    <div className="flex items-center justify-between mb-4">
-      <p className="text-sm font-semibold text-foreground">Dior Sauvage EDP — 90 Day Trend</p>
-      <div className="flex gap-1">
-        {["1M", "3M", "6M"].map((p) => (
-          <span key={p} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${p === "3M" ? "bg-primary text-primary-foreground" : "bg-surface-2 text-muted-foreground"}`}>{p}</span>
-        ))}
-      </div>
-    </div>
-    <svg viewBox="0 0 400 120" className="w-full" fill="none">
-      <defs>
-        <linearGradient id="lgFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="hsl(263,70%,58%)" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="hsl(263,70%,58%)" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="lgStroke" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="hsl(263,70%,58%)" />
-          <stop offset="100%" stopColor="hsl(187,94%,43%)" />
-        </linearGradient>
-      </defs>
-      <path d="M0 90 Q30 85 60 75 T120 60 T180 55 T240 40 T300 45 T360 30 T400 35" stroke="url(#lgStroke)" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M0 90 Q30 85 60 75 T120 60 T180 55 T240 40 T300 45 T360 30 T400 35 V120 H0Z" fill="url(#lgFill)" />
-    </svg>
-    <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
-      <span>Dec 22</span><span>Jan 15</span><span>Feb 8</span><span>Mar 1</span><span>Mar 22</span>
     </div>
   </div>
 );
 
-const AlertsTabContent = () => (
-  <div className="glass-card p-5 space-y-3">
-    {[
-      { icon: ArrowDown, text: "Dior Sauvage dropped to 125.00 € at Douglas", time: "3 min ago", color: "text-success" },
-      { icon: ArrowDown, text: "Bleu de Chanel dropped to 72.90 € at Notino", time: "1 hour ago", color: "text-success" },
-      { icon: ArrowUp, text: "Hugo Boss Bottled rose to 64.90 € at 1a.lv", time: "5 hours ago", color: "text-destructive" },
-      { icon: ArrowDown, text: "Tom Ford Oud Wood dropped to 189.00 € at Douglas", time: "1 day ago", color: "text-success" },
-    ].map((a, i) => (
-      <div key={i} className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
-        <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center ${a.color === "text-success" ? "bg-success/10" : "bg-destructive/10"}`}>
-          <a.icon className={`w-3 h-3 ${a.color}`} />
-        </div>
-        <div className="flex-1">
-          <p className="text-xs text-foreground">{a.text}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{a.time}</p>
-        </div>
-      </div>
-    ))}
-  </div>
-);
-
-/* ── Features Data ────────────────────────────────────────────── */
-const featureGrid = [
-  { icon: TrendingDown, title: "Track Price Drops", desc: "Get instant alerts when prices fall across all monitored stores.", preview: PriceDropCard },
-  { icon: Store, title: "Compare Across Stores", desc: "See side-by-side pricing from Douglas, Notino, 1a.lv and more.", preview: ComparisonTable },
-  { icon: Bot, title: "AI-Powered Insights", desc: "Ask natural questions about pricing trends and get instant answers.", preview: AiChatPreview },
-  { icon: Download, title: "Export & Share", desc: "Download price history in CSV, Excel, PDF or JSON format.", preview: ExportPreview },
-];
-
-const bottomFeatures = [
-  { icon: Shield, title: "Reliable & Accurate", desc: "Prices are scanned twice daily across all stores. You always see fresh, verified data." },
-  { icon: Zap, title: "Lightning Fast", desc: "Sub-second search and real-time updates. No waiting, no refreshing." },
-  { icon: Eye, title: "Full Transparency", desc: "Complete price history with no hidden data. See every change, every day." },
-  { icon: Bell, title: "Smart Notifications", desc: "Telegram, SMS, or email — choose how and when you want to be notified." },
-];
-
-/* ── Page ─────────────────────────────────────────────────────── */
+/* ── Page ───────────────────────────────────────────────────────── */
 const Index = () => {
   const navigate = useNavigate();
-  const [authOpen, setAuthOpen] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState<null | 1 | 2>(null);
 
   return (
-    <div className="relative min-h-screen bg-background overflow-x-hidden">
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onRegister={() => { setAuthOpen(false); setOnboardingStep(1); }} onSignIn={() => navigate("/dashboard")} />
-      <OnboardingModal open={onboardingStep === 1} onClose={() => setOnboardingStep(null)} onNext={() => setOnboardingStep(2)} />
-      <OnboardingStep2 open={onboardingStep === 2} onClose={() => { setOnboardingStep(null); navigate("/dashboard", { state: { showTutorial: true } }); }} onBack={() => setOnboardingStep(1)} />
-
-      {/* ─── Header ─── */}
-      <header className="sticky top-0 z-50 h-16 flex items-center justify-between px-5 md:px-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2.5">
-            <img src={logoImg} alt="MarketPulse" className="h-9 w-auto shrink-0" />
-            <span className="font-display text-xl font-bold text-foreground">
-              Market<span className="text-primary">Pulse</span>
-            </span>
+    <div className="relative min-h-screen bg-background text-foreground">
+      {/* ═════════════════════ HEADER ═════════════════════ */}
+      <header className="sticky top-0 z-50 h-16 border-b border-border bg-background/85 backdrop-blur-lg">
+        <div className="max-w-7xl mx-auto h-full px-5 md:px-8 flex items-center justify-between">
+          <div className="flex items-center gap-10">
+            <div className="flex items-center gap-2.5">
+              <img src={logoImg} alt="MarketPulse" className="h-8 w-auto shrink-0" />
+              <span className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">MarketPulse</span>
+            </div>
+            <nav className="hidden md:flex items-center gap-7">
+              {["Platform", "Coverage", "Pricing", "Docs"].map((l) => (
+                <a
+                  key={l}
+                  href="#"
+                  className="text-[13.5px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {l}
+                </a>
+              ))}
+            </nav>
           </div>
-          <nav className="hidden md:flex items-center gap-6">
-            {["Use Cases", "Pricing", "Docs"].map((l) => (
-              <a key={l} href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">{l}</a>
-            ))}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setAuthOpen(true)} className="hidden sm:inline-flex items-center justify-center text-sm font-medium border border-primary text-primary rounded-button px-4 py-2 transition-all hover:bg-primary/10">
-            Sign In
-          </button>
-          <button onClick={() => setAuthOpen(true)} className="btn-primary text-sm px-5 py-2">
-            Get Started
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/signin")}
+              className="text-[13.5px] text-muted-foreground hover:text-foreground px-3 py-2 transition-colors"
+            >
+              Sign in
+            </button>
+            <button
+              onClick={() => navigate("/register")}
+              className="text-[13.5px] font-medium bg-foreground text-background rounded-md px-4 py-2 hover:bg-foreground/90 transition-colors"
+            >
+              Get started →
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* ─── Hero ─── */}
-      <section className="relative z-10 max-w-7xl mx-auto px-5 md:px-10 pt-20 md:pt-32 pb-20">
-        {/* Background blobs */}
+      {/* ═════════════════════ HERO ═════════════════════ */}
+      <section className="relative overflow-hidden">
+        {/* Ambient glow at bottom center */}
         <div
-          className="hero-blob w-[500px] h-[500px] top-[-120px] right-[-100px] opacity-[0.09]"
-          style={{ background: "hsl(263 70% 58%)" }}
-        />
-        <div
-          className="hero-blob w-[400px] h-[400px] bottom-[-80px] left-[-80px] opacity-[0.07]"
-          style={{ background: "hsl(187 94% 43%)" }}
+          aria-hidden
+          className="absolute left-1/2 -translate-x-1/2 bottom-[-200px] w-[900px] h-[500px] rounded-full pointer-events-none"
+          style={{ background: "hsl(var(--primary))", filter: "blur(140px)", opacity: 0.14 }}
         />
 
-        {/* 60 / 40 asymmetric grid — left col wider */}
-        <div className="relative z-10 grid md:grid-cols-[1fr_0.7fr] gap-10 items-center">
-          <div className="animate-fade-in">
-            {/* Top badge */}
-            <div className="inline-flex items-center gap-2 border border-primary/30 rounded-full px-4 py-1.5 mb-5">
-              <span className="text-primary text-sm">✦</span>
-              <span className="text-xs text-muted-foreground font-medium">Latvian perfume price intelligence</span>
-            </div>
+        <div className="relative max-w-5xl mx-auto px-5 md:px-8 pt-28 md:pt-40 pb-28 md:pb-40">
+          <span className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium mb-10">
+            <span className="relative flex w-1.5 h-1.5">
+              <span className="absolute inline-flex w-full h-full rounded-full bg-primary opacity-75 animate-ping" />
+              <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-primary" />
+            </span>
+            Perfume price intelligence · Latvian market
+          </span>
 
-            {/* Stats bar */}
-            <div className="flex flex-wrap items-center gap-2 mb-6">
-              {[
-                { dot: true, text: "5 stores monitored" },
-                { dot: false, text: "1,200+ perfumes" },
-                { dot: false, text: "2× daily scan" },
-              ].map((s, i) => (
-                <span key={i} className="badge-pill">
-                  {s.dot && <span className="dot" />}
-                  {s.text}
-                </span>
-              ))}
-            </div>
+          <h1 className="font-['Inter'] font-semibold text-foreground text-[32px] sm:text-[40px] md:text-[48px] leading-[1.1] tracking-[-0.02em]">
+            The pricing edge,
+            <br />
+            without the spreadsheet.
+          </h1>
 
-            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight leading-[1.1] text-foreground">
-              Stop guessing
-              <br />
-              <span className="gradient-text">prices.</span>
-              <br />
-              Start knowing them.
-            </h1>
-            <p className="mt-6 text-base text-muted-foreground max-w-md leading-relaxed">
-              Douglas dropped Dior Sauvage by 8.5% last Tuesday. Did you know? MarketPulse would have told you the moment it happened.
-            </p>
-            <div className="flex items-center gap-4 mt-8">
-              <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-8 py-3.5">
-                Start for Free <ChevronRight className="w-4 h-4 ml-1 inline" />
-              </button>
-              <button onClick={() => setAuthOpen(true)} className="inline-flex items-center justify-center text-sm font-medium border border-border text-foreground rounded-button px-6 py-3.5 transition-all hover:bg-surface-2">
-                See Demo
-              </button>
-            </div>
+          <p className="max-w-2xl mt-8 text-[17px] md:text-[19px] text-muted-foreground leading-[1.55]">
+            MarketPulse captures every price change across Douglas, Notino, Makeup.lv, 1a.lv and 220.lv — twice a day,
+            every day. No feeds, no estimates. What the customer sees is what we record.
+          </p>
 
-            {/* Trust badges */}
-            <div className="flex items-center gap-4 mt-5">
-              <span className="check-badge">
-                <Check className="w-3.5 h-3.5" />
-                No credit card required
-              </span>
-              <span className="check-badge">
-                <Check className="w-3.5 h-3.5" />
-                Free for 5 products
-              </span>
-            </div>
+          <div className="flex flex-wrap items-center gap-3 mt-10">
+            <button
+              onClick={() => navigate("/register")}
+              className="text-[14px] font-medium bg-foreground text-background rounded-md px-5 py-3 hover:bg-foreground/90 transition-colors inline-flex items-center gap-1.5"
+            >
+              Start monitoring free
+              <ArrowUpRight className="w-4 h-4" />
+            </button>
+            <a
+              href="#platform"
+              className="text-[14px] font-medium text-foreground rounded-md px-5 py-3 hover:bg-surface-2 transition-colors border border-border"
+            >
+              Platform tour
+            </a>
           </div>
 
-          {/* Right col — card + floating toast */}
-          <div className="hidden md:block animate-fade-in relative" style={{ animationDelay: "0.3s" }}>
-            {/* Floating live toast — top-right corner */}
-            <div
-              className="absolute -top-4 -right-4 z-20 animate-fade-in"
-              style={{ animationDelay: "1.2s" }}
-            >
-              <div className="glass-card px-3.5 py-2.5 flex items-center gap-2.5 shadow-glow min-w-0">
-                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-success/15 shrink-0">
-                  <ArrowDown className="w-3 h-3 text-success" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold text-foreground whitespace-nowrap">Dior Sauvage ↓ 8.5%</p>
-                  <p className="text-[10px] text-muted-foreground">Douglas.lv · just now</p>
-                </div>
-                <span className="dot ml-1 shrink-0" style={{ background: "hsl(160 84% 39%)", width: 6, height: 6, borderRadius: '50%', display: 'inline-block', animation: 'pulse-dot 2s ease-in-out infinite' }} />
-              </div>
-            </div>
-            <DashboardPreview />
+          <p className="mt-8 text-[12px] text-muted-foreground">
+            <span className="font-mono">/</span> Free for 5 monitored SKUs · No card required · 12-month history
+          </p>
+        </div>
+      </section>
+
+      {/* ═════════════════════ TRUST STRIP (retailer coverage) ═════════════════════ */}
+      <section className="border-y border-border bg-surface/30">
+        <div className="max-w-7xl mx-auto px-5 md:px-8 py-10">
+          <p className="text-center text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium mb-7">
+            Covering pricing from
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-4">
+            {STORES.map((s) => (
+              <span
+                key={s.name}
+                className="text-[18px] md:text-xl font-semibold tracking-[-0.02em] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {s.name}
+                <span className="text-primary/50 font-mono font-normal text-[14px] ml-1">.lv</span>
+              </span>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ─── Stats Strip ─── */}
-      <Section className="stats-strip">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/50">
-            <StatItem value={5} suffix="+" label="Stores monitored" />
-            <StatItem value={1200} suffix="+" label="Perfumes tracked" />
-            <StatItem value={4800} suffix="+" label="Price checks / day" />
-            <StatItem value={8} suffix="%" label="Avg. savings found" />
+      {/* ═════════════════════ SECTION A — THE PROBLEM + CHART ═════════════════════ */}
+      <section id="platform" className="py-24 md:py-36 px-5 md:px-8 border-b border-border">
+        <div className="max-w-7xl mx-auto grid md:grid-cols-[0.9fr_1.1fr] gap-12 md:gap-20 items-center">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-primary font-medium mb-5">01 · The problem</p>
+            <h2 className="font-display font-semibold text-foreground text-[32px] md:text-5xl leading-[1.05] tracking-[-0.025em]">
+              Prices move faster than you check them.
+            </h2>
+            <p className="mt-6 text-[16px] text-muted-foreground leading-[1.65] max-w-md">
+              Douglas cut Dior Sauvage 7.4% on a Tuesday afternoon. If you were checking on Wednesday evening, you paid
+              the old price. MarketPulse closes that window.
+            </p>
+            <div className="mt-8 space-y-3">
+              {[
+                "Every retailer, every SKU, twice daily",
+                "Drift-free history across twelve months",
+                "Cross-store comparison on any given day",
+              ].map((t) => (
+                <div key={t} className="flex items-start gap-3 text-[14px] text-foreground">
+                  <span className="w-1 h-1 rounded-full bg-primary mt-2.5 shrink-0" />
+                  {t}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <PriceTimelineChart />
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* ─── Meet MarketPulse ─── */}
-      <Section className="py-24 px-5 md:px-10">
+      {/* ═════════════════════ SECTION B — STATS BAND ═════════════════════ */}
+      <section className="py-24 md:py-32 px-5 md:px-8 border-b border-border">
         <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <p className="text-xs font-semibold tracking-widest uppercase text-primary mb-3">Why MarketPulse</p>
-            <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Meet MarketPulse</h2>
-            <p className="mt-4 text-muted-foreground max-w-xl mx-auto">Everything you need to track perfume prices intelligently.</p>
+          <div className="max-w-3xl mb-14">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-primary font-medium mb-5">02 · The data</p>
+            <h2 className="font-display font-semibold text-foreground text-[32px] md:text-5xl leading-[1.05] tracking-[-0.025em]">
+              The numbers that back the decisions.
+            </h2>
           </div>
-          <div className="grid sm:grid-cols-2 gap-6">
-            {featureGrid.map((f) => (
-              <div key={f.title} className="feature-card p-7">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <f.icon className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-display text-base font-bold text-foreground">{f.title}</h3>
-                    <p className="text-xs text-muted-foreground">{f.desc}</p>
-                  </div>
-                </div>
-                <f.preview />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border rounded-card overflow-hidden border border-border">
+            {STATS.map((s) => (
+              <div key={s.label} className="bg-background px-7 py-10 md:py-14">
+                <p className="font-display font-semibold text-foreground text-[44px] md:text-[64px] leading-none tracking-[-0.04em] tabular-nums">
+                  {s.value}
+                </p>
+                <p className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground mt-4 font-medium">
+                  {s.label}
+                </p>
               </div>
             ))}
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* ─── Built to Work for You ─── */}
-      <Section className="py-24 px-5 md:px-10">
+      {/* ═════════════════════ SECTION C — HOW IT WORKS ═════════════════════ */}
+      <section className="py-24 md:py-32 px-5 md:px-8 border-b border-border">
         <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">
-                Built to Work
-                <br />
-                <span className="gradient-text">for You</span>
-              </h2>
-              <p className="mt-4 text-muted-foreground leading-relaxed max-w-md">
-                Whether you're a perfume enthusiast or a reseller, MarketPulse gives you the tools to make smarter purchasing decisions every day.
-              </p>
-              <ul className="mt-6 space-y-3">
-                {["Monitor 5+ stores simultaneously", "AI-powered price predictions", "Instant alerts via Telegram & email", "Historical data spanning 12+ months"].map((item) => (
-                  <li key={item} className="flex items-center gap-3 text-sm text-foreground">
-                    <span className="w-5 h-5 rounded-full bg-success/10 flex items-center justify-center text-success text-xs">✓</span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="glass-card p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <MessageSquare className="w-4 h-4 text-primary" />
-                <span className="text-xs font-semibold text-foreground">Smart Notifications</span>
+          <div className="max-w-3xl mb-14">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-primary font-medium mb-5">03 · Workflow</p>
+            <h2 className="font-display font-semibold text-foreground text-[32px] md:text-5xl leading-[1.05] tracking-[-0.025em]">
+              Three steps to a monitoring set.
+            </h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-px bg-border rounded-card overflow-hidden border border-border">
+            {STEPS.map((s) => (
+              <div key={s.n} className="bg-background p-8 md:p-10">
+                <p className="font-mono text-[13px] text-primary mb-5 tracking-wider">{s.n}</p>
+                <h3 className="font-display text-[19px] font-semibold text-foreground mb-3 tracking-[-0.01em]">
+                  {s.title}
+                </h3>
+                <p className="text-[14px] text-muted-foreground leading-relaxed">{s.desc}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═════════════════════ SECTION D — AI ASSISTANT ═════════════════════ */}
+      <section className="py-24 md:py-32 px-5 md:px-8 border-b border-border">
+        <div className="max-w-7xl mx-auto grid md:grid-cols-[1.1fr_0.9fr] gap-12 md:gap-20 items-center">
+          <div>
+            <AiTranscript />
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-primary font-medium mb-5">04 · Analysis</p>
+            <h2 className="font-display font-semibold text-foreground text-[32px] md:text-5xl leading-[1.05] tracking-[-0.025em]">
+              Ask in English. Get numbers.
+            </h2>
+            <p className="mt-6 text-[16px] text-muted-foreground leading-[1.65] max-w-md">
+              The assistant queries your monitored set directly. No hallucinated market averages, no generic advice —
+              just numbers pulled from the history table you own.
+            </p>
+            <div className="mt-8 grid grid-cols-2 gap-px bg-border rounded-md overflow-hidden border border-border max-w-sm">
               {[
-                { text: "🔔 Dior Sauvage dropped 8.5% at Douglas", time: "Just now", highlight: true },
-                { text: "📊 Weekly digest: 3 price drops in your watchlist", time: "2 hours ago", highlight: false },
-                { text: "🔔 Bleu de Chanel at historic low (72.90 €)", time: "Yesterday", highlight: false },
-              ].map((n, i) => (
-                <div key={i} className={`flex items-center justify-between py-3 border-b border-border/50 last:border-0 ${n.highlight ? "bg-primary/5 -mx-2 px-2 rounded-lg" : ""}`}>
-                  <span className="text-xs text-foreground">{n.text}</span>
-                  <span className="text-[10px] text-muted-foreground ml-3 shrink-0">{n.time}</span>
+                { label: "Query", value: "~0.8s" },
+                { label: "Accuracy", value: "Source-linked" },
+              ].map((m) => (
+                <div key={m.label} className="bg-background px-4 py-4">
+                  <p className="font-display font-semibold text-foreground text-[22px] tracking-[-0.02em] tabular-nums">
+                    {m.value}
+                  </p>
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground mt-1.5 font-medium">
+                    {m.label}
+                  </p>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* ─── Your Price Dashboard ─── */}
-      <Section className="py-24 px-5 md:px-10">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-10">
-            <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">Your Price Dashboard</h2>
-            <p className="mt-4 text-muted-foreground">A glimpse of what's waiting for you inside.</p>
+      {/* ═════════════════════ SECTION E — PILLARS ═════════════════════ */}
+      <section className="py-24 md:py-32 px-5 md:px-8 border-b border-border">
+        <div className="max-w-7xl mx-auto">
+          <div className="max-w-3xl mb-14">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-primary font-medium mb-5">05 · Design</p>
+            <h2 className="font-display font-semibold text-foreground text-[32px] md:text-5xl leading-[1.05] tracking-[-0.025em]">
+              Built for analysts, not for hype.
+            </h2>
+            <p className="mt-6 text-[16px] text-muted-foreground leading-[1.65] max-w-2xl">
+              MarketPulse is opinionated about what a pricing tool should do — and what it should quietly refuse to be.
+            </p>
           </div>
-          <Tabs defaultValue="dashboard" className="w-full">
-            <TabsList className="mx-auto flex w-fit bg-surface-2 rounded-full p-1 mb-8">
-              <TabsTrigger value="dashboard" className="rounded-full px-5 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Dashboard</TabsTrigger>
-              <TabsTrigger value="charts" className="rounded-full px-5 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Charts</TabsTrigger>
-              <TabsTrigger value="alerts" className="rounded-full px-5 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Alerts</TabsTrigger>
-            </TabsList>
-            <TabsContent value="dashboard"><DashboardTabContent /></TabsContent>
-            <TabsContent value="charts"><ChartsTabContent /></TabsContent>
-            <TabsContent value="alerts"><AlertsTabContent /></TabsContent>
-          </Tabs>
-        </div>
-      </Section>
-
-      {/* ─── Bottom Features ─── */}
-      <Section className="py-24 px-5 md:px-10">
-        <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {bottomFeatures.map((f) => (
-            <div key={f.title} className="feature-card p-6 text-center">
-              <div className="inline-flex items-center justify-center w-11 h-11 rounded-card bg-primary/10 mb-4">
-                <f.icon className="w-5 h-5 text-primary" />
+          <div className="grid md:grid-cols-2 gap-px bg-border rounded-card overflow-hidden border border-border">
+            {PILLARS.map((p) => (
+              <div key={p.title} className="bg-background p-8">
+                <p.icon className="w-5 h-5 text-primary mb-5" strokeWidth={1.75} />
+                <h3 className="font-display text-[18px] font-semibold text-foreground mb-2.5 tracking-[-0.01em]">
+                  {p.title}
+                </h3>
+                <p className="text-[14px] text-muted-foreground leading-relaxed">{p.desc}</p>
               </div>
-              <h3 className="font-display text-base font-bold text-foreground mb-2">{f.title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* ─── CTA ─── */}
-      <Section className="py-24 px-5 md:px-10">
-        <div className="max-w-2xl mx-auto text-center">
-          <div className="cta-card">
-            <div className="cta-glow" />
-            <div className="relative z-10">
-              <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground">The market doesn't wait.<br />Neither should you.</h2>
-              <p className="mt-4 text-muted-foreground max-w-md mx-auto">Every hour you don't track prices is an hour someone else is buying smarter than you.</p>
-              <button onClick={() => setAuthOpen(true)} className="btn-primary text-base px-10 py-4 mt-8">
-                Get Started — It's Free <ChevronRight className="w-4 h-4 ml-1 inline" />
-              </button>
-              <div className="flex items-center justify-center gap-6 mt-5">
-                <span className="check-badge">
-                  <Check className="w-3.5 h-3.5" />
-                  No credit card
-                </span>
-                <span className="check-badge">
-                  <Check className="w-3.5 h-3.5" />
-                  Free forever plan
-                </span>
-                <span className="check-badge">
-                  <Check className="w-3.5 h-3.5" />
-                  Cancel anytime
-                </span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-      </Section>
+      </section>
 
-      {/* ─── Footer ─── */}
-      <footer className="border-t border-border/50 py-8 px-5 md:px-10">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
-          <span>© 2026 MarketPulse</span>
-          <div className="flex gap-6">
-            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
-            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
-            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
+      {/* ═════════════════════ SECTION F — EXPORT / GUARANTEES ═════════════════════ */}
+      <section className="py-24 md:py-32 px-5 md:px-8 border-b border-border">
+        <div className="max-w-7xl mx-auto">
+          <div className="max-w-3xl mb-14">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-primary font-medium mb-5">06 · Output</p>
+            <h2 className="font-display font-semibold text-foreground text-[32px] md:text-5xl leading-[1.05] tracking-[-0.025em]">
+              Your data, wherever you need it.
+            </h2>
+          </div>
+          <div className="grid md:grid-cols-4 gap-px bg-border rounded-card overflow-hidden border border-border">
+            {[
+              { icon: FileText, title: "CSV · Excel · JSON", desc: "Raw exports of any time window." },
+              { icon: Download, title: "PDF reports", desc: "Formatted summaries for non-technical stakeholders." },
+              { icon: Radio, title: "Telegram · Email", desc: "Threshold-based routing for alerts." },
+              { icon: Lock, title: "Your data stays yours", desc: "No resale, no aggregation, no third-party brokers." },
+            ].map((o) => (
+              <div key={o.title} className="bg-background p-8">
+                <o.icon className="w-5 h-5 text-primary mb-5" strokeWidth={1.75} />
+                <h3 className="font-display text-[15px] font-semibold text-foreground mb-2 tracking-[-0.005em]">
+                  {o.title}
+                </h3>
+                <p className="text-[13px] text-muted-foreground leading-relaxed">{o.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═════════════════════ CTA ═════════════════════ */}
+      <section className="py-28 md:py-40 px-5 md:px-8 relative overflow-hidden">
+        <div
+          aria-hidden
+          className="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 w-[700px] h-[300px] rounded-full pointer-events-none"
+          style={{ background: "hsl(var(--primary))", filter: "blur(160px)", opacity: 0.12 }}
+        />
+        <div className="relative max-w-3xl mx-auto text-center">
+          <Shield className="w-6 h-6 text-primary mx-auto mb-6" strokeWidth={1.5} />
+          <h2 className="font-display font-semibold text-foreground text-[34px] md:text-5xl leading-[1.05] tracking-[-0.03em]">
+            Start with five products.
+            <br />
+            Scale when the data proves itself.
+          </h2>
+          <p className="mt-6 text-[16px] text-muted-foreground max-w-xl mx-auto leading-[1.65]">
+            No card required. No contract. The free tier is permanent and sufficient for most enthusiasts.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-9">
+            <button
+              onClick={() => navigate("/register")}
+              className="text-[14px] font-medium bg-foreground text-background rounded-md px-6 py-3.5 hover:bg-foreground/90 transition-colors inline-flex items-center gap-1.5"
+            >
+              Create account
+              <ArrowUpRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => navigate("/signin")}
+              className="text-[14px] font-medium text-foreground rounded-md px-6 py-3.5 hover:bg-surface-2 transition-colors border border-border"
+            >
+              Sign in
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ═════════════════════ FOOTER ═════════════════════ */}
+      <footer className="border-t border-border py-14 px-5 md:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-5 gap-10 md:gap-14 mb-12">
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-2.5 mb-5">
+                <img src={logoImg} alt="MarketPulse" className="h-7 w-auto" />
+                <span className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">MarketPulse</span>
+              </div>
+              <p className="text-[13px] text-muted-foreground leading-relaxed max-w-sm">
+                Perfume price intelligence for the Latvian market. Built independently, in Riga.
+              </p>
+            </div>
+            {[
+              { title: "Platform", items: ["Features", "Pricing", "Coverage", "Changelog"] },
+              { title: "Resources", items: ["Documentation", "API", "Status", "Support"] },
+              { title: "Company", items: ["About", "Contact", "Privacy", "Terms"] },
+            ].map((col) => (
+              <div key={col.title}>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-semibold mb-4">
+                  {col.title}
+                </p>
+                <ul className="space-y-2.5">
+                  {col.items.map((it) => (
+                    <li key={it}>
+                      <a href="#" className="text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+                        {it}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="pt-6 border-t border-border flex flex-col md:flex-row items-center justify-between gap-3 text-[12px] text-muted-foreground">
+            <span>© 2026 MarketPulse. All prices belong to their respective retailers.</span>
+            <span className="font-mono text-[11px]">v1.0 · marketpulse.lv</span>
           </div>
         </div>
       </footer>

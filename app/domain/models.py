@@ -2,6 +2,7 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
+from sqlalchemy import UniqueConstraint
 
 # --- 1. PRODUCT GROUP (Aggregation for comparison) ---
 class ProductGroup(SQLModel, table=True):
@@ -128,3 +129,15 @@ class UserPreferences(SQLModel, table=True):
     monitored_stores: List[str] = Field(default_factory=list, sa_column=Column(JSON))
     interested_brands: List[str] = Field(default_factory=list, sa_column=Column(JSON))
     onboarding_completed: bool = Field(default=False)
+
+
+# --- 8. FAVORITE (User watchlist entry) ---
+class Favorite(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_favorite_user_product"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    product_id: int = Field(foreign_key="product.id", index=True)
+    alert_enabled: bool = Field(default=True)
+    price_when_added: Optional[Decimal] = Field(default=None)  # snapshot for "savings vs. entry"
+    created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -20,3 +20,7 @@ playwright-stealth==1.0.6
 beautifulsoup4==4.12.3
 rich
 apscheduler
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+python-jose[cryptography]==3.3.0
+email-validator==2.2.0

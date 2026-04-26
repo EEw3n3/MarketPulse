@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Frontend build artifacts (don't send to backend image build context)
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Large non-production directories
+igo_nav/
+dummy_check/
+
+# Lab debug HTML snapshots (large, dev-only)
+lab/*.html
+lab/*.json
+
+# Lab / test data
+lab/lab_test.db
+lab/*.db
+*.db
+
+# Secrets
+.env
+.env.*
+
+# Git / IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db

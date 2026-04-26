@@ -1,240 +1,383 @@
-import { useState } from "react";
-import { Heart, TrendingDown, TrendingUp, Minus, Trash2, ExternalLink, Bell, BellOff } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Heart,
+  ArrowDown,
+  ArrowUp,
+  Bell,
+  BellOff,
+  Trash2,
+  RefreshCw,
+  AlertCircle,
+  Package,
+} from "lucide-react";
+import { api, FavoriteItem } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-interface FavoriteProduct {
-  id: string;
-  brand: string;
-  name: string;
-  currentPrice: number;
-  previousPrice: number;
-  lowestPrice: number;
-  store: string;
-  alertEnabled: boolean;
-  addedDate: string;
-}
+type SortKey = "added" | "price_asc" | "price_desc" | "change";
 
-const initialFavorites: FavoriteProduct[] = [
-  { id: "1", brand: "Dior", name: "Sauvage EDP 100ml", currentPrice: 72.50, previousPrice: 88.90, lowestPrice: 68.00, store: "Notino", alertEnabled: true, addedDate: "2024-12-10" },
-  { id: "2", brand: "Chanel", name: "Bleu de Chanel EDP 100ml", currentPrice: 98.00, previousPrice: 114.20, lowestPrice: 92.50, store: "Douglas", alertEnabled: true, addedDate: "2024-11-22" },
-  { id: "3", brand: "Tom Ford", name: "Ombré Leather 50ml", currentPrice: 105.00, previousPrice: 118.60, lowestPrice: 99.00, store: "Sephora", alertEnabled: false, addedDate: "2025-01-05" },
-  { id: "4", brand: "YSL", name: "Y Eau de Parfum 100ml", currentPrice: 68.90, previousPrice: 79.00, lowestPrice: 65.00, store: "Notino", alertEnabled: true, addedDate: "2025-01-18" },
-  { id: "5", brand: "Versace", name: "Eros EDT 100ml", currentPrice: 52.40, previousPrice: 57.80, lowestPrice: 48.90, store: "Parfumdreams", alertEnabled: true, addedDate: "2024-12-28" },
-  { id: "6", brand: "Armani", name: "Acqua di Giò Profondo 75ml", currentPrice: 84.30, previousPrice: 78.00, lowestPrice: 74.50, store: "Douglas", alertEnabled: false, addedDate: "2025-02-14" },
-  { id: "7", brand: "Prada", name: "Luna Rossa Carbon 100ml", currentPrice: 76.90, previousPrice: 72.30, lowestPrice: 69.00, store: "Flaconi", alertEnabled: true, addedDate: "2025-01-30" },
-  { id: "8", brand: "Hermès", name: "Terre d'Hermès EDP 75ml", currentPrice: 92.00, previousPrice: 87.50, lowestPrice: 82.00, store: "Sephora", alertEnabled: false, addedDate: "2025-02-20" },
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "added", label: "Recently added" },
+  { value: "price_asc", label: "Price · low to high" },
+  { value: "price_desc", label: "Price · high to low" },
+  { value: "change", label: "Biggest drop" },
 ];
 
-function getChange(current: number, previous: number) {
-  return ((current - previous) / previous) * 100;
+function storeTag(name: string): string {
+  return name.replace(/\.lv$/i, "").replace(/\s+latvia$/i, "").trim().slice(0, 2).toUpperCase();
+}
+
+function ChangePill({ direction, percent }: { direction: "up" | "down" | "none"; percent: number }) {
+  if (direction === "none") {
+    return (
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] font-medium text-muted-foreground px-1.5 py-0.5 rounded bg-surface-2/70 border border-border">
+        · flat
+      </span>
+    );
+  }
+  const isDown = direction === "down";
+  const Icon = isDown ? ArrowDown : ArrowUp;
+  const tone = isDown ? "text-[hsl(var(--success))]" : "text-destructive";
+  const border = isDown ? "border-[hsl(var(--success))]/30" : "border-destructive/30";
+  const bg = isDown ? "bg-[hsl(var(--success))]/[0.08]" : "bg-destructive/[0.08]";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded ${tone} ${border} ${bg} border`}
+    >
+      <Icon size={9} strokeWidth={2.75} />
+      {isDown ? "−" : "+"}
+      {percent.toFixed(1)}%
+    </span>
+  );
 }
 
 export default function FavoritesContent() {
   const navigate = useNavigate();
-  const [favorites, setFavorites] = useState(initialFavorites);
-  const [sortBy, setSortBy] = useState("added");
+  const [items, setItems] = useState<FavoriteItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortKey>("added");
 
-  const sorted = [...favorites].sort((a, b) => {
-    switch (sortBy) {
-      case "price-asc": return a.currentPrice - b.currentPrice;
-      case "price-desc": return b.currentPrice - a.currentPrice;
-      case "change": return getChange(a.currentPrice, a.previousPrice) - getChange(b.currentPrice, b.previousPrice);
-      default: return new Date(b.addedDate).getTime() - new Date(a.addedDate).getTime();
+  const load = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.listFavorites();
+      setItems(data);
+    } catch (err) {
+      console.error("Failed to load favorites:", err);
+      setError("Could not load your watchlist.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const sorted = [...items].sort((a, b) => {
+    switch (sort) {
+      case "price_asc":
+        return a.current_price - b.current_price;
+      case "price_desc":
+        return b.current_price - a.current_price;
+      case "change": {
+        const va = a.change_direction === "down" ? -a.change_percent : a.change_percent;
+        const vb = b.change_direction === "down" ? -b.change_percent : b.change_percent;
+        return va - vb;
+      }
+      default:
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     }
   });
 
-  const toggleAlert = (id: string) => {
-    setFavorites(prev => prev.map(f => f.id === id ? { ...f, alertEnabled: !f.alertEnabled } : f));
-  };
-
-  const removeFavorite = (id: string) => {
-    setFavorites(prev => prev.filter(f => f.id !== id));
-  };
-
-  const totalSavings = favorites.reduce((sum, f) => {
-    const diff = f.previousPrice - f.currentPrice;
-    return diff > 0 ? sum + diff : sum;
+  const droppedCount = items.filter((f) => f.change_direction === "down").length;
+  const alertsOn = items.filter((f) => f.alert_enabled).length;
+  const potentialSavings = items.reduce((sum, f) => {
+    if (f.previous_price && f.previous_price > f.current_price) {
+      return sum + (f.previous_price - f.current_price);
+    }
+    return sum;
   }, 0);
 
-  const dropsCount = favorites.filter(f => f.currentPrice < f.previousPrice).length;
-  const alertsOn = favorites.filter(f => f.alertEnabled).length;
+  const handleToggleAlert = async (fav: FavoriteItem) => {
+    setItems((prev) =>
+      prev.map((f) => (f.product_id === fav.product_id ? { ...f, alert_enabled: !f.alert_enabled } : f))
+    );
+    try {
+      await api.updateFavorite(fav.product_id, !fav.alert_enabled);
+    } catch {
+      // revert on failure
+      setItems((prev) =>
+        prev.map((f) => (f.product_id === fav.product_id ? { ...f, alert_enabled: fav.alert_enabled } : f))
+      );
+    }
+  };
+
+  const handleRemove = async (productId: number) => {
+    const prev = items;
+    setItems((p) => p.filter((f) => f.product_id !== productId));
+    try {
+      await api.removeFavorite(productId);
+    } catch {
+      setItems(prev);
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* Header */}
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="px-5 lg:px-7 pt-7 pb-5 border-b border-border">
+        <div className="flex items-end justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="font-display text-xl font-bold text-foreground">Favorites</h1>
-            <p className="text-[13px] text-muted-foreground">
-              Your personal watchlist — {favorites.length} products tracked
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-1.5">
+              · Watchlist
             </p>
+            <div className="flex items-baseline gap-3">
+              <h1 className="font-['Inter'] font-semibold text-foreground text-[22px] tracking-[-0.01em]">
+                Favorites
+              </h1>
+              <span className="font-mono tabular-nums text-[12px] text-muted-foreground">
+                {items.length} {items.length === 1 ? "product" : "products"}
+              </span>
+            </div>
           </div>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="h-8 w-[160px] border-border bg-surface-2 text-xs">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="added">Recently Added</SelectItem>
-              <SelectItem value="price-asc">Price: Low → High</SelectItem>
-              <SelectItem value="price-desc">Price: High → Low</SelectItem>
-              <SelectItem value="change">Biggest Drop</SelectItem>
-            </SelectContent>
-          </Select>
+
+          {/* Sort */}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              Sort
+            </span>
+            <div className="flex items-center gap-0.5 p-0.5 rounded-md border border-border bg-surface">
+              {SORT_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => setSort(o.value)}
+                  className={cn(
+                    "px-2.5 py-1 rounded font-mono text-[10.5px] font-medium uppercase tracking-[0.08em] transition-colors whitespace-nowrap",
+                    sort === o.value
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="p-6 space-y-5">
-        {/* Quick Stats */}
-        <div className="grid grid-cols-3 gap-4">
-          <Card className="relative overflow-hidden bg-[rgba(255,255,255,0.02)] backdrop-blur-[16px] border-border hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.5)] hover:border-[hsl(var(--success))]/30 transition-all duration-500 group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-[hsl(var(--success))]/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 group-hover:bg-[hsl(var(--success))]/20 transition-colors duration-500 pointer-events-none" />
-            <CardContent className="p-5 text-center relative z-10">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium group-hover:text-foreground transition-colors">Price Drops</p>
-              <p className="font-display text-4xl font-bold text-[hsl(var(--success))] tabular-nums tracking-tight drop-shadow-[0_0_15px_rgba(var(--success),0.3)]">
-                {dropsCount}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">of {favorites.length} products</p>
-            </CardContent>
-          </Card>
-
-          <Card className="relative overflow-hidden bg-[rgba(255,255,255,0.02)] backdrop-blur-[16px] border-border hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.5)] hover:border-blue-500/30 transition-all duration-500 group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 group-hover:bg-blue-500/20 transition-colors duration-500 pointer-events-none" />
-            <CardContent className="p-5 text-center relative z-10">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium group-hover:text-foreground transition-colors">Potential Savings</p>
-              <p className="font-display text-4xl font-bold text-foreground tabular-nums tracking-tight">
-                €{totalSavings.toFixed(0)}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">vs. previous prices</p>
-            </CardContent>
-          </Card>
-
-          <Card className="relative overflow-hidden bg-[rgba(255,255,255,0.02)] backdrop-blur-[16px] border-border hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.5)] hover:border-primary/40 transition-all duration-500 group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[40px] -translate-y-1/2 translate-x-1/2 group-hover:bg-primary/20 transition-colors duration-500 pointer-events-none" />
-            <CardContent className="p-5 text-center relative z-10">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5 font-medium group-hover:text-foreground transition-colors">Alerts Active</p>
-              <p className="font-display text-4xl font-bold text-primary tabular-nums tracking-tight drop-shadow-[0_0_15px_rgba(124,58,237,0.3)]">
-                {alertsOn}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">notifications on</p>
-            </CardContent>
-          </Card>
+      {/* ── Status strip ───────────────────────────────────────── */}
+      {items.length > 0 && (
+        <div className="px-5 lg:px-7 py-3 border-b border-border flex items-center gap-6 text-[12px] flex-wrap">
+          <span className="flex items-center gap-1.5 text-[hsl(var(--success))]">
+            <ArrowDown size={11} strokeWidth={2.5} />
+            <span className="font-mono tabular-nums">{droppedCount}</span>
+            <span className="text-muted-foreground">dropped</span>
+          </span>
+          <span className="w-px h-3 bg-border" />
+          <span className="flex items-center gap-1.5">
+            <span className="font-mono tabular-nums text-foreground">€{potentialSavings.toFixed(0)}</span>
+            <span className="text-muted-foreground">potential savings</span>
+          </span>
+          <span className="w-px h-3 bg-border" />
+          <span className="flex items-center gap-1.5">
+            <Bell size={11} className="text-primary" strokeWidth={2} />
+            <span className="font-mono tabular-nums text-foreground">{alertsOn}</span>
+            <span className="text-muted-foreground">alerts active</span>
+          </span>
         </div>
+      )}
 
-        {/* Product List */}
-        <div className="space-y-2">
-          {sorted.map((product) => {
-            const change = getChange(product.currentPrice, product.previousPrice);
-            const isDown = change < 0;
-            const isUp = change > 0;
-            const atLowest = product.currentPrice <= product.lowestPrice;
-
-            return (
-              <Card
-                key={product.id}
-                className="relative overflow-hidden bg-surface border-border hover:border-primary/40 hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(0,0,0,0.5)] transition-all duration-300 cursor-pointer group"
-                onClick={() => navigate(`/product/${product.id}`)}
-              >
-                <div className="absolute top-0 right-0 w-32 h-full bg-gradient-to-l from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-                <CardContent className="p-4 flex items-center gap-4 relative z-10">
-                  {/* Change Indicator */}
-                  <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110",
-                    isDown ? "bg-[hsl(var(--success))]/10 shadow-[0_0_15px_rgba(var(--success),0.2)]" : isUp ? "bg-destructive/10" : "bg-muted/10"
-                  )}>
-                    {isDown ? <TrendingDown size={18} className="text-[hsl(var(--success))]" /> :
-                     isUp ? <TrendingUp size={18} className="text-destructive" /> :
-                     <Minus size={18} className="text-muted-foreground" />}
-                  </div>
-
-                  {/* Product Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">{product.name}</p>
-                      {atLowest && (
-                        <Badge className="bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] border-[hsl(var(--success))]/30 text-[10px] px-1.5 shrink-0 animate-pulse shadow-[0_0_8px_rgba(var(--success),0.4)]">
-                          Lowest
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground mt-0.5">{product.brand} · <span className="text-foreground/70">{product.store}</span></p>
-                  </div>
-
-                  {/* Price */}
-                  <div className="text-right shrink-0">
-                    <p className="text-[15px] font-display font-bold text-foreground tabular-nums tracking-tight group-hover:scale-105 origin-right transition-transform">€{product.currentPrice.toFixed(2)}</p>
-                    <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                      <span className="text-[11px] font-display text-muted-foreground line-through tabular-nums tracking-tight">
-                        €{product.previousPrice.toFixed(2)}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[10px] px-1.5 font-display tabular-nums tracking-tight",
-                          isDown ? "border-[hsl(var(--success))]/30 text-[hsl(var(--success))]" : isUp ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"
-                        )}
-                      >
-                        {change > 0 ? "+" : ""}{change.toFixed(1)}%
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Alert Toggle */}
-                  <div
-                    className="shrink-0 flex items-center gap-2 pl-3 border-l border-border"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Switch
-                      checked={product.alertEnabled}
-                      onCheckedChange={() => toggleAlert(product.id)}
-                      className="data-[state=checked]:bg-primary"
-                    />
-                    {product.alertEnabled
-                      ? <Bell size={14} className="text-primary" />
-                      : <BellOff size={14} className="text-muted-foreground" />
-                    }
-                  </div>
-
-                  {/* Remove */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeFavorite(product.id); }}
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </CardContent>
-              </Card>
-            );
-          })}
+      {/* ── Body ───────────────────────────────────────────────── */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center h-[400px] gap-3">
+          <RefreshCw className="animate-spin text-muted-foreground" size={18} />
+          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            Loading watchlist
+          </p>
         </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center h-[400px] gap-3 px-6 text-center">
+          <AlertCircle className="text-destructive" size={22} />
+          <p className="text-foreground text-[13px]">{error}</p>
+          <button
+            onClick={load}
+            className="text-[12px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            Try again
+          </button>
+        </div>
+      ) : items.length === 0 ? (
+        <EmptyState onBrowse={() => navigate("/catalog")} />
+      ) : (
+        <div className="divide-y divide-border">
+          {sorted.map((f) => (
+            <FavoriteRow
+              key={f.id}
+              fav={f}
+              onOpen={() => navigate(`/product/${f.product_id}`)}
+              onToggleAlert={() => handleToggleAlert(f)}
+              onRemove={() => handleRemove(f.product_id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-        {favorites.length === 0 && (
-          <div className="text-center py-24 relative overflow-hidden rounded-[var(--radius-card)] border border-dashed border-border/50 bg-[rgba(255,255,255,0.01)] backdrop-blur-sm">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-primary/5 rounded-full blur-[60px] pointer-events-none" />
-            <div className="relative z-10 flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full bg-surface-2/80 border border-border flex items-center justify-center mb-4 shadow-glow">
-                <Heart size={24} className="text-primary/70" />
-              </div>
-              <p className="text-lg font-display tracking-tight font-medium text-foreground">No favorites</p>
-              <p className="text-[13px] text-muted-foreground mt-1.5 max-w-[250px] mx-auto">Track your most crucial products to receive instant dumping alerts.</p>
-              <Button className="mt-6 h-9 px-6 text-[13px] shadow-glow hover:scale-105 transition-transform" onClick={() => navigate("/catalog")}>
-                Browse Catalog
-              </Button>
-            </div>
-          </div>
+// ───────────────────────────────────────────────────────────────────────────
+
+function FavoriteRow({
+  fav,
+  onOpen,
+  onToggleAlert,
+  onRemove,
+}: {
+  fav: FavoriteItem;
+  onOpen: () => void;
+  onToggleAlert: () => void;
+  onRemove: () => void;
+}) {
+  const hasPrevious = fav.previous_price !== null && fav.previous_price !== fav.current_price;
+  const savingsFromEntry =
+    fav.price_when_added && fav.price_when_added > fav.current_price
+      ? fav.price_when_added - fav.current_price
+      : 0;
+
+  return (
+    <div
+      onClick={onOpen}
+      className="group flex items-center gap-4 px-5 lg:px-7 py-4 hover:bg-surface/40 transition-colors cursor-pointer"
+    >
+      {/* Thumbnail */}
+      <div className="w-12 h-12 rounded-md bg-surface-2 border border-border shrink-0 flex items-center justify-center overflow-hidden">
+        {fav.image_url ? (
+          <img
+            src={fav.image_url}
+            alt={fav.title}
+            className="w-full h-full object-contain p-1"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+          />
+        ) : (
+          <Package size={16} className="text-muted-foreground/40" strokeWidth={1.25} />
         )}
+      </div>
+
+      {/* Brand + Title */}
+      <div className="flex-1 min-w-0">
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium truncate">
+          {fav.brand ?? "—"}
+        </p>
+        <p className="text-[13px] text-foreground truncate">
+          {fav.title}
+          {fav.volume && fav.volume !== "N/A" && (
+            <span className="text-muted-foreground ml-2 font-mono tabular-nums text-[11.5px]">
+              {fav.volume}
+            </span>
+          )}
+        </p>
+      </div>
+
+      {/* Store tag */}
+      <div className="hidden md:flex items-center gap-2 shrink-0 w-[130px]">
+        <span className="w-7 h-5 rounded-sm bg-surface-2 border border-border font-mono text-[9px] font-medium text-muted-foreground flex items-center justify-center">
+          {storeTag(fav.store_name)}
+        </span>
+        <span className="text-[12px] text-muted-foreground truncate">{fav.store_name}</span>
+      </div>
+
+      {/* Price block */}
+      <div className="flex flex-col items-end shrink-0 w-[130px]">
+        <div className="flex items-baseline gap-2">
+          <span
+            className={cn(
+              "font-mono font-semibold tabular-nums text-[15px]",
+              fav.change_direction === "down" ? "text-[hsl(var(--success))]" : "text-foreground"
+            )}
+          >
+            {fav.current_price.toFixed(2)} €
+          </span>
+          {hasPrevious && (
+            <span className="font-mono tabular-nums text-[11px] text-muted-foreground line-through">
+              {fav.previous_price!.toFixed(2)}
+            </span>
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <ChangePill direction={fav.change_direction} percent={fav.change_percent} />
+          {savingsFromEntry > 0.01 && (
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              −{savingsFromEntry.toFixed(2)}€ since added
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Alert toggle */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleAlert();
+        }}
+        className={cn(
+          "w-8 h-8 rounded-md flex items-center justify-center transition-colors shrink-0",
+          fav.alert_enabled
+            ? "text-primary hover:bg-primary/10"
+            : "text-muted-foreground/60 hover:text-foreground hover:bg-surface"
+        )}
+        aria-label={fav.alert_enabled ? "Disable alert" : "Enable alert"}
+        title={fav.alert_enabled ? "Alert on — click to mute" : "Alert off — click to enable"}
+      >
+        {fav.alert_enabled ? <Bell size={14} strokeWidth={1.75} /> : <BellOff size={14} strokeWidth={1.75} />}
+      </button>
+
+      {/* Remove */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="w-8 h-8 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-destructive hover:bg-destructive/[0.08] transition-colors shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+        aria-label="Remove from watchlist"
+      >
+        <Trash2 size={13} strokeWidth={1.75} />
+      </button>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+
+function EmptyState({ onBrowse }: { onBrowse: () => void }) {
+  return (
+    <div className="px-5 lg:px-7 py-20">
+      <div className="max-w-md mx-auto flex flex-col items-center text-center gap-4">
+        <div className="w-12 h-12 rounded-md bg-surface-2 border border-border flex items-center justify-center">
+          <Heart size={18} className="text-muted-foreground/60" strokeWidth={1.5} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            No favorites yet
+          </p>
+          <h2 className="font-['Inter'] font-semibold text-foreground text-[18px] tracking-[-0.01em]">
+            Pin products you care about.
+          </h2>
+          <p className="text-[13px] text-muted-foreground leading-relaxed">
+            MarketPulse will watch the shelves and alert you when prices move.
+          </p>
+        </div>
+        <button
+          onClick={onBrowse}
+          className="h-9 px-4 rounded-md bg-foreground text-background text-[12.5px] font-medium hover:bg-foreground/90 transition-colors"
+        >
+          Browse catalog
+        </button>
       </div>
     </div>
   );

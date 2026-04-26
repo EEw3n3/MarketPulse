@@ -10,6 +10,10 @@ import uvicorn
 
 from app.api.deps import get_db
 from app.api import schemas
+from app.api.auth import router as auth_router
+from app.api.favorites import router as favorites_router
+from app.api.analytics import router as analytics_router
+from app.api.admin import router as admin_router
 from app.domain.models import Product, PriceHistory
 
 app = FastAPI(
@@ -30,6 +34,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Routers ---
+app.include_router(auth_router, prefix="/api")
+app.include_router(favorites_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 # --- Helper Functions ---
 
