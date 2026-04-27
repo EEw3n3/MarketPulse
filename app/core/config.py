@@ -51,11 +51,11 @@ class Settings:
     PUBLIC_BASE_URL: str | None = os.getenv("PUBLIC_BASE_URL")
 
     # Email / SMTP
-    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER: str | None = os.getenv("SMTP_USER")
-    SMTP_PASSWORD: str | None = os.getenv("SMTP_PASSWORD")  # Gmail App Password (16 chars)
-    SMTP_FROM: str = os.getenv("SMTP_FROM", "MarketPulse <noreply@marketpulse.app>")
+    SMTP_HOST: str = os.getenv("SMTP_HOST") or "smtp.gmail.com"
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT") or "587")
+    SMTP_USER: str | None = os.getenv("SMTP_USER") or None
+    SMTP_PASSWORD: str | None = os.getenv("SMTP_PASSWORD") or None
+    SMTP_FROM: str = os.getenv("SMTP_FROM") or "MarketPulse <noreply@marketpulse.app>"
 
     # Check that key is loaded
     def validate(self):
