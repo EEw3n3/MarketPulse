@@ -18,6 +18,9 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
   if (!response.ok) {
     throw new Error(`API Error: ${response.status} ${response.statusText}`);
   }
+  if (response.status === 204 || response.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
   return response.json();
 }
 
