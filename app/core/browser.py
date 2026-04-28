@@ -240,18 +240,42 @@ class BrowserManager:
                         break
             except Exception:
                 pass
+            # UserCentrics CMP (Notino) — lives in shadow DOM, remove overlay directly.
+            try:
+                removed = await page.evaluate("""() => {
+                    const el = document.querySelector('#usercentrics-cmp-ui');
+                    if (el) { el.remove(); return true; }
+                    return false;
+                }""")
+                if removed:
+                    logger.info("🍪 Removed UserCentrics CMP overlay.")
+            except Exception:
+                pass
             
             # === CLICK LOGIC ===
             if click_selector:
                 logger.info(f"👆 Clicking element: {click_selector}")
                 try:
-                    await page.wait_for_selector(click_selector, timeout=5000)
-                    await page.click(click_selector)
-                    # Wait for navigation or AJAX
+                    # SPA sites (Notino, 220.lv): React renders AFTER domcontentloaded.
+                    # Wait for networkidle OR fixed sleep, then ALWAYS add 4s extra
+                    # to ensure React hydration is complete before we look for elements.
                     try:
-                        await page.wait_for_load_state("networkidle", timeout=8000)
-                    except Exception: 
-                        await asyncio.sleep(3.0) # Fallback wait
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(4.0)  # React hydration buffer
+                    # state='attached' — element just needs to be in DOM.
+                    # 'visible' fails when CSS uses custom properties for visibility.
+                    await page.wait_for_selector(click_selector, state="attached", timeout=15000)
+                    locator = page.locator(click_selector).first
+                    await locator.scroll_into_view_if_needed(timeout=5000)
+                    await asyncio.sleep(0.5)
+                    await locator.click(force=True, timeout=8000)
+                    # Wait for new page content to load
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                    except Exception:
+                        await asyncio.sleep(3.0)
                 except Exception as e:
                     logger.warning(f"⚠️ Click failed for {click_selector}: {e}")
 

@@ -162,7 +162,25 @@ class ScraperService:
                 logger.info(f"⏭️ Found next page via sibling logic: {candidate}")
                 return candidate
 
-        return None
+        # 3. URL-PATTERN FALLBACK (SPA sites where pagination is JS-rendered)
+        # If site supports `?page=N` query param, just increment it. The outer
+        # loop's seen_page_signatures will break us out when the site returns
+        # the same content (i.e. we've passed the real last page).
+        from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+        parsed = urlparse(current_url)
+        params = parse_qs(parsed.query)
+        current_page = 1
+        if "page" in params:
+            try:
+                current_page = int(params["page"][0])
+            except (ValueError, IndexError):
+                pass
+        next_page_num = current_page + 1
+        params["page"] = [str(next_page_num)]
+        new_query = urlencode(params, doseq=True)
+        candidate = urlunparse(parsed._replace(query=new_query))
+        logger.info(f"🔢 URL-pattern fallback: trying ?page={next_page_num} → {candidate}")
+        return candidate
 
     def _try_selectors(self, source: Selector, css_list: str) -> tuple[list[Selector], str | None]:
         if not css_list: return [], None
@@ -640,6 +658,512 @@ class ScraperService:
                 
         return variants
 
+    async def _scrape_notino_catalog(
+        self,
+        session,
+        rule,
+        start_url: str,
+        max_items: int,
+        group_id,
+        intent,
+        site_name_ui,
+    ) -> list:
+        """Notino catalog scraper using a single persistent Playwright page.
+
+        Cloudflare blocks repeated new-page navigations to the same Notino URL
+        within the same browser session. The fix: open ONE page, scrape it, then
+        click the nextPage chevron on THAT SAME page — CF never re-challenges.
+        """
+        from parsel import Selector as ScrapySelector
+        from app.core.browser import browser_manager
+        from app.services.normalizer import perfume_normalizer
+        from playwright_stealth import stealth_async
+
+        ctx = await browser_manager.get_context()
+        final_scraped_items: list = []
+
+        from app.services.ui import get_dashboard
+        db = get_dashboard()
+
+        page = await ctx.new_page()
+        try:
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,webp,svg,ico}",
+                lambda route: route.abort()
+            )
+            await stealth_async(page)
+
+            logger.info(f"🕷️ Notino persistent-page: loading {start_url}")
+            await page.goto(start_url, wait_until="domcontentloaded", timeout=60000)
+
+            # Remove CMP overlay so it never blocks clicks
+            async def _dismiss_cmp():
+                try:
+                    await page.evaluate(
+                        "() => { const e = document.querySelector('#usercentrics-cmp-ui'); if (e) e.remove(); }"
+                    )
+                except Exception:
+                    pass
+
+            await _dismiss_cmp()
+
+            # Wait for React to fully render page 1
+            try:
+                await page.wait_for_load_state("networkidle", timeout=12000)
+            except Exception:
+                await asyncio.sleep(6)
+                
+            # Extract dynamic pagination URL format from React state
+            html_init = await page.content()
+            import re
+            notino_pagination_fmt = None
+            match = re.search(r'"pageUrl"\s*:\s*"([^"]+\{pageNumber\}[^"]+)"', html_init)
+            if match:
+                notino_pagination_fmt = match.group(1)
+                logger.info(f"🔗 Extracted Notino pagination format: {notino_pagination_fmt}")
+            else:
+                logger.warning("⚠️ Could not extract Notino pagination format. Fallback may fail.")
+
+            NEXT_BTN_SEL = "div.nextPage[data-testid='page-button-wrapper']"
+            page_number = 0
+            processed_cards = 0
+            seen_page_signatures: set = set()
+            
+            # Variables for fetching next pages directly via browser_manager
+            current_html_override = None
+            current_url_override = None
+
+            while processed_cards < max_items:
+                page_number += 1
+                if db and site_name_ui:
+                    db.update_status(site_name_ui, f"Loading Page {page_number}")
+
+                if current_html_override:
+                    html = current_html_override
+                    current_url = current_url_override
+                    current_html_override = None
+                else:
+                    html = await page.content()
+                    current_url = page.url
+                    
+                sel = ScrapySelector(text=html)
+
+                cards, _ = self._try_selectors(sel, rule.container_css)
+                if not cards:
+                    logger.error(f"❌ Notino page {page_number}: no cards. Stopping.")
+                    break
+
+                logger.info(f"🔮 [Page {page_number}] Cards: {len(cards)}")
+
+                # Loop detection
+                page_hrefs = frozenset(
+                    card.css("a::attr(href)").get() or "" for card in cards
+                ) - {""}
+                if page_hrefs and page_hrefs in seen_page_signatures:
+                    logger.info("🔁 Notino loop detected — same card set. Stopping.")
+                    break
+                if page_hrefs:
+                    seen_page_signatures.add(page_hrefs)
+
+                candidates: list = []
+                deep_dive_queue: list = []
+
+                for card in cards:
+                    if processed_cards >= max_items:
+                        break
+                    processed_cards += 1
+                    try:
+                        brand = None
+                        if rule.brand_css:
+                            brand_el, _ = self._try_selectors(card, rule.brand_css)
+                            brand = self.extract_clean_text(brand_el)
+
+                        title_el, _ = self._try_selectors(card, rule.title_css)
+                        title = self.extract_clean_text(title_el)
+                        if brand and title and title.upper().startswith(brand.upper()):
+                            title = title[len(brand):].strip()
+                        if not title:
+                            continue
+
+                        lower_title = title.lower()
+                        if any(b in lower_title for b in PRODUCT_BLACKLIST):
+                            continue
+
+                        price_val = Decimal("0.00")
+                        is_available = False
+                        if rule.price_css:
+                            price_el, _ = self._try_selectors(card, rule.price_css)
+                            price_text = self.extract_clean_text(price_el)
+                            price_val = self.parse_price(price_text)
+                            is_available = bool(price_val and price_val > Decimal("0"))
+
+                        # Notino: volume from variant-name; discount price from pink span
+                        variant_texts = card.css(
+                            "[data-testid='product-tile-variant-name']::text,"
+                            "[data-testid='product-card-variant-name']::text"
+                        ).getall()
+                        if variant_texts:
+                            v_text = " ".join(t.strip() for t in variant_texts if t.strip())
+                            if v_text and not re.search(
+                                r'\d+[.,]?\d*\s*(ml|l|oz)\b', title, re.IGNORECASE
+                            ):
+                                title = f"{title} {v_text}"
+                        discount_text = card.css("span[style*='#dc0069']::text").get()
+                        if discount_text:
+                            dv = self.parse_price(discount_text)
+                            if dv and dv > Decimal("0") and (not price_val or dv < price_val):
+                                price_val = dv
+                                is_available = True
+
+                        image_url = None
+                        if rule.image_css:
+                            img_el, _ = self._try_selectors(card, rule.image_css)
+                            if img_el:
+                                image_url = img_el.css(
+                                    "img::attr(src),img::attr(data-src),::attr(src)"
+                                ).get()
+                                if image_url:
+                                    image_url = urljoin(current_url, image_url)
+
+                        link = card.css("a::attr(href)").get() or card.css("*::attr(href)").get()
+                        product_url = urljoin(current_url, link) if link else current_url
+
+                        perform_deep_dive = rule.use_detail_page
+                        if rule.detail_variant_selector == "SKIP":
+                            perform_deep_dive = False
+                        elif perform_deep_dive and rule.detail_trigger_text:
+                            card_text = card.xpath("string(.)").get().lower()
+                            keywords = [k.strip().lower() for k in rule.detail_trigger_text.split(",")]
+                            if not any(k in card_text for k in keywords):
+                                perform_deep_dive = False
+
+                        if perform_deep_dive:
+                            deep_dive_queue.append({
+                                "url": product_url,
+                                "title": title,
+                                "brand": brand,
+                                "image_url": image_url,
+                                "catalog_volume": None,
+                                "catalog_concentration": None,
+                            })
+                        else:
+                            norm = perfume_normalizer.extract_all(title)
+                            listing_variants = self._extract_variants(card, norm["clean_name"])
+                            if listing_variants:
+                                for v in listing_variants:
+                                    self._add_candidate(
+                                        candidates, v["title"], v["price"],
+                                        v["price"] > 0, product_url, image_url, brand, norm
+                                    )
+                            else:
+                                self._add_candidate(
+                                    candidates, title, price_val,
+                                    is_available, product_url, image_url, brand, norm
+                                )
+                    except Exception as e:
+                        logger.debug(f"Notino card parse error: {e}")
+                        continue
+
+                # --- CLICK NEXT PAGE IMMEDIATELY — before deep dives ---
+                # Deep dives take ~60s. If we click AFTER them, React's SPA
+                # event handlers may be gone (CF keepalive or React state reset).
+                # Click NOW while page is still "fresh", then do deep dives while
+                # the browser loads the next page in parallel.
+                old_url = page.url
+                has_next = False
+                if processed_cards < max_items:
+                    await _dismiss_cmp()
+                    try:
+                        target_page = str(page_number + 1)
+                        
+                        # Use precise dynamic URL extracted from React state
+                        if notino_pagination_fmt:
+                            # e.g. /viriesu-smarzas/?f={pageNumber}-{sortOption}-55544-55549
+                            next_path = notino_pagination_fmt.replace("{pageNumber}", target_page).replace("{sortOption}", "1")
+                            next_url = f"https://www.notino.lv{next_path}"
+                            
+                            logger.info(f"➡️ Notino: Universal Fetch for {next_url}")
+                            from app.core.browser import browser_manager
+                            # Use get_page_content to launch a fresh stealth context for the next page,
+                            # bypassing all SPA detection and context flag issues!
+                            res = await browser_manager.get_page_content(
+                                next_url, 
+                                fast_mode=True, 
+                                verified_domain=False # Allow CF solver to trigger if needed
+                            )
+                            
+                            if res and res.get("html"):
+                                current_html_override = res["html"]
+                                current_url_override = res["url"]
+                                has_next = True
+                                logger.info("✅ Notino: Fetch successful. Page 2+ HTML acquired.")
+                            else:
+                                logger.error("⏹️ Notino: Fetch failed or Turnstile blocked.")
+                                has_next = False
+                                
+                        else:
+                            logger.error("⏹️ Notino: No pagination format available.")
+                        
+                    except Exception as e:
+                        logger.info(f"⏹️ Notino: fetch failed on page {target_page}: {e}. Last page.")
+
+                # Deep dives (next page is already loading in background)
+                if deep_dive_queue:
+                    from urllib.parse import urlparse as _urlparse
+                    domain_key = _urlparse(current_url).netloc.replace("www.", "")
+                    _dd_cfg = DOMAIN_DEEP_DIVE_CONFIG.get(
+                        domain_key, DOMAIN_DEEP_DIVE_CONFIG["_default"]
+                    )
+                    concurrent_limit = _dd_cfg["concurrent"]
+
+                    def _delay(_cfg=_dd_cfg):
+                        return random.uniform(_cfg["delay_min"], _cfg["delay_max"])
+
+                    logger.info(
+                        f"🔍 Notino deep dives: {len(deep_dive_queue)} (limit {concurrent_limit})"
+                    )
+                    semaphore = asyncio.Semaphore(concurrent_limit)
+
+                    async def _process_job(job):
+                        async with semaphore:
+                            await asyncio.sleep(_delay())
+                            details = await self.scrape_product_details(
+                                job["url"], rule, session=session, browser_context=None
+                            )
+                            out = []
+                            for d in details:
+                                ft = f"{job['title']} {d['title_suffix']}".strip()
+                                out.append({
+                                    "url": job["url"],
+                                    "image_url": job["image_url"],
+                                    "brand": job["brand"],
+                                    "title": ft,
+                                    "price": d["price"],
+                                    "is_available": d["is_available"],
+                                    "catalog_concentration": None,
+                                })
+                            return out
+
+                    tasks = [_process_job(j) for j in deep_dive_queue]
+                    for f in asyncio.as_completed(tasks):
+                        res = await f
+                        for d in res:
+                            norm = perfume_normalizer.extract_all(d["title"])
+                            self._add_candidate(
+                                candidates, d["title"], d["price"], d["is_available"],
+                                d["url"], d["image_url"], d["brand"], norm
+                            )
+
+                # Flush page to DB
+                page_saved = await self._flush_candidates(
+                    session, candidates, rule, group_id, intent
+                )
+                final_scraped_items.extend(page_saved)
+                candidates.clear()
+
+                if not has_next or processed_cards >= max_items:
+                    logger.info(f"🛑 Notino: stopping after page {page_number}.")
+                    break
+
+                # URL doesn't change on Notino SPA pagination.
+                # We just wait for network idle to ensure the next page has loaded.
+
+                # The wait_for_load_state has been moved up to immediately after click
+
+                await _dismiss_cmp()
+                logger.info(f"✅ Notino: now on page {page_number + 1} — {page.url}")
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+
+        finally:
+            try:
+                await page.close()
+            except Exception:
+                pass
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+
+        return final_scraped_items
+
+    async def _scrape_makeup_via_api(
+        self,
+        session,
+        rule,
+        start_url: str,
+        max_items: int,
+        group_id,
+        intent,
+        site_name_ui,
+    ) -> list:
+        """Scrape makeup.lv via its REST API, bypassing SSR.
+
+        SSR hydration on makeup.lv always returns page-1 data regardless of
+        URL — pagination happens client-side after React mounts and calls
+        /shop/v1/categories/{id}/products/?offset=N. We hit that endpoint
+        directly. One browser context is needed for AWS WAF cookies; after
+        that everything is plain HTTP.
+        """
+        import json
+        from app.core.browser import browser_manager
+        from app.services.normalizer import perfume_normalizer
+
+        cat_match = re.search(r'/categorys/(\d+)', start_url)
+        if not cat_match:
+            logger.error(f"makeup: cannot extract category id from {start_url}")
+            return []
+        cat_id = cat_match.group(1)
+
+        ctx = await browser_manager.get_context()
+        final_scraped_items: list = []
+
+        try:
+            # Warm-up: fetch a real page so AWS WAF issues cookies on this context.
+            page = await ctx.new_page()
+            try:
+                await page.goto(start_url, wait_until="domcontentloaded", timeout=60000)
+                await asyncio.sleep(3)
+            finally:
+                await page.close()
+
+            offset = 0
+            page_size = 36
+            page_number = 1
+            total_count: int | None = None
+
+            from app.services.ui import get_dashboard
+            db = get_dashboard()
+
+            while True:
+                api_url = f"https://makeup.lv/shop/v1/categories/{cat_id}/products/?offset={offset}"
+                logger.info(f"🎯 Makeup API: page {page_number} (offset={offset})")
+                if db and site_name_ui:
+                    db.update_status(site_name_ui, f"Loading Page {page_number}")
+
+                try:
+                    resp = await ctx.request.get(api_url, timeout=30000)
+                except Exception as e:
+                    logger.error(f"makeup api fetch failed at offset={offset}: {e}")
+                    break
+
+                if resp.status != 200:
+                    logger.error(f"makeup api returned {resp.status} at offset={offset}")
+                    break
+
+                try:
+                    data = json.loads(await resp.text())
+                except Exception as e:
+                    logger.error(f"makeup api json parse failed: {e}")
+                    break
+
+                if total_count is None:
+                    total_count = int(data.get("totalCount") or data.get("total") or 0)
+                    page_size = int(data.get("perPage") or page_size)
+                    logger.success(f"🎯 Makeup catalog: {total_count} total products, perPage={page_size}")
+
+                products_raw = data.get("products", []) or []
+                products = [p for p in products_raw if p.get("type") == "product"]
+                logger.info(f"🎯 Page {page_number}: {len(products)} products (filtered from {len(products_raw)})")
+
+                if not products:
+                    logger.info(f"makeup: empty page at offset={offset}, stopping")
+                    break
+
+                candidates: list = []
+                for p in products:
+                    base_title = (p.get("title") or "").strip()
+                    if any(b in base_title.lower() for b in PRODUCT_BLACKLIST):
+                        continue
+                    brand = ((p.get("brand") or {}).get("title") or "").strip()
+                    link = (p.get("link") or "").strip()
+                    full_link = f"https://makeup.lv{link}" if link.startswith("/") else (link or start_url)
+
+                    image_url = None
+                    media = p.get("media")
+                    if isinstance(media, dict):
+                        sizes = media.get("sizes") or {}
+                        image_url = (sizes.get("lg") or {}).get("url") or media.get("url")
+                    elif isinstance(media, list) and media and isinstance(media[0], dict):
+                        sizes = media[0].get("sizes") or {}
+                        image_url = (sizes.get("lg") or {}).get("url") or media[0].get("url")
+
+                    sub_title = (p.get("subTitle") or "").strip()
+                    base_norm = perfume_normalizer.extract_all(base_title)
+                    if sub_title and not base_norm.get("concentration"):
+                        sub_conc = perfume_normalizer.extract_all(sub_title).get("concentration")
+                        if sub_conc:
+                            base_norm["concentration"] = sub_conc
+
+                    in_stock = bool(p.get("inStock"))
+                    price_obj = p.get("price") or {}
+                    fallback_price = Decimal(str(price_obj.get("current") or 0)).quantize(Decimal("0.01"))
+
+                    variants_data = ((p.get("analytics") or {}).get("variantsData")) or {}
+                    if isinstance(variants_data, dict) and variants_data:
+                        for _vid, info in variants_data.items():
+                            if not isinstance(info, dict):
+                                continue
+                            vol = (info.get("value") or "").strip()
+                            v_price = Decimal(str(info.get("price") or 0)).quantize(Decimal("0.01"))
+                            full_title = f"{base_title} {vol}".strip()
+                            self._add_candidate(
+                                candidates, full_title, v_price, v_price > 0,
+                                full_link, image_url, brand, base_norm,
+                            )
+                    else:
+                        self._add_candidate(
+                            candidates, base_title, fallback_price, in_stock,
+                            full_link, image_url, brand, base_norm,
+                        )
+
+                if candidates:
+                    saved = await self._flush_candidates(session, candidates, rule, group_id, intent)
+                    final_scraped_items.extend(saved)
+
+                # Checkpoint
+                rule.last_page_url = api_url
+                rule.items_scraped_current_run = len(final_scraped_items)
+                session.add(rule)
+                await session.commit()
+
+                # Stop conditions
+                if len(final_scraped_items) >= max_items:
+                    logger.info(f"🛑 makeup: reached max_items ({max_items})")
+                    break
+                if total_count and offset + page_size >= total_count:
+                    logger.success(f"🏁 makeup: reached end of catalog ({total_count} products)")
+                    break
+
+                offset += page_size
+                page_number += 1
+                await asyncio.sleep(random.uniform(0.4, 1.0))
+
+            # Quality control + checkpoint reset (mirrors main scrape_catalog tail)
+            from datetime import datetime as _dt
+            report = self.validate_dataset(final_scraped_items)
+            rule.health_score = report["score"]
+            rule.last_page_url = None
+            rule.items_scraped_current_run = 0
+            if report["is_healthy"]:
+                rule.last_success = _dt.utcnow()
+                rule.success_count += 1
+                rule.last_error = None
+                logger.success(f"💎 Data quality confirmed: {report['score']} ({len(final_scraped_items)} items)")
+                await self.learn_from_success(session, rule)
+            else:
+                rule.failure_count += 1
+                rule.last_error = report.get("error", "Unknown error")
+                logger.warning(f"💊 Low data quality: {report['score']} | Error: {rule.last_error}")
+            session.add(rule)
+            await session.commit()
+        finally:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+
+        return final_scraped_items
+
     def _extract_makeup_variants_from_json(self, html: str, current_url: str) -> list[dict]:
         import json
         import re
@@ -822,6 +1346,22 @@ class ScraperService:
         rule = result.scalar_one_or_none()
         if not rule: return []
 
+        # notino.lv: Cloudflare blocks any new-page navigation to the same URL.
+        # Must use a single persistent Playwright page that clicks the nextPage
+        # chevron in-place — CF is never re-challenged within the same session.
+        if "notino.lv" in domain:
+            return await self._scrape_notino_catalog(
+                session, rule, start_url, max_items, group_id, intent, site_name_ui
+            )
+
+        # makeup.lv: SSR hydration is static (always page-1 regardless of URL).
+        # The React client paginates via REST API. Scrape that directly — much
+        # faster (HTTP GET vs full browser render) and gets the real catalog.
+        if "makeup.lv" in domain or "makeup." in domain:
+            return await self._scrape_makeup_via_api(
+                session, rule, start_url, max_items, group_id, intent, site_name_ui
+            )
+
         candidates = []
         deep_dive_queue = []  # Per-page queue for concurrent deep dives
         html = initial_html
@@ -832,6 +1372,14 @@ class ScraperService:
         next_page_link = None # Initialize for reset logic visibility
         seen_page_signatures: set = set()  # Loop detection: frozenset of card hrefs per page
         final_scraped_items: list = []  # Accumulated across all pages (incremental saves)
+
+        # --- PERSISTENT BROWSER CONTEXT ---
+        # One context for the whole catalog scrape: cookies/session persist across
+        # pages so JS challenges (Cloudflare/CDN) only need to be solved once.
+        # Without this, every page=N fetch is a fresh visitor — sites like makeup.lv
+        # respond to the cold session with a stub of page 1 instead of the real offset.
+        from app.core.browser import browser_manager
+        persistent_context = await browser_manager.get_context()
 
         # --- RESUME LOGIC (Checkpoint) ---
         if rule.last_page_url and rule.last_page_url.startswith(start_url.split('?')[0]):
@@ -854,13 +1402,14 @@ class ScraperService:
                 db.update_status(site_name_ui, f"Loading Page {page_number}")
             
             # --- FETCH PAGE ---
-            # Now we delegate everything to scrape_page which handles clicks/browser internally
+            # Reuse the persistent context so cookies/anti-bot challenge state survive
+            # across pages. Required for sites like makeup.lv where a fresh visitor
+            # always gets the page-1 stub regardless of the requested URL.
             page_response = await self.scrape_page(
-                current_url, 
-                rule=rule, 
-                # passing None context for now to keep sessions isolated per page load if needed, 
-                # or pass 'browser_context' if we want persistent session (better for pagination)
-                click_selector=next_click_selector
+                current_url,
+                rule=rule,
+                browser_context=persistent_context,
+                click_selector=next_click_selector,
             )
             
             if not page_response or not page_response.get("html"):
@@ -881,6 +1430,11 @@ class ScraperService:
             # "cards not found" fallback/error that would otherwise break
             # pagination when we intentionally empty `cards` after injection.
             injection_ok = False
+            # When JSON-injection populates candidates instead of DOM cards,
+            # cards=[] makes the standard loop-detection signature empty.
+            # Branches that use injection assign the URL set here so the
+            # signature check below can still detect a repeated page.
+            injection_signature: frozenset = frozenset()
 
             # --- 220.LV WIDGET-DATA JSON INJECTION (SPA / Pigu platform) ---
             if "220.lv" in domain:
@@ -899,6 +1453,7 @@ class ScraperService:
                     processed_cards += len(unique_products_220)
                     cards = []  # Skip standard DOM loop
                     injection_ok = True
+                    injection_signature = frozenset(unique_products_220)
                 else:
                     logger.warning("⚠️ 220.lv widget-data yielded 0 items — falling back to DOM selectors")
                     cards, winner = self._try_selectors(sel, rule.container_css)
@@ -930,6 +1485,7 @@ class ScraperService:
                     processed_cards += len(unique_products)
                     cards = [] # Emulate no DOM cards to skip the standard loop
                     injection_ok = True
+                    injection_signature = frozenset(unique_products)
                 else:
                    cards, winner = self._try_selectors(sel, rule.container_css)
             else:
@@ -978,10 +1534,14 @@ class ScraperService:
             # Notino and similar SPAs keep the "next page" button visible even on the last
             # page. When clicked it returns identical content. Detect by fingerprinting the
             # set of card hrefs — if we've seen this exact page before, we've looped.
-            page_hrefs = frozenset(
-                card.css("a::attr(href)").get() or ""
-                for card in cards
-            ) - {""}  # drop empty strings
+            # When JSON-injection populated candidates (220.lv / makeup), use its URL set.
+            if cards:
+                page_hrefs = frozenset(
+                    card.css("a::attr(href)").get() or ""
+                    for card in cards
+                ) - {""}  # drop empty strings
+            else:
+                page_hrefs = injection_signature
             if page_hrefs and page_hrefs in seen_page_signatures:
                 logger.info(f"🔁 Loop detected on page {page_number} — same card set already scraped. Stopping pagination.")
                 break
@@ -1215,13 +1775,29 @@ class ScraperService:
             # --- PAGINATION ---
             # --- PAGINATION (Hybrid: Link vs Click) ---
             next_page_link = None
-            
-            if "makeup." in domain:
-                # Makeup.lv usually uses distinct pagination link parameters
-                # Or standard fallback
-                pass
+
+            # Sites with reliable ?page=N URL pagination — skip the AI click
+            # selector (which gets intercepted by overlays / hits disabled
+            # buttons on the last page) and just increment the query param.
+            # The outer loop's seen_page_signatures stops us when the site
+            # returns a duplicate page (i.e. real end of catalog).
+            url_pattern_domains = ("220.lv", "1a.lv")
+            if any(d in domain for d in url_pattern_domains):
+                fallback = self._find_next_page_fallback(sel, current_url)
+                if fallback:
+                    next_page_link = fallback
+
+            # Notino uses JS-rendered pagination (React spans, no <a href>).
+            # The "next page" chevron is a div with data-testid="page-button-wrapper"
+            # and class "nextPage". When it's present in DOM, click it.
+            if "notino.lv" in domain and not next_page_link:
+                notino_next = sel.css("[data-testid='page-button-wrapper'].nextPage")
+                if notino_next:
+                    next_click_selector = "[data-testid='page-button-wrapper'].nextPage"
+                    logger.info("⏭️ Notino: nextPage chevron found — will click.")
+
             # 1. Try Rule-based selector
-            if rule.next_page_css:
+            if not next_page_link and not next_click_selector and rule.next_page_css:
                 # Try finding HREF first (Standard link)
                 try: 
                     el_list = sel.css(rule.next_page_css)
@@ -1325,6 +1901,11 @@ class ScraperService:
 
         session.add(rule)
         await session.commit()
+
+        try:
+            await persistent_context.close()
+        except Exception:
+            pass
 
         return final_scraped_items
 
