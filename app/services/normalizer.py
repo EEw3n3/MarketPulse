@@ -356,3 +356,53 @@ class PerfumeNormalizer:
         return None
 
 perfume_normalizer = PerfumeNormalizer()
+
+
+# Markers that prove a listing is NOT a perfume (deodorants, body sprays,
+# aftershaves, shower gels, hair products, etc.). Used at scrape time to
+# reject pollution BEFORE it enters the DB. Word-bounded compounds only —
+# bare 'spray' or 'stick' is allowed because real perfumes use those words.
+_NON_PERFUME_PATTERNS = [
+    # Deodorants / antiperspirants
+    r"\bdeodorants?\b", r"\bdeo[\s\-]?spray\b", r"\bdeo[\s\-]?stick\b",
+    r"\bdeo[\s\-]?roll[\s\-]?on\b", r"\bantiperspirants?\b",
+    r"\banti[\s\-]?perspirants?\b", r"\bdezodorants?\b",
+    r"\bdezodorants[\s\-]?(zīmulis|aerosols|sprejs)\b",
+    r"\bдезодорант\w*\b", r"\bдезо[\-\s]?(спрей|стик|ролик)\b",
+    # Body / shower products — NOTE: 'body mist' / 'hair mist' EXCLUDED
+    # because they're legit fragrance categories (Ex Nihilo, Sol de Janeiro,
+    # Byredo, Victoria's Secret all sell perfumed mists). 'body spray' is
+    # safe to filter — that label is reserved for non-perfume deodorants.
+    r"\bbody[\s\-]?spray\b", r"\bbody[\s\-]?lotion\b",
+    r"\bbody[\s\-]?wash\b", r"\bshower[\s\-]?gel\b", r"\bbath[\s\-]?gel\b",
+    r"\bdušas[\s\-]?(želeja|gels)\b", r"\bdušas[\s\-]?želeja\b",
+    r"\bгель\s+для\s+душа\b", r"\bлосьон\s+для\s+тела\b",
+    # Hair (excluded 'mist' — see note above)
+    r"\bshampoo\b", r"\bšampūns?\b", r"\bшампунь\w*\b",
+    r"\bconditioner\b", r"\bkondicionieris\b", r"\bкондиционер\w*\b",
+    r"\bhair[\s\-]?(spray|gel|oil|mask)\b",
+    # Aftershave / pre-shave
+    r"\baftershave\b", r"\bafter[\s\-]shave\b",
+    r"\bpēc[\s\-]?skūšanās\b", r"\bпосле[\s\-]бритья\b",
+    # Powders / soaps / lotions / creams
+    r"\btalcum\b", r"\btalk[\s\-]?puderis\b", r"\bbody[\s\-]?talc\b",
+    r"\bbar[\s\-]?soap\b", r"\bziepes\b", r"\bмыло\b",
+    r"\bbody[\s\-]?cream\b", r"\bķermeņa[\s\-]?krēms\b",
+    # Sets and gifts (price/identity ambiguous — better to skip)
+    r"\bgift[\s\-]?set\b", r"\bdāvanu[\s\-]?komplekts\b",
+    r"\bподарочный[\s\-]набор\b",
+]
+_NON_PERFUME_RE = re.compile("|".join(_NON_PERFUME_PATTERNS), re.IGNORECASE)
+
+
+def is_non_perfume_title(title: str) -> bool:
+    """Return True if the raw scraped title clearly identifies a non-perfume
+    product (deodorant, body spray, shampoo, aftershave, etc.).
+
+    Must be called on the RAW title before PerfumeNormalizer strips noise —
+    once 'dezodorants' is removed from the title, the product is
+    indistinguishable from a real perfume.
+    """
+    if not title:
+        return False
+    return bool(_NON_PERFUME_RE.search(title))

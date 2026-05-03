@@ -220,6 +220,17 @@ export interface RetailerTrendSeries {
   points: RetailerTrendPoint[];
 }
 
+// ── Chat types ───────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+}
+
 export interface FavoriteItem {
   id: number;            // favorite row id
   product_id: number;
@@ -372,6 +383,13 @@ export const api = {
     logs: (tail = 50) =>
       fetchApi<AdminLogsResponse>(`/admin/logs?tail=${tail}`),
   },
+
+  // Chat
+  sendChat: (message: string, history: ChatMessage[]) =>
+    fetchApi<ChatResponse>("/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, history }),
+    }),
 
   // Favorites
   listFavorites: () =>

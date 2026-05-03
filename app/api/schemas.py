@@ -260,3 +260,17 @@ class FavoriteCreate(BaseModel):
 
 class FavoriteUpdate(BaseModel):
     alert_enabled: Optional[bool] = None
+
+
+# --- Chat ---
+
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+    history: List[ChatMessage] = []
+
+class ChatResponse(BaseModel):
+    reply: str

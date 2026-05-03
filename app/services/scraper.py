@@ -2081,8 +2081,18 @@ class ScraperService:
         Builds a clean display title: "{brand} {clean_name} {volume}".
         Raw scraped title (with Latvian fluff / EDT/EDP markers) is discarded —
         concentration lives in its own column, not the title.
+
+        Non-perfume listings (deodorants, body sprays, aftershaves, shampoos,
+        shower gels) are rejected here on the RAW title — once normalization
+        strips the 'dezodorants'/'deo' marker, the product becomes
+        indistinguishable from a real perfume and pollutes the DB.
         """
-        from app.services.normalizer import perfume_normalizer
+        from app.services.normalizer import perfume_normalizer, is_non_perfume_title
+
+        if is_non_perfume_title(title):
+            logger.debug(f"🚫 Rejected non-perfume: {title}")
+            return
+
         v_norm = perfume_normalizer.extract_all(title, explicit_brand=brand)
 
         final_brand = brand or v_norm["brand"] or norm["brand"]
