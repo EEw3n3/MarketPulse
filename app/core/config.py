@@ -23,6 +23,8 @@ class Settings:
     # Scraping Config
     DEFAULT_TARGET_COUNT: int = 20
     MAX_CONCURRENT_SCRAPES: int = 3
+    SCRAPE_INTERVAL_HOURS: int = int(os.getenv("SCRAPE_INTERVAL_HOURS", "12"))
+    PRODUCTION_MAX_ITEMS: int = int(os.getenv("PRODUCTION_MAX_ITEMS", "9999"))
 
     # Delays between paginated page loads (seconds)
     PAGE_DELAY_MIN: float = 2.0

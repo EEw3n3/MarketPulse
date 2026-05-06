@@ -11,6 +11,7 @@ import {
   CheckCircle,
   XCircle,
   ChevronRight,
+  Loader,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
@@ -139,13 +140,39 @@ function ScrapingTab() {
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [rules, setRules] = useState<AdminScrapingRule | null>(null);
   const [rulesLoading, setRulesLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [regenLoading, setRegenLoading] = useState<string | null>(null);
+  // Domains actively scraping: maps domain → last_scrape_at snapshot before trigger
+  const [scrapingDomains, setScrapingDomains] = useState<Record<string, string | null>>({});
+
+  const refreshHealth = useCallback(() =>
+    api.admin.health().then(setHealth), []);
 
   useEffect(() => {
-    api.admin.health()
-      .then(setHealth)
-      .finally(() => setLoadingHealth(false));
-  }, []);
+    refreshHealth().finally(() => setLoadingHealth(false));
+  }, [refreshHealth]);
+
+  // Poll every 8s while any domain is scraping; detect completion via last_scrape_at change
+  useEffect(() => {
+    if (Object.keys(scrapingDomains).length === 0) return;
+    const interval = setInterval(async () => {
+      const updated = await api.admin.health().catch(() => null);
+      if (!updated) return;
+      setHealth(updated);
+      setScrapingDomains((prev) => {
+        const next = { ...prev };
+        for (const domain of Object.keys(prev)) {
+          const site = updated.sites.find((s) => s.domain === domain);
+          const newTime = site?.last_scrape_at ?? null;
+          if (newTime !== prev[domain]) {
+            toast.success(`Scraping finished for ${domain}`);
+            delete next[domain];
+          }
+        }
+        return next;
+      });
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [scrapingDomains]);
 
   const handleViewRules = (domain: string) => {
     setSelectedDomain(domain);
@@ -158,20 +185,18 @@ function ScrapingTab() {
   };
 
   const handleScrape = async (domain: string) => {
-    setActionLoading(`scrape:${domain}`);
+    const currentTime = health?.sites.find((s) => s.domain === domain)?.last_scrape_at ?? null;
     try {
       await api.admin.triggerScrape(domain);
-      toast.success(`Scrape queued for ${domain}`);
+      setScrapingDomains((prev) => ({ ...prev, [domain]: currentTime }));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       toast.error(msg);
-    } finally {
-      setActionLoading(null);
     }
   };
 
   const handleRegen = async (domain: string) => {
-    setActionLoading(`regen:${domain}`);
+    setRegenLoading(domain);
     try {
       await api.admin.regenerateRules(domain);
       toast.success(`AI rule regeneration queued for ${domain}`);
@@ -179,7 +204,7 @@ function ScrapingTab() {
       const msg = e instanceof Error ? e.message : "Unknown error";
       toast.error(msg);
     } finally {
-      setActionLoading(null);
+      setRegenLoading(null);
     }
   };
 
@@ -212,19 +237,28 @@ function ScrapingTab() {
                 </button>
                 <button
                   onClick={() => handleRegen(s.domain)}
-                  disabled={actionLoading === `regen:${s.domain}`}
+                  disabled={regenLoading === s.domain}
                   className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded border border-border text-[11px] text-amber-500 hover:text-amber-400 hover:border-amber-500/40 transition-colors font-mono disabled:opacity-50"
                 >
                   <Sparkles size={11} />
-                  {actionLoading === `regen:${s.domain}` ? "…" : "Regen"}
+                  {regenLoading === s.domain ? "…" : "Regen"}
                 </button>
                 <button
                   onClick={() => handleScrape(s.domain)}
-                  disabled={actionLoading === `scrape:${s.domain}`}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded bg-foreground text-background text-[11px] font-medium font-mono hover:bg-foreground/90 transition-colors disabled:opacity-50"
+                  disabled={s.domain in scrapingDomains}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded bg-foreground text-background text-[11px] font-medium font-mono hover:bg-foreground/90 transition-colors disabled:opacity-60"
                 >
-                  <PlayCircle size={11} />
-                  {actionLoading === `scrape:${s.domain}` ? "…" : "Scrape now"}
+                  {s.domain in scrapingDomains ? (
+                    <>
+                      <Loader size={11} className="animate-spin" />
+                      Scraping…
+                    </>
+                  ) : (
+                    <>
+                      <PlayCircle size={11} />
+                      Scrape now
+                    </>
+                  )}
                 </button>
               </div>
             </div>

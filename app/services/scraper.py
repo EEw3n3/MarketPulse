@@ -2166,7 +2166,12 @@ class ScraperService:
 
         # SPA sites — stealth client returns empty product shells (200 OK but no card content).
         # Must always use full browser for correct React/JS rendering.
-        if "220.lv" in url or "notino.lv" in url:
+        # 220.lv: CF blocks the second request in a shared context. Use a fresh context
+        # per page (each page = first request = no CF challenge).
+        if "220.lv" in url:
+            from app.core.browser import browser_manager
+            return await browser_manager.get_page_content(url, fast_mode=fast_mode, context=None)
+        if "notino.lv" in url:
             from app.core.browser import browser_manager
             return await browser_manager.get_page_content(url, fast_mode=fast_mode, context=browser_context)
 

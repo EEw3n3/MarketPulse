@@ -43,16 +43,17 @@ class SchedulerService:
             register_domain(t["url"])
             target_payload = {
                 "url": t["url"],
-                "search_term": "ScheduledMonitor", 
+                "search_term": "ScheduledMonitor",
                 "category": t.get("category", "Men's Perfume"),
-                "site_name": site_name
+                "site_name": site_name,
             }
-            # process_target_worker signature: target, intent, group_id, enable_price_filter
-            tasks.append(asyncio.create_task(process_target_worker(target_payload, None, None, True)))
-        
+            tasks.append(asyncio.create_task(
+                process_target_worker(target_payload, None, None, True, max_items=settings.PRODUCTION_MAX_ITEMS)
+            ))
+
         if tasks:
             await asyncio.gather(*tasks)
-            
+
         logger.info("✅ [SCHEDULER] Scheduled scan completed successfully.")
 
     def start(self, interval_hours: int = 24):
@@ -82,5 +83,48 @@ class SchedulerService:
             self.scheduler.shutdown(wait=False)
             self.is_running = False
             logger.info("🛑 [SCHEDULER] Stopped.")
+
+    async def trigger_site_scrape(self, domain: str) -> None:
+        """Run a one-shot scrape for a specific domain (called from admin API)."""
+        try:
+            with open("configs/categories.json", "r", encoding="utf-8") as f:
+                cats = json.load(f)
+            targets = cats.get("mens_perfume", {}).get("targets", [])
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Config error in trigger_site_scrape: {e}")
+            return
+
+        target = next((t for t in targets if domain in t.get("url", "")), None)
+        if not target:
+            logger.warning(f"[SCHEDULER] Domain not found in categories: {domain}")
+            return
+
+        from app.main import process_target_worker
+        from urllib.parse import urlparse
+
+        site_name = target.get("site", urlparse(target["url"]).netloc)
+        register_domain(target["url"])
+        target_payload = {
+            "url": target["url"],
+            "search_term": "AdminTrigger",
+            "category": target.get("category", "Men's Perfume"),
+            "site_name": site_name,
+        }
+        logger.info(f"[SCHEDULER] Manual trigger: {domain}")
+        await process_target_worker(target_payload, None, None, True, max_items=settings.PRODUCTION_MAX_ITEMS)
+
+    def get_status(self) -> dict:
+        """Return scheduler status for the admin panel."""
+        if not self.is_running:
+            return {"running": False, "jobs": []}
+        jobs = []
+        for job in self.scheduler.get_jobs():
+            next_run = job.next_run_time
+            jobs.append({
+                "id": job.id,
+                "name": job.name,
+                "next_run": next_run.isoformat() if next_run else None,
+            })
+        return {"running": True, "jobs": jobs}
 
 scheduler_service = SchedulerService()

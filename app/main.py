@@ -55,12 +55,12 @@ async def get_hybrid_html(url: str, force_browser: bool = False) -> str | None:
 
 from app.services.validator import content_validator
 
-async def process_target(session, target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True):
+async def process_target(session, target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True, max_items: int | None = None):
     url = target["url"]
     search_term = target["search_term"]
 
     logger.info(f"\n🏁 STARTING CHECK: {url}")
-    
+
     html = await get_hybrid_html(url)
     if not html: return
 
@@ -69,31 +69,29 @@ async def process_target(session, target: dict, intent: dict | None, group_id: i
         logger.warning("🤔 Rule not created. Trying Browser...")
         html = await get_hybrid_html(url, force_browser=True)
         rule = await ai_generator.get_or_create_rule(session, url, html)
-        
+
     if not rule:
         logger.error("❌ Failed to create rule.")
         return
 
     logger.info(f"📦 [{rule.site_name}] Attempting collection...")
-    # Pass site_name for UI tracking
     site_name_ui = target.get("site_name")
-    
+    effective_max = max_items if max_items is not None else settings.DEFAULT_TARGET_COUNT
+
     products = await scraper_service.scrape_catalog(
-        session, url, html, max_items=settings.DEFAULT_TARGET_COUNT, group_id=group_id, intent=intent, 
+        session, url, html, max_items=effective_max, group_id=group_id, intent=intent,
         enable_price_filter=enable_price_filter, site_name_ui=site_name_ui
     )
-    
-    # Validation report remains for rule health metrics
+
     scraper_service.validate_dataset(products)
 
 # Semaphore for limiting concurrent tasks
-# Max scrapes controlled by settings
 scrape_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SCRAPES)
 
-async def process_target_worker(target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True):
+async def process_target_worker(target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True, max_items: int | None = None):
     async with scrape_semaphore:
         async with async_session() as session:
-            try: await process_target(session, target, intent, group_id, enable_price_filter)
+            try: await process_target(session, target, intent, group_id, enable_price_filter, max_items=max_items)
             except Exception as e: logger.exception(f"💥 Error {target['url']}: {e}")
 
 async def main():

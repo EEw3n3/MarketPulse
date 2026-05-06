@@ -7,7 +7,6 @@ from sqlalchemy.future import select
 from sqlalchemy import func, desc, or_
 from sqlalchemy.orm import selectinload
 import uvicorn
-
 from app.api.deps import get_db
 from app.api import schemas
 from app.api.auth import router as auth_router
@@ -49,19 +48,38 @@ app.include_router(chat_router, prefix="/api")
 # --- Startup ---
 
 @app.on_event("startup")
+async def wire_log_sink() -> None:
+    """Route loguru output into the in-memory ring buffer so /admin/logs works."""
+    from loguru import logger
+    from app.api.admin import push_log
+    logger.add(lambda msg: push_log(msg.strip()), level="INFO", colorize=False)
+
+
+@app.on_event("startup")
 async def register_telegram_webhook() -> None:
     """Telegram setup — polling for dev, webhook for prod."""
     from app.services.telegram_bot import bot
     if not settings.TELEGRAM_BOT_TOKEN:
         return
     if settings.TELEGRAM_POLLING:
-        # Polling overrides any webhook — clear it first to avoid conflicts.
         import asyncio
         await bot.delete_webhook()
         asyncio.create_task(bot.start_polling())
     elif settings.PUBLIC_BASE_URL and settings.PUBLIC_BASE_URL.startswith("https://"):
         webhook_url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/auth/telegram/webhook"
         await bot.set_webhook(webhook_url, secret_token=settings.TELEGRAM_WEBHOOK_SECRET)
+
+
+# APScheduler disabled — scraping is triggered manually (server-side scraping not yet viable due to IP bans)
+# @app.on_event("startup")
+# async def start_scheduler() -> None:
+#     from app.services.scheduler import scheduler_service
+#     scheduler_service.start(interval_hours=settings.SCRAPE_INTERVAL_HOURS)
+#
+# @app.on_event("shutdown")
+# async def stop_scheduler() -> None:
+#     from app.services.scheduler import scheduler_service
+#     scheduler_service.stop()
 
 
 # --- Helper Functions ---

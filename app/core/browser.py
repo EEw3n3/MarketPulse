@@ -211,7 +211,10 @@ class BrowserManager:
                 await asyncio.sleep(random.uniform(0.5, 2.0))
 
             logger.info(f"🚜 Loading page ({'Turbo' if fast_mode else 'Stealth'}): {url}")
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            # 220.lv is a React SPA: ?page=N products are fetched client-side after
+            # domcontentloaded, so widget-data attributes only appear after networkidle.
+            _wait_until = "networkidle" if "220.lv" in url else "domcontentloaded"
+            response = await page.goto(url, wait_until=_wait_until, timeout=60000)
             
             # === CLOUDFLARE SOLVER ===
             if solve_cf:
@@ -311,9 +314,18 @@ class BrowserManager:
             except Exception:
                 pass
 
+            # 220.lv: CF JS-challenge triggers a meta-refresh redirect that completes
+            # AFTER networkidle fires. Wait for actual product cards to appear so we
+            # capture the real page, not the challenge page.
+            if "220.lv" in url:
+                try:
+                    await page.wait_for_selector("div.c-product-card[widget-data]", timeout=25000)
+                except Exception:
+                    pass  # No cards (empty category or still blocked — caller handles)
+
             final_url = page.url
             content = await page.content()
-            
+
             if len(content) < 30000:
                 short_head = content[:200].replace("\n", " ")
                 logger.warning(f"⚠️ Unusual HTML length: {len(content)} bytes. Head: {short_head}")

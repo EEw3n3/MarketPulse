@@ -166,13 +166,23 @@ async def trigger_scrape(
     _: User = Depends(get_current_admin),
 ):
     """Trigger an ad-hoc scrape for a domain (rate-limited to once per 5 min)."""
+    import asyncio
+    from app.services.scheduler import scheduler_service
+
     now = time.time()
     if domain in _last_scrape and now - _last_scrape[domain] < SCRAPE_COOLDOWN_S:
         remaining = int(SCRAPE_COOLDOWN_S - (now - _last_scrape[domain]))
         raise HTTPException(status_code=429, detail=f"Rate limit: retry in {remaining}s")
     _last_scrape[domain] = now
-    # Phase 4 TODO: trigger scheduler.trigger_site_scrape(domain)
+    asyncio.create_task(scheduler_service.trigger_site_scrape(domain))
     return {"status": "queued", "domain": domain}
+
+
+@router.get("/scheduler/status")
+async def get_scheduler_status(_: User = Depends(get_current_admin)):
+    """APScheduler running state and next job run times."""
+    from app.services.scheduler import scheduler_service
+    return scheduler_service.get_status()
 
 
 @router.get("/data-quality", response_model=DataQualityResponse)
