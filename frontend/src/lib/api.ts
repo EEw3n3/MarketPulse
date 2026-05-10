@@ -114,6 +114,27 @@ export interface PriceHistoryRead {
   change_type: string;
 }
 
+export interface StoreOfferVariant {
+  product_id: number;
+  price: number;
+  url: string;
+  image_url: string | null;
+}
+
+export interface StoreOffer {
+  product_id: number;
+  url: string;
+  storeName: string;
+  storeInitial: string;
+  storeColor: string;
+  price: number;
+  previousPrice: number;
+  changePercent: number;
+  changeDirection: "up" | "down" | "none";
+  image_url: string | null;
+  variants: StoreOfferVariant[];
+}
+
 export interface ProductCardDetail {
   id: number;
   url: string;
@@ -128,7 +149,7 @@ export interface ProductCardDetail {
   store_name: string;
   is_available: boolean;
   history: PriceHistoryRead[];
-  competitors: ProductFeedItem[];
+  offers: StoreOffer[];
 }
 
 export interface DashboardStats {
@@ -319,10 +340,22 @@ export interface AdminLogsResponse {
 
 export const api = {
   // Products (public)
-  getFeed: (limit = 20) =>
-    fetchApi<ProductFeedItem[]>(`/products/feed?limit=${limit}`),
+  getFeed: (params: { limit?: number; brands?: string[]; stores?: string[]; search?: string } | number = {}) => {
+    // Backwards-compat: getFeed(50) still works
+    const opts = typeof params === "number" ? { limit: params } : params;
+    const qs = new URLSearchParams();
+    qs.append("limit", String(opts.limit ?? 20));
+    opts.brands?.forEach(b => qs.append("brands", b));
+    opts.stores?.forEach(s => qs.append("stores", s.toLowerCase()));
+    if (opts.search) qs.append("search", opts.search);
+    return fetchApi<ProductFeedItem[]>(`/products/feed?${qs.toString()}`);
+  },
   getCatalog: (params?: string) =>
     fetchApi<CatalogItem[]>(`/products/catalog${params ? `?${params}` : ""}`),
+  getCatalogCount: (params?: string) =>
+    fetchApi<{ total: number }>(`/products/catalog/count${params ? `?${params}` : ""}`),
+  getBrands: () =>
+    fetchApi<Array<{ name: string; count: number }>>(`/products/brands`),
   getProduct: (id: number | string) =>
     fetchApi<ProductCardDetail>(`/products/${id}`),
   getStats: () =>

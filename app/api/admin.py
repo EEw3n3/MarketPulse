@@ -105,14 +105,30 @@ async def admin_health(
     total_users = await db.scalar(select(func.count(User.id))) or 0
     db_latency = round((time.monotonic() - t0) * 1000, 2)
 
+    # Single-query aggregation across all distinct search_term values, then
+    # normalized matching to ScrapingRule. Historic data wrote search_term as
+    # "notino"/"notino.lv"/"Douglas Latvia" inconsistently, so a strict equality
+    # vs rule.domain ("notino.lv") would return 0 for half the data.
+    counts_stmt = select(Product.search_term, func.count(Product.id)).group_by(Product.search_term)
+    counts_rows = (await db.execute(counts_stmt)).all()
+
+    def _norm(s: str | None) -> str:
+        return (s or "").lower().replace(".lv", "").replace(" latvia", "").strip()
+
+    counts_by_norm: dict[str, int] = {}
+    for st, cnt in counts_rows:
+        norm = _norm(st)
+        if not norm:
+            continue
+        counts_by_norm[norm] = counts_by_norm.get(norm, 0) + cnt
+
     rules_result = await db.execute(select(ScrapingRule))
     rules = rules_result.scalars().all()
 
     sites = []
     for rule in rules:
-        pc = await db.scalar(
-            select(func.count(Product.id)).where(Product.search_term == rule.domain)
-        ) or 0
+        # Match by normalized domain OR site_name — both can appear in legacy data
+        pc = counts_by_norm.get(_norm(rule.domain), 0) or counts_by_norm.get(_norm(rule.site_name), 0)
         sites.append(SiteHealth(
             domain=rule.domain,
             site_name=rule.site_name,

@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    if (user) localStorage.removeItem(`marketpulse_chat_${user.id}`);
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);

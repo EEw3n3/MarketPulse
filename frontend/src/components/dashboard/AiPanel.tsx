@@ -2,28 +2,9 @@ import { X, Send, Sparkles, MessageSquare, Trash2 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { api, type ChatMessage } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
-const CHAT_STORAGE_KEY = "marketpulse_chat_history";
 const MAX_STORED_MESSAGES = 40;
-
-function loadMessages(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMessages(msgs: ChatMessage[]) {
-  try {
-    // Keep only the last N messages to avoid localStorage limits
-    const toStore = msgs.slice(-MAX_STORED_MESSAGES);
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toStore));
-  } catch {
-    // Storage quota exceeded — ignore silently
-  }
-}
 
 const suggestedChips = [
   "What prices dropped this week?",
@@ -218,7 +199,17 @@ function InputArea({
 }
 
 export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
+  const { user } = useAuth();
+  const storageKey = user ? `marketpulse_chat_${user.id}` : "marketpulse_chat_guest";
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -227,8 +218,13 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
 
   // Persist messages to localStorage whenever they change
   useEffect(() => {
-    saveMessages(messages);
-  }, [messages]);
+    try {
+      const toStore = messages.slice(-MAX_STORED_MESSAGES);
+      localStorage.setItem(storageKey, JSON.stringify(toStore));
+    } catch {
+      // Storage quota exceeded — ignore silently
+    }
+  }, [messages, storageKey]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -246,7 +242,7 @@ export default function AiPanel({ open = true, onClose, onOpen }: AiPanelProps) 
 
   const handleClear = () => {
     setMessages([]);
-    localStorage.removeItem(CHAT_STORAGE_KEY);
+    localStorage.removeItem(storageKey);
   };
 
   const handleSend = async (chipText?: string) => {

@@ -114,6 +114,12 @@ class PerfumeNormalizer:
         r"\bunisex\b",
         r"\bpapildinājums\b", r"\bpapildinajums\b",
         r"\baromāts\b", r"\baromats\b", r"\baromātu\b", r"\baromatu\b",
+        # Session 17 — Notino LV "limited edition" parenthetical artifact:
+        # "(ierobežota daudzuma prece)" = "limited quantity item". Strip the
+        # individual words; the orphan-bracket pattern above clears the empty ().
+        r"\bierobežota\b", r"\bierobezota\b",
+        r"\bdaudzuma\b", r"\bdaudzums\b",
+        r"\bprece\b", r"\bpreces\b",
     ]
 
     # Latvian ↔ English canonical replacements applied before NOISE stripping.

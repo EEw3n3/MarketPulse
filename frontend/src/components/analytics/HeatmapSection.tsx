@@ -4,6 +4,7 @@ import { api, BrandStoreCell } from "@/lib/api";
 import SectionHeader from "./SectionHeader";
 import { cn } from "@/lib/utils";
 import { LoadingState, ErrorState, EmptyState } from "@/components/ui/state-views";
+import { canonicalStore } from "@/lib/stores";
 
 function storeTag(name: string): string {
   return name.replace(/\.lv$/i, "").replace(/\s+latvija$/i, "").trim().slice(0, 2).toUpperCase();
@@ -135,7 +136,7 @@ export default function HeatmapSection() {
                         style={{ backgroundColor: `hsl(var(--primary) / ${opacity})` }}
                         onClick={() =>
                           navigate(
-                            `/catalog?brands=${encodeURIComponent(b)}&stores=${encodeURIComponent(s)}`
+                            `/catalog?brands=${encodeURIComponent(b)}&stores=${encodeURIComponent(canonicalStore(s))}`
                           )
                         }
                       >

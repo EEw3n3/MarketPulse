@@ -51,7 +51,8 @@ export default function VolatilityScatter({ window }: Props) {
     api
       .getVolatility(window, 100)
       .then((d) => {
-        if (!cancelled) setPoints(d);
+        // Log scale on X-axis requires current_price > 0
+        if (!cancelled) setPoints(d.filter((p) => p.current_price > 0 && p.volatility_eur >= 0));
       })
       .catch(() => {
         if (!cancelled) setPoints([]);
@@ -96,6 +97,10 @@ export default function VolatilityScatter({ window }: Props) {
               <XAxis
                 dataKey="current_price"
                 type="number"
+                scale="log"
+                domain={[1, "dataMax"]}
+                allowDataOverflow={false}
+                ticks={[3, 10, 30, 100, 300, 1000]}
                 name="Price"
                 unit=" €"
                 tick={{ fontSize: 10, fill: "hsl(220, 12%, 55%)", fontFamily: "monospace" }}
@@ -103,7 +108,7 @@ export default function VolatilityScatter({ window }: Props) {
                 axisLine={false}
                 tickFormatter={(v: number) => `${v.toFixed(0)}€`}
                 label={{
-                  value: "Current price",
+                  value: "Current price (log)",
                   position: "insideBottom",
                   offset: -16,
                   style: { fill: "hsl(220, 12%, 55%)", fontSize: 10, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.14em" },

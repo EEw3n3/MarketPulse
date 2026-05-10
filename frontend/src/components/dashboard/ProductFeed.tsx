@@ -1,9 +1,11 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useLayoutEffect } from "react";
 import { ChevronLeft, ChevronRight, Package, ArrowDown, ArrowUp, ArrowUpRight, Heart } from "lucide-react";
-import { LoadingState, ErrorState } from "@/components/ui/state-views";
-import { useNavigate } from "react-router-dom";
+import { LoadingState, ErrorState, EmptyState } from "@/components/ui/state-views";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ProductFeedItem } from "@/lib/api";
 import { useFavorites } from "@/contexts/FavoritesContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { canonicalStore } from "@/lib/stores";
 
 function ChangeBadge({ direction, percent }: { direction: "up" | "down" | "none"; percent: number }) {
   if (direction === "none") {
@@ -121,9 +123,41 @@ function ProductCard({ product, compact = false }: { product: ProductFeedItem; c
   );
 }
 
-function ScrollableRow({ products, compact = false }: { products: ProductFeedItem[]; compact?: boolean }) {
+function ScrollableRow({ products, compact = false, scrollKey }: { products: ProductFeedItem[]; compact?: boolean; scrollKey: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
+  const restoredOnce = useRef(false);
+
+  // Restore horizontal scroll once products are available, before paint.
+  // Persisted in sessionStorage so it survives navigation to a product card
+  // and back, but doesn't outlive the browser session.
+  useLayoutEffect(() => {
+    if (restoredOnce.current || products.length === 0 || !scrollRef.current) return;
+    const stored = sessionStorage.getItem(`feedScroll:${scrollKey}`);
+    if (stored) {
+      const x = parseInt(stored, 10);
+      if (!Number.isNaN(x)) scrollRef.current.scrollLeft = x;
+    }
+    restoredOnce.current = true;
+  }, [products.length, scrollKey]);
+
+  // Persist current scrollLeft on every scroll (rAF-throttled).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const handler = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        sessionStorage.setItem(`feedScroll:${scrollKey}`, String(el.scrollLeft));
+      });
+    };
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", handler);
+      cancelAnimationFrame(raf);
+    };
+  }, [scrollKey]);
 
   const scroll = (dir: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -201,17 +235,49 @@ function SectionHeader({
   );
 }
 
+function prioritizeByPreferences(
+  items: ProductFeedItem[],
+  preferredBrands: string[],
+  preferredStores: string[]
+): ProductFeedItem[] {
+  if (preferredBrands.length === 0 && preferredStores.length === 0) return items;
+  const brandsLower = new Set(preferredBrands.map((b) => b.toLowerCase()));
+  const storesLower = new Set(preferredStores.map((s) => s.toLowerCase()));
+  const score = (p: ProductFeedItem) => {
+    const brandMatch = brandsLower.has(p.brand.toLowerCase()) ? 2 : 0;
+    const storeMatch = storesLower.has(p.storeName.toLowerCase()) ? 1 : 0;
+    return brandMatch + storeMatch;
+  };
+  return [...items].sort((a, b) => score(b) - score(a));
+}
+
 export default function ProductFeed() {
   const [products, setProducts] = useState<ProductFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+
+  const preferredBrands = user?.preferences?.interested_brands ?? [];
+  const preferredStores = user?.preferences?.monitored_stores ?? [];
+
+  // Filter values come from the URL (?stores=&brands=&search=) so they survive
+  // reloads and stay in sync with DashboardFilterBar / DashboardTopBar.
+  const filterStores = searchParams.getAll("stores");
+  const filterBrands = searchParams.getAll("brands");
+  const filterSearch = searchParams.get("search") ?? "";
 
   useEffect(() => {
     const loadFeed = async () => {
       try {
         setLoading(true);
-        const data = await api.getFeed();
+        const data = await api.getFeed({
+          limit: 50,
+          stores: filterStores.length > 0 ? filterStores : undefined,
+          brands: filterBrands.length > 0 ? filterBrands : undefined,
+          search: filterSearch || undefined,
+        });
         setProducts(data);
         setError(null);
       } catch (err) {
@@ -222,7 +288,8 @@ export default function ProductFeed() {
       }
     };
     loadFeed();
-  }, []);
+    // searchParams.toString() — stable dep that re-runs when any param changes
+  }, [searchParams.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -246,16 +313,37 @@ export default function ProductFeed() {
     );
   }
 
+  if (products.length === 0) {
+    return (
+      <EmptyState
+        message="No products match your filters."
+        description="Adjust the store, brand, or search filters above."
+        icon={Package}
+        className="h-[400px] border-0 rounded-none bg-transparent"
+      />
+    );
+  }
+
+  // Apply preference-based prioritization before grouping
+  const prioritized = prioritizeByPreferences(products, preferredBrands, preferredStores);
+
   // Group by store
-  const byStore = products.reduce<Record<string, ProductFeedItem[]>>((acc, p) => {
+  const byStore = prioritized.reduce<Record<string, ProductFeedItem[]>>((acc, p) => {
     const key = p.storeName ?? "Other";
     (acc[key] ??= []).push(p);
     return acc;
   }, {});
-  const storeOrder = Object.keys(byStore).sort((a, b) => byStore[b].length - byStore[a].length);
+  // Preferred stores appear first in the section order
+  const storesLowerSet = new Set(preferredStores.map((s) => s.toLowerCase()));
+  const storeOrder = Object.keys(byStore).sort((a, b) => {
+    const aPreferred = storesLowerSet.has(a.toLowerCase()) ? 1 : 0;
+    const bPreferred = storesLowerSet.has(b.toLowerCase()) ? 1 : 0;
+    if (bPreferred !== aPreferred) return bPreferred - aPreferred;
+    return byStore[b].length - byStore[a].length;
+  });
 
-  const droppedCount = products.filter((p) => p.changeDirection === "down").length;
-  const increasedCount = products.filter((p) => p.changeDirection === "up").length;
+  const droppedCount = prioritized.filter((p) => p.changeDirection === "down").length;
+  const increasedCount = prioritized.filter((p) => p.changeDirection === "up").length;
 
   return (
     <div className="flex flex-col gap-10 px-5 lg:px-7 pt-7 pb-10">
@@ -263,7 +351,7 @@ export default function ProductFeed() {
       <div className="flex items-center justify-between flex-wrap gap-y-2">
         <div className="flex items-center gap-6 text-[12px]">
           <span className="font-mono text-muted-foreground">
-            Updated {timeStr} · {products.length} changes tracked
+            Updated {timeStr} · {prioritized.length} changes tracked
           </span>
           <span className="flex items-center gap-1.5 text-[hsl(var(--success))]">
             <ArrowDown size={11} strokeWidth={2.5} />
@@ -290,9 +378,9 @@ export default function ProductFeed() {
         <SectionHeader
           eyebrow="01 · Activity"
           title="Latest changes"
-          count={products.length}
+          count={prioritized.length}
         />
-        <ScrollableRow products={products} />
+        <ScrollableRow products={prioritized} scrollKey="latest" />
       </section>
 
       {/* Per-store sections */}
@@ -302,9 +390,9 @@ export default function ProductFeed() {
             eyebrow={`0${idx + 2} · ${store}`}
             title={`Movements on ${store}`}
             count={byStore[store].length}
-            cta={{ label: "See all", onClick: () => navigate(`/catalog?store=${encodeURIComponent(store)}`) }}
+            cta={{ label: "See all", onClick: () => navigate(`/catalog?stores=${encodeURIComponent(canonicalStore(store))}`) }}
           />
-          <ScrollableRow products={byStore[store]} compact />
+          <ScrollableRow products={byStore[store]} compact scrollKey={`store-${store}`} />
         </section>
       ))}
     </div>

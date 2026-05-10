@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
+import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import AiPanel from "@/components/dashboard/AiPanel";
 import MobileBottomNav from "@/components/dashboard/MobileBottomNav";
 import FavoritesContent from "@/components/favorites/FavoritesContent";
@@ -18,7 +19,10 @@ export default function Favorites() {
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <FavoritesContent />
+        <DashboardTopBar onSettingsClick={() => navigate("/settings")} onAiToggle={() => setAiPanelOpen(!aiPanelOpen)} aiPanelOpen={aiPanelOpen} />
+        <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+          <FavoritesContent />
+        </main>
       </div>
 
       <AiPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onOpen={() => setAiPanelOpen(true)} />

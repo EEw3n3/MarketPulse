@@ -335,12 +335,20 @@ function LogPanel() {
           {loading ? (
             <LoadingState label="Loading logs" height="h-[80px]" />
           ) : (
-            <pre className="px-5 py-4 text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-[320px] overflow-y-auto leading-relaxed">
+            // resize-y lets the user drag the bottom edge to grow the panel.
+            // Default to ~14 lines tall; cap at 80vh so it can never push the
+            // refresh button off-screen.
+            <pre
+              className="px-5 py-4 text-[11px] font-mono text-muted-foreground overflow-x-auto overflow-y-auto leading-relaxed resize-y"
+              style={{ height: "320px", minHeight: "180px", maxHeight: "80vh" }}
+            >
               {(data?.lines ?? ["[no logs]"]).join("\n")}
             </pre>
           )}
           <div className="px-5 py-2.5 border-t border-border flex items-center justify-between">
-            <span className="font-mono text-[10px] text-muted-foreground">{data?.total ?? 0} entries in buffer</span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {data?.total ?? 0} entries in buffer · drag bottom edge to resize
+            </span>
             <button onClick={load} className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors">
               ↻ refresh
             </button>
@@ -502,7 +510,7 @@ function UsersTab() {
             </span>
             <span className="font-mono tabular-nums text-[12px] text-foreground">{u.favorites_count}</span>
             <span className={cn(
-              "inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full border w-fit",
+              "inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap justify-self-start",
               u.is_active
                 ? "text-[hsl(var(--success))] border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/[0.06]"
                 : "text-muted-foreground border-border bg-surface-2"

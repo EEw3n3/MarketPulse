@@ -333,4 +333,49 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  /* ── Landing page animations (Index.tsx) ─────────────────────── */
+
+  @keyframes marquee-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+  .animate-marquee-scroll {
+    animation: marquee-scroll 38s linear infinite;
+    width: max-content;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: -150% center; }
+    100% { background-position: 250% center; }
+  }
+  .animate-shimmer {
+    background-size: 200% auto;
+    animation: shimmer 6s linear infinite;
+  }
+
+  @keyframes typing-cursor {
+    0%, 49%   { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+  .animate-typing-cursor {
+    animation: typing-cursor 1s step-end infinite;
+  }
+
+  @keyframes drift-slow {
+    0%, 100% { transform: translate(0, 0); }
+    50%      { transform: translate(4px, -8px); }
+  }
+  .animate-drift-slow {
+    animation: drift-slow 6s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-marquee-scroll,
+    .animate-shimmer,
+    .animate-typing-cursor,
+    .animate-drift-slow {
+      animation: none !important;
+    }
+  }
 }

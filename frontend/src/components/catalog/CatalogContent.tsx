@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, CatalogItem } from "@/lib/api";
 import {
   Search,
@@ -55,24 +55,92 @@ function ChangePill({ direction, percent }: { direction: "up" | "down" | "none";
 
 export default function CatalogContent() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<FilterState>(defaultFilters);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Filter state lives in URL params — shared with DashboardTopBar (search) and
+  // DashboardFilterBar (brands/stores). Local state only holds UI-only values
+  // (sort, viewMode, page) and supplemental filter fields not yet in the URL
+  // (priceRange, types, inStock).
+  const [extraFilters, setExtraFilters] = useState<Pick<FilterState, "types" | "priceRange" | "inStock">>({
+    types: defaultFilters.types,
+    priceRange: defaultFilters.priceRange,
+    inStock: defaultFilters.inStock,
+  });
+
+  const filters: FilterState = useMemo(() => ({
+    search: searchParams.get("search") ?? "",
+    brands: searchParams.getAll("brands"),
+    stores: searchParams.getAll("stores"),
+    types: extraFilters.types,
+    priceRange: extraFilters.priceRange,
+    inStock: extraFilters.inStock,
+  }), [searchParams, extraFilters]);
+
+  const setFilters: React.Dispatch<React.SetStateAction<FilterState>> = (updater) => {
+    const next = typeof updater === "function" ? (updater as (p: FilterState) => FilterState)(filters) : updater;
+    // URL-bound fields. Stores are already canonical keys (lowercase, no .lv) —
+    // CatalogFilterPanel canonicalizes before adding/removing. Don't double-process.
+    const params = new URLSearchParams(searchParams);
+    params.delete("search");
+    params.delete("brands");
+    params.delete("stores");
+    if (next.search) params.set("search", next.search);
+    next.brands.forEach((b) => params.append("brands", b));
+    next.stores.forEach((s) => params.append("stores", s));
+    setSearchParams(params, { replace: true });
+    // Extra (non-URL) fields
+    setExtraFilters({ types: next.types, priceRange: next.priceRange, inStock: next.inStock });
+  };
+
   const [sortField, setSortField] = useState<SortField>("brand");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [products, setProducts] = useState<CatalogItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [allBrands, setAllBrands] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch the complete list of brands once — the filter panel needs all of them,
+  // not just the brands present on the current page.
+  useEffect(() => {
+    let cancelled = false;
+    api.getBrands()
+      .then(rows => { if (!cancelled) setAllBrands(rows.map(r => r.name)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setPage(1);
+  }, [searchParams.toString(), extraFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const buildFilterParams = () => {
+    const p = new URLSearchParams();
+    if (filters.search) p.append("search", filters.search);
+    filters.brands.forEach(b => p.append("brands", b));
+    filters.stores.forEach(s => p.append("stores", s));
+    return p;
+  };
+
+  // Re-fetch total count whenever filters change (not on page change)
+  useEffect(() => {
+    let cancelled = false;
+    const filterParams = buildFilterParams();
+    api.getCatalogCount(filterParams.toString())
+      .then(res => { if (!cancelled) setTotal(res.total); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [filters.search, filters.brands.join(","), filters.stores.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    const queryParams = new URLSearchParams();
-    if (filters.search) queryParams.append("search", filters.search);
-    filters.brands.forEach(b => queryParams.append("brands", b));
-    filters.stores.forEach(s => queryParams.append("stores", s.toLowerCase()));
+    const queryParams = buildFilterParams();
     queryParams.append("skip", String((page - 1) * ROWS_PER_PAGE));
     queryParams.append("limit", String(ROWS_PER_PAGE));
 
@@ -85,7 +153,7 @@ export default function CatalogContent() {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [filters, page]);
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -106,7 +174,7 @@ export default function CatalogContent() {
     );
   };
 
-  const totalPages = 5; // Backend not returning total count yet
+  const totalPages = Math.max(1, Math.ceil(total / ROWS_PER_PAGE));
 
   const headerCell = (
     label: string,
@@ -155,7 +223,7 @@ export default function CatalogContent() {
                 Product database
               </h1>
               <span className="font-mono tabular-nums text-[12px] text-muted-foreground">
-                {products.length} {products.length === 1 ? "row" : "rows"}
+                {total.toLocaleString()} {total === 1 ? "row" : "rows"}
               </span>
             </div>
           </div>
@@ -182,7 +250,7 @@ export default function CatalogContent() {
         <CatalogFilterPanel
           filters={filters}
           setFilters={(f) => { typeof f === "function" ? setFilters((prev: FilterState) => { const next = (f as (p: FilterState) => FilterState)(prev); setPage(1); return next; }) : (() => { setFilters(f); setPage(1); })(); }}
-          availableBrands={Array.from(new Set(products.map(p => p.brand)))}
+          availableBrands={allBrands.length > 0 ? allBrands : Array.from(new Set(products.map(p => p.brand)))}
           availableStores={stores}
           availableTypes={types}
         />

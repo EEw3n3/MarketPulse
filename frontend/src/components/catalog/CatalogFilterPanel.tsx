@@ -4,6 +4,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { canonicalStore } from "@/lib/stores";
 
 export type FilterState = {
   search: string;
@@ -144,7 +145,11 @@ export default function CatalogFilterPanel({
               <AccordionContent className="pb-4">
                 <div className="space-y-2.5 pt-1">
                   {availableStores.map((store) => {
-                    const checked = filters.stores.includes(store);
+                    // filters.stores stores canonical keys ("douglas"); the
+                    // checkbox label is the display name ("Douglas.lv"). Compare
+                    // by canonicalizing both sides.
+                    const key = canonicalStore(store);
+                    const checked = filters.stores.includes(key);
                     return (
                       <label
                         key={store}
@@ -157,7 +162,7 @@ export default function CatalogFilterPanel({
                         <Checkbox
                           id={`store-${store}`}
                           checked={checked}
-                          onCheckedChange={() => toggleArrayItem("stores", store)}
+                          onCheckedChange={() => toggleArrayItem("stores", key)}
                           className="data-[state=checked]:bg-foreground data-[state=checked]:border-foreground data-[state=checked]:text-background"
                         />
                         <span className="text-[12.5px] flex-1 transition-colors">{store}</span>

@@ -1,9 +1,10 @@
-import { ArrowLeft, Upload, Bell, BellRing, Package, ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowLeft, Upload, Bell, BellRing, Package, ArrowDown, ArrowUp, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ProductCardDetail, ProductFeedItem } from "@/lib/api";
+import { ProductCardDetail } from "@/lib/api";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
 interface Props {
   product: ProductCardDetail;
@@ -51,15 +52,13 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
 
   const { percent, direction } = calcChange(product.current_price, product.old_price ?? null);
 
-  type StoreRow = { name: string; price: number; item?: ProductFeedItem };
-  const rows: StoreRow[] = [
-    { name: product.store_name, price: product.current_price },
-    ...product.competitors.map(c => ({ name: c.storeName, price: c.currentPrice, item: c })),
-  ].sort((a, b) => a.price - b.price);
-  const bestPrice = rows[0]?.price;
-  const worstPrice = rows[rows.length - 1]?.price;
+  // Backend already returns offers deduplicated by store, sorted by price ASC, max 5.
+  const offers = product.offers ?? [];
+  const currentStoreNorm = product.store_name.toLowerCase().replace(/\.lv$/, "").replace(/\s+latvia$/, "").trim();
+  const bestPrice = offers[0]?.price;
+  const worstPrice = offers[offers.length - 1]?.price;
   const spreadPct =
-    rows.length > 1 && bestPrice > 0
+    offers.length > 1 && bestPrice > 0
       ? Math.round(((worstPrice - bestPrice) / bestPrice) * 100)
       : 0;
 
@@ -154,11 +153,11 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
         </div>
 
         {/* Cross-site comparison */}
-        {rows.length > 0 && (
+        {offers.length > 0 && (
           <div className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Price comparison · {rows.length} {rows.length === 1 ? "store" : "stores"}
+                Price comparison · {offers.length} {offers.length === 1 ? "store" : "stores"}
               </span>
               {spreadPct > 0 && (
                 <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
@@ -167,34 +166,105 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
               )}
             </div>
             <div className="border border-border rounded-md divide-y divide-border overflow-hidden bg-surface">
-              {rows.map((s, i) => {
-                const isBest = i === 0 && rows.length > 1;
-                return (
+              {offers.map((o, i) => {
+                const isBest = i === 0 && offers.length > 1;
+                const hasVariants = o.variants.length > 0;
+                const isCurrentStore =
+                  o.storeName.toLowerCase().replace(/\.lv$/, "").replace(/\s+latvia$/, "").trim() === currentStoreNorm;
+                const totalCount = 1 + o.variants.length;
+
+                const row = (
                   <div
-                    key={`${s.name}-${s.price}-${i}`}
-                    className={`flex items-center gap-3 px-3 py-2.5 ${
+                    className={`relative flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-2/40 transition-colors ${
                       isBest ? "bg-[hsl(var(--success))]/[0.06]" : ""
-                    }`}
+                    } ${isCurrentStore ? "border-l-2 border-primary/40 pl-[10px]" : ""}`}
+                    // replace:true keeps the history stack flat — chained store
+                    // hops (Notino → 1a.lv → Makeup) all collapse, so the back
+                    // button always returns to the originating Dashboard/Catalog.
+                    onClick={() => !hasVariants && navigate(`/product/${o.product_id}`, { replace: true })}
                   >
+                    {hasVariants && (
+                      <span className="absolute top-1 right-1 font-mono text-[9px] font-semibold text-primary bg-primary/[0.15] border border-primary/40 rounded px-1 leading-none py-0.5">
+                        +{o.variants.length}
+                      </span>
+                    )}
                     <span className="w-8 h-6 rounded-sm bg-surface-2 border border-border font-mono text-[10px] font-medium text-muted-foreground flex items-center justify-center shrink-0">
-                      {storeTag(s.name)}
+                      {storeTag(o.storeName)}
                     </span>
                     <span className="text-[12.5px] text-foreground flex-1 truncate">
-                      {s.name}
+                      {o.storeName}
                     </span>
                     <span
                       className={`font-mono tabular-nums font-semibold text-[13px] ${
                         isBest ? "text-[hsl(var(--success))]" : "text-foreground"
                       }`}
                     >
-                      {s.price.toFixed(2)} €
+                      {o.price.toFixed(2)} €
                     </span>
-                    {isBest && (
+                    {isBest && !hasVariants && (
                       <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[hsl(var(--success))] font-semibold">
                         Best
                       </span>
                     )}
                   </div>
+                );
+
+                if (!hasVariants) {
+                  return <div key={`${o.storeName}-${i}`}>{row}</div>;
+                }
+
+                return (
+                  <Popover key={`${o.storeName}-${i}`}>
+                    <PopoverTrigger asChild>{row}</PopoverTrigger>
+                    <PopoverContent side="left" align="start" className="w-[280px] p-2">
+                      <div className="flex items-baseline justify-between px-2 pb-2 border-b border-border">
+                        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                          {o.storeName}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {totalCount} listings
+                        </span>
+                      </div>
+                      <div className="divide-y divide-border">
+                        <a
+                          href={o.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center justify-between gap-2 px-2 py-2 hover:bg-surface-2/60 rounded-sm"
+                        >
+                          <span className="text-[12px] text-foreground truncate flex items-center gap-1.5">
+                            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[hsl(var(--success))]">
+                              Best
+                            </span>
+                            Listing #1
+                            <ExternalLink size={10} className="text-muted-foreground" />
+                          </span>
+                          <span className="font-mono tabular-nums text-[12px] text-[hsl(var(--success))] font-semibold shrink-0">
+                            {o.price.toFixed(2)} €
+                          </span>
+                        </a>
+                        {o.variants.map((v, vi) => (
+                          <a
+                            key={v.product_id}
+                            href={v.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center justify-between gap-2 px-2 py-2 hover:bg-surface-2/60 rounded-sm"
+                          >
+                            <span className="text-[12px] text-foreground truncate flex items-center gap-1">
+                              Listing #{vi + 2}
+                              <ExternalLink size={10} className="text-muted-foreground" />
+                            </span>
+                            <span className="font-mono tabular-nums text-[12px] text-foreground shrink-0">
+                              {v.price.toFixed(2)} €
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 );
               })}
             </div>

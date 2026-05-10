@@ -47,6 +47,32 @@ class CatalogItem(BaseModel):
     in_stock: bool
     lastUpdated: str   # formatted date
 
+class StoreOfferVariant(BaseModel):
+    """One product within a store (used for popover when a store has duplicates by volume)."""
+    product_id: int
+    price: float
+    url: str
+    image_url: Optional[str] = None
+
+
+class StoreOffer(BaseModel):
+    """One store row in the Price Comparison block.
+    `price` is the cheapest offer for that store at the same volume; if the store
+    has multiple listings of the same volume, the rest live in `variants` and are
+    revealed via a popover."""
+    product_id: int                   # ID of the cheapest listing (for navigation)
+    url: str                          # External URL of the cheapest listing
+    storeName: str
+    storeInitial: str
+    storeColor: str
+    price: float
+    previousPrice: float
+    changePercent: float
+    changeDirection: Literal["up", "down", "none"]
+    image_url: Optional[str] = None
+    variants: List[StoreOfferVariant] = []
+
+
 class ProductCardDetail(BaseModel):
     """Complete data for a single product page"""
     id: int
@@ -61,10 +87,10 @@ class ProductCardDetail(BaseModel):
     old_price: Optional[float]
     store_name: str
     is_available: bool
-    
+
     # Nested data
     history: List[PriceHistoryRead] = []
-    competitors: List["ProductFeedItem"] = []  # Other offers in same ProductGroup
+    offers: List[StoreOffer] = []  # Per-store cheapest offers (max 5), with variants for duplicates
 
 class DashboardStats(BaseModel):
     """General KPIs for Analytics page"""

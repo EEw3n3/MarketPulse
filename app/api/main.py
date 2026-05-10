@@ -127,15 +127,22 @@ async def root():
     return {"message": "Welcome to MarketPulse API", "status": "online"}
 
 @app.get("/api/products/feed", response_model=List[schemas.ProductFeedItem])
-async def get_product_feed(limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def get_product_feed(
+    limit: int = 20,
+    brands: List[str] = Query(None),
+    stores: List[str] = Query(None),
+    search: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
     """Latest price changes for the dashboard feed."""
-    # Fetch products that had a price change recently
-    stmt = (
-        select(Product)
-        .where(Product.old_price.isnot(None))
-        .order_by(desc(Product.last_seen))
-        .limit(limit)
-    )
+    stmt = select(Product).where(Product.old_price.isnot(None))
+    if brands:
+        stmt = stmt.where(Product.brand.in_(brands))
+    if stores:
+        stmt = stmt.where(_store_filter_clause(stores))
+    if search:
+        stmt = stmt.where(or_(Product.title.ilike(f"%{search}%"), Product.brand.ilike(f"%{search}%")))
+    stmt = stmt.order_by(desc(Product.last_seen)).limit(limit)
     result = await db.execute(stmt)
     products = result.scalars().all()
     
@@ -162,6 +169,53 @@ async def get_product_feed(limit: int = 20, db: AsyncSession = Depends(get_db)):
         ))
     return feed_items
 
+@app.get("/api/products/brands")
+async def get_all_brands(db: AsyncSession = Depends(get_db)) -> List[dict]:
+    """All distinct brands with product counts, sorted by count DESC.
+    Used by the catalog filter panel to populate the full brand list."""
+    stmt = (
+        select(Product.brand, func.count(Product.id).label("count"))
+        .where(Product.brand.isnot(None), Product.brand != "")
+        .group_by(Product.brand)
+        .order_by(desc(func.count(Product.id)))
+    )
+    result = await db.execute(stmt)
+    return [{"name": row[0], "count": row[1]} for row in result.all()]
+
+
+def _store_filter_clause(stores: List[str]):
+    """Case-insensitive substring match for stores. Frontend sends canonical keys
+    ("notino", "douglas", "220", "makeup", "1a") — DB has mixed forms like
+    "Notino", "notino.lv", "Douglas Latvia", "Makeup latvija", "1A.LV". A LOWER()
+    LIKE %key% matches all variants reliably."""
+    return or_(*(func.lower(Product.search_term).like(f"%{s.lower()}%") for s in stores))
+
+
+def _catalog_base_stmt(search: Optional[str], brands: Optional[List[str]], stores: Optional[List[str]]):
+    """Shared filter logic for catalog endpoints."""
+    stmt = select(Product)
+    if search:
+        stmt = stmt.where(or_(Product.title.ilike(f"%{search}%"), Product.brand.ilike(f"%{search}%")))
+    if brands:
+        stmt = stmt.where(Product.brand.in_(brands))
+    if stores:
+        stmt = stmt.where(_store_filter_clause(stores))
+    return stmt
+
+
+@app.get("/api/products/catalog/count")
+async def get_catalog_count(
+    search: Optional[str] = None,
+    brands: List[str] = Query(None),
+    stores: List[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Total number of products matching the given filters."""
+    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores).subquery())
+    total = await db.scalar(stmt)
+    return {"total": int(total or 0)}
+
+
 @app.get("/api/products/catalog", response_model=List[schemas.CatalogItem])
 async def get_catalog(
     search: Optional[str] = None,
@@ -172,16 +226,7 @@ async def get_catalog(
     db: AsyncSession = Depends(get_db)
 ):
     """Full catalog with filtering and search."""
-    stmt = select(Product)
-    
-    if search:
-        stmt = stmt.where(or_(Product.title.ilike(f"%{search}%"), Product.brand.ilike(f"%{search}%")))
-    if brands:
-        stmt = stmt.where(Product.brand.in_(brands))
-    if stores:
-        stmt = stmt.where(Product.search_term.in_(stores))
-        
-    stmt = stmt.offset(skip).limit(limit)
+    stmt = _catalog_base_stmt(search, brands, stores).offset(skip).limit(limit)
     result = await db.execute(stmt)
     products = result.scalars().all()
     
@@ -207,9 +252,23 @@ async def get_catalog(
         ))
     return catalog_items
 
+def _norm_volume(v: Optional[str]) -> str:
+    return (v or "").lower().replace(" ", "").strip()
+
+
+def _norm_store(s: Optional[str]) -> str:
+    return (s or "").lower().replace(".lv", "").replace(" latvia", "").strip()
+
+
 @app.get("/api/products/{product_id}", response_model=schemas.ProductCardDetail)
 async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)):
-    """Detail view for a single product with history and competitors."""
+    """Detail view for a single product with history and per-store offers.
+
+    Offers are deduplicated: one row per unique store (cheapest), filtered to the
+    same `volume` as the requested product. If a store carries multiple listings
+    at the same volume, the extras are surfaced via `variants` for popover."""
+    from collections import defaultdict
+
     stmt = (
         select(Product)
         .options(selectinload(Product.history))
@@ -217,35 +276,71 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
     )
     result = await db.execute(stmt)
     product = result.scalar_one_or_none()
-    
+
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-        
-    # Get competitors (other products in the same group)
-    competitors = []
+
+    # Pull all in-stock, priced products in the group (incl. self).
+    group_products: list[Product] = []
     if product.group_id:
-        comp_stmt = select(Product).where(Product.group_id == product.group_id, Product.id != product.id)
-        comp_res = await db.execute(comp_stmt)
-        for cp in comp_res.scalars().all():
-            cp_percent, cp_direction = _price_delta(cp.last_price, cp.old_price)
-            competitors.append(schemas.ProductFeedItem(
-                id=cp.id, brand=cp.brand or "", title=cp.title,
-                currentPrice=float(cp.last_price),
-                previousPrice=float(cp.old_price) if cp.old_price else float(cp.last_price),
-                changePercent=cp_percent, changeDirection=cp_direction,
-                storeInitial=get_store_initial(cp.search_term),
-                storeName=cp.search_term.capitalize(),
-                storeColor=get_store_color(cp.search_term),
-                image_url=cp.image_url
-            ))
-            
-    # Prefer a high-res competitor image when the main product has none or a 220.lv thumbnail.
+        grp_stmt = select(Product).where(
+            Product.group_id == product.group_id,
+            Product.is_available == True,           # noqa: E712
+            Product.last_price.isnot(None),
+            Product.last_price > 0,
+        )
+        grp_res = await db.execute(grp_stmt)
+        group_products = list(grp_res.scalars().all())
+
+    target_volume = _norm_volume(product.volume)
+    # If current product has no volume (gift sets), don't filter by volume.
+    volume_filtered = [
+        p for p in group_products
+        if not target_volume or _norm_volume(p.volume) == target_volume
+    ]
+
+    # Group by normalized store name; cheapest = main, rest = variants.
+    by_store: dict[str, list[Product]] = defaultdict(list)
+    for p in volume_filtered:
+        by_store[_norm_store(p.search_term)].append(p)
+
+    offers: list[schemas.StoreOffer] = []
+    for _, items in by_store.items():
+        items.sort(key=lambda p: float(p.last_price))
+        main = items[0]
+        extras = items[1:]
+        cp_percent, cp_direction = _price_delta(main.last_price, main.old_price)
+        offers.append(schemas.StoreOffer(
+            product_id=main.id,
+            url=main.url,
+            storeName=main.search_term.capitalize(),
+            storeInitial=get_store_initial(main.search_term),
+            storeColor=get_store_color(main.search_term),
+            price=float(main.last_price),
+            previousPrice=float(main.old_price) if main.old_price else float(main.last_price),
+            changePercent=cp_percent,
+            changeDirection=cp_direction,
+            image_url=main.image_url,
+            variants=[
+                schemas.StoreOfferVariant(
+                    product_id=e.id,
+                    price=float(e.last_price),
+                    url=e.url,
+                    image_url=e.image_url,
+                )
+                for e in extras
+            ],
+        ))
+
+    # Sort stores by their cheapest price ASC, cap at 5 unique stores
+    offers.sort(key=lambda o: o.price)
+    offers = offers[:5]
+
+    # Use the product's own image — keeps the catalog card and detail page in
+    # sync. Earlier we substituted a competitor image for 220.lv listings, but
+    # that pulled in mismatched products (different concentration / form factor)
+    # whenever cross-site grouping was imperfect. Better to show the real image.
     display_image = product.image_url
-    if not display_image or "220.lv" in (product.url or ""):
-        for cp in competitors:
-            if cp.image_url and "220.lv" not in (cp.image_url or ""):
-                display_image = cp.image_url
-                break
 
     return schemas.ProductCardDetail(
         id=product.id,
@@ -261,7 +356,7 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         store_name=product.search_term.capitalize(),
         is_available=product.is_available,
         history=[schemas.PriceHistoryRead.model_validate(h) for h in product.history],
-        competitors=competitors
+        offers=offers,
     )
 
 @app.get("/api/analytics/stats", response_model=schemas.DashboardStats)
