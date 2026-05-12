@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Dict
 from sqlmodel import select
 from thefuzz import fuzz
@@ -90,26 +91,42 @@ class MatcherService:
         return None
 
     def get_canonical_name(self, title: str, brand: Optional[str] = None) -> str:
-        """Returns a clean, standardized name for the ProductGroup."""
+        """Returns a clean, standardized name for the ProductGroup.
+
+        Must produce UNIQUE names per distinct product. Two different perfumes
+        of the same brand+concentration must NEVER share a canonical name —
+        otherwise `ON CONFLICT DO NOTHING` on ProductGroup.name silently merges
+        them into one group, bypassing matcher fuzzy logic.
+        """
         norm = perfume_normalizer.extract_all(title, explicit_brand=brand)
         final_brand = brand or norm["brand"]
-        
-        parts = []
-        if final_brand: 
-            parts.append(final_brand)
-        
-        if norm["clean_name"]: 
-            can_add = True
-            for p in parts:
-                if norm["clean_name"].lower() in p.lower() or p.lower() in norm["clean_name"].lower():
-                    can_add = False
-                    break
-            if can_add:
-                parts.append(norm["clean_name"])
 
-        if norm["concentration"]: 
+        parts: list[str] = []
+        if final_brand:
+            parts.append(final_brand)
+
+        # clean_name may still contain brand tokens when the normalizer didn't
+        # recognize the brand (i.e. brand not in BRANDS list, came from
+        # explicit_brand). Strip them so the unique product designation survives.
+        product_token = (norm["clean_name"] or "").strip()
+        if product_token and final_brand:
+            # Strip the brand phrase as a whole, then any leftover brand-word tokens.
+            product_token = re.sub(
+                rf'\b{re.escape(final_brand)}\b', '', product_token, flags=re.IGNORECASE
+            )
+            for bw in final_brand.split():
+                if len(bw) > 2:
+                    product_token = re.sub(
+                        rf'\b{re.escape(bw)}\b', '', product_token, flags=re.IGNORECASE
+                    )
+            product_token = re.sub(r'\s+', ' ', product_token).strip(" -,.:|/")
+
+        if product_token:
+            parts.append(product_token)
+
+        if norm["concentration"]:
             parts.append(norm["concentration"])
-        
+
         # Final cleanup: unique words in order
         final_parts = []
         seen = set()
@@ -119,18 +136,15 @@ class MatcherService:
                 final_parts.append(p)
                 seen.add(low)
 
+        # If after all stripping nothing distinctive remains, fall back to the
+        # full title (minus volume) — guarantees uniqueness per scraped row.
         if not final_parts or len(" ".join(final_parts)) < 3:
-            # Fallback: remove only volume and leading punctuation from title
-            clean_title = perfume_normalizer.REGEX_VOLUME.sub("", title)
-            clean_title = clean_title.strip("-,. |/")
-            
-            # Check if clean_title is just a generic word
+            clean_title = perfume_normalizer.REGEX_VOLUME.sub("", title).strip("-,. |/")
             generics = {"man", "men", "woman", "women", "pour", "for", "eau", "de", "set"}
             if clean_title.lower() in generics:
-                return title # Use full title to keep it separate
-                
+                return title
             return clean_title if len(clean_title) > 2 else title
-            
+
         return " ".join(final_parts)
 
 matcher_service = MatcherService()

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -302,21 +302,35 @@ function ScrapingTab() {
 
 function LogPanel() {
   const [data, setData] = useState<AdminLogsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
 
-  const load = () => {
-    setLoading(true);
+  const load = useCallback((isInitial = false) => {
+    if (isInitial) setInitialLoading(true);
     api.admin.logs(100)
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        // scroll to bottom so newest lines are visible
+        requestAnimationFrame(() => {
+          if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
+        });
+      })
       .catch(() => {})
-      .finally(() => setLoading(false));
-  };
+      .finally(() => { if (isInitial) setInitialLoading(false); });
+  }, []);
 
   const toggle = () => {
-    if (!open) load();
+    if (!open) load(true);
     setOpen((v) => !v);
   };
+
+  // auto-refresh every 2s while panel is open
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => load(false), 2000);
+    return () => clearInterval(id);
+  }, [open, load]);
 
   return (
     <div className="border border-border rounded-md bg-surface/40 overflow-hidden">
@@ -332,13 +346,11 @@ function LogPanel() {
       </button>
       {open && (
         <div className="border-t border-border">
-          {loading ? (
+          {initialLoading ? (
             <LoadingState label="Loading logs" height="h-[80px]" />
           ) : (
-            // resize-y lets the user drag the bottom edge to grow the panel.
-            // Default to ~14 lines tall; cap at 80vh so it can never push the
-            // refresh button off-screen.
             <pre
+              ref={preRef}
               className="px-5 py-4 text-[11px] font-mono text-muted-foreground overflow-x-auto overflow-y-auto leading-relaxed resize-y"
               style={{ height: "320px", minHeight: "180px", maxHeight: "80vh" }}
             >
@@ -347,9 +359,9 @@ function LogPanel() {
           )}
           <div className="px-5 py-2.5 border-t border-border flex items-center justify-between">
             <span className="font-mono text-[10px] text-muted-foreground">
-              {data?.total ?? 0} entries in buffer · drag bottom edge to resize
+              showing last {data?.lines.length ?? 0} of {data?.total ?? 0} entries · drag bottom edge to resize
             </span>
-            <button onClick={load} className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => load(false)} className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors">
               ↻ refresh
             </button>
           </div>

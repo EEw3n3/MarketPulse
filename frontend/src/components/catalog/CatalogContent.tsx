@@ -8,6 +8,8 @@ import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Grid3X3,
   List,
   Download,
@@ -84,6 +86,7 @@ export default function CatalogContent() {
     params.delete("search");
     params.delete("brands");
     params.delete("stores");
+    params.set("page", "1"); // reset page on any filter change
     if (next.search) params.set("search", next.search);
     next.brands.forEach((b) => params.append("brands", b));
     next.stores.forEach((s) => params.append("stores", s));
@@ -94,13 +97,23 @@ export default function CatalogContent() {
 
   const [sortField, setSortField] = useState<SortField>("brand");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [products, setProducts] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [allBrands, setAllBrands] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // page lives in URL so back-navigation restores position
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const setPage = (p: number | ((prev: number) => number)) => {
+    const next = typeof p === "function" ? p(page) : p;
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev);
+      params.set("page", String(next));
+      return params;
+    }, { replace: true });
+  };
 
   // Fetch the complete list of brands once — the filter panel needs all of them,
   // not just the brands present on the current page.
@@ -111,11 +124,6 @@ export default function CatalogContent() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
-
-  // Reset to page 1 whenever filters change
-  useEffect(() => {
-    setPage(1);
-  }, [searchParams.toString(), extraFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildFilterParams = () => {
     const p = new URLSearchParams();
@@ -242,14 +250,14 @@ export default function CatalogContent() {
             type="text"
             placeholder="Search by name, brand…"
             value={filters.search}
-            onChange={(e) => { setFilters(p => ({ ...p, search: e.target.value })); setPage(1); }}
+            onChange={(e) => { setFilters(p => ({ ...p, search: e.target.value })); }}
             className="w-full h-9 pl-9 pr-3 rounded-md bg-surface border border-border text-[13px] text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
           />
         </div>
 
         <CatalogFilterPanel
           filters={filters}
-          setFilters={(f) => { typeof f === "function" ? setFilters((prev: FilterState) => { const next = (f as (p: FilterState) => FilterState)(prev); setPage(1); return next; }) : (() => { setFilters(f); setPage(1); })(); }}
+          setFilters={setFilters}
           availableBrands={allBrands.length > 0 ? allBrands : Array.from(new Set(products.map(p => p.brand)))}
           availableStores={stores}
           availableTypes={types}
@@ -436,6 +444,14 @@ export default function CatalogContent() {
         </span>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => setPage(1)}
+            disabled={page === 1}
+            className="w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground disabled:opacity-30 disabled:hover:text-muted-foreground disabled:hover:border-border transition-colors"
+            title="First page"
+          >
+            <ChevronsLeft size={14} />
+          </button>
+          <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
             className="w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground disabled:opacity-30 disabled:hover:text-muted-foreground disabled:hover:border-border transition-colors"
@@ -448,6 +464,14 @@ export default function CatalogContent() {
             className="w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground disabled:opacity-30 disabled:hover:text-muted-foreground disabled:hover:border-border transition-colors"
           >
             <ChevronRight size={14} />
+          </button>
+          <button
+            onClick={() => setPage(totalPages)}
+            disabled={page === totalPages}
+            className="w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground disabled:opacity-30 disabled:hover:text-muted-foreground disabled:hover:border-border transition-colors"
+            title="Last page"
+          >
+            <ChevronsRight size={14} />
           </button>
         </div>
       </div>

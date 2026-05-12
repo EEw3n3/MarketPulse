@@ -6,7 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, or_
 from sqlalchemy.orm import selectinload
+import logging
 import uvicorn
+
+
+class _EndpointFilter(logging.Filter):
+    """Suppress uvicorn access log spam for high-frequency polling endpoints."""
+    _MUTED = {"/api/admin/logs"}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(path in msg for path in self._MUTED)
+
+
+logging.getLogger("uvicorn.access").addFilter(_EndpointFilter())
 from app.api.deps import get_db
 from app.api import schemas
 from app.api.auth import router as auth_router
