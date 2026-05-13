@@ -372,6 +372,16 @@ export const api = {
     fetchApi<void>("/auth/me", { method: "DELETE" }),
   updatePreferences: (body: UserPreferencesUpdate) =>
     fetchApi<UserPreferences>("/auth/preferences", { method: "PATCH", body: JSON.stringify(body) }),
+  changePassword: (current_password: string, new_password: string) =>
+    fetchApi<void>("/auth/password", {
+      method: "PATCH",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+  updateProfile: (full_name: string) =>
+    fetchApi<UserRead>("/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ full_name }),
+    }),
   connectTelegram: () =>
     fetchApi<TelegramConnectResponse>("/auth/telegram/connect", { method: "POST" }),
   disconnectTelegram: () =>

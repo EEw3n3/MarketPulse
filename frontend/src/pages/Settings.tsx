@@ -66,10 +66,15 @@ const baseInput =
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { user, logout, updatePreferences } = useAuth();
+  const { user, logout, updatePreferences, refreshUser } = useAuth();
 
   const [name, setName] = useState(user?.full_name ?? "");
+  const [savingName, setSavingName] = useState(false);
   const [showPasswordFields, setShowPasswordFields] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const [trackedStores, setTrackedStores] = useState<Set<string>>(
     new Set(user?.preferences?.monitored_stores ?? [])
@@ -81,6 +86,45 @@ export default function Settings() {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const [isDark, setIsDark] = useState(!document.documentElement.classList.contains("light"));
+
+  const handleSaveName = async () => {
+    if (name.trim() === (user?.full_name ?? "")) return;
+    setSavingName(true);
+    try {
+      await api.updateProfile(name.trim());
+      await refreshUser();
+      toast.success("Name updated");
+    } catch {
+      toast.error("Failed to update name");
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (newPwd.length < 8) {
+      toast.error("New password must be at least 8 characters");
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      toast.error("New password and confirmation do not match");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await api.changePassword(currentPwd, newPwd);
+      toast.success("Password updated");
+      setCurrentPwd("");
+      setNewPwd("");
+      setConfirmPwd("");
+      setShowPasswordFields(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to update password";
+      toast.error(msg.includes("400") ? "Current password is incorrect" : "Failed to update password");
+    } finally {
+      setSavingPassword(false);
+    }
+  };
 
   const handleSavePrefs = async () => {
     setSavingPrefs(true);
@@ -213,14 +257,46 @@ export default function Settings() {
 
               {showPasswordFields && (
                 <div className="flex flex-col gap-2 p-4 rounded-md bg-surface border border-border">
-                  <input type="password" placeholder="Current password" className={baseInput} />
-                  <input type="password" placeholder="New password" className={baseInput} />
-                  <input type="password" placeholder="Confirm new password" className={baseInput} />
+                  <input
+                    type="password"
+                    placeholder="Current password"
+                    value={currentPwd}
+                    onChange={(e) => setCurrentPwd(e.target.value)}
+                    autoComplete="current-password"
+                    className={baseInput}
+                  />
+                  <input
+                    type="password"
+                    placeholder="New password (min 8 chars)"
+                    value={newPwd}
+                    onChange={(e) => setNewPwd(e.target.value)}
+                    autoComplete="new-password"
+                    className={baseInput}
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={confirmPwd}
+                    onChange={(e) => setConfirmPwd(e.target.value)}
+                    autoComplete="new-password"
+                    className={baseInput}
+                  />
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={savingPassword || !currentPwd || !newPwd || !confirmPwd}
+                    className="self-start mt-1 h-8 px-3 rounded-md bg-primary text-primary-foreground text-[12.5px] font-medium hover:brightness-110 transition-all disabled:opacity-50"
+                  >
+                    {savingPassword ? "Updating…" : "Update password"}
+                  </button>
                 </div>
               )}
 
-              <button className="self-start h-9 px-4 rounded-md bg-foreground text-background text-[12.5px] font-medium hover:bg-foreground/90 transition-colors">
-                Save changes
+              <button
+                onClick={handleSaveName}
+                disabled={savingName || name.trim() === (user?.full_name ?? "")}
+                className="self-start h-9 px-4 rounded-md bg-foreground text-background text-[12.5px] font-medium hover:bg-foreground/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingName ? "Saving…" : "Save changes"}
               </button>
             </div>
           </section>

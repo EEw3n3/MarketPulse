@@ -28,6 +28,7 @@ from app.api.analytics import router as analytics_router
 from app.api.admin import router as admin_router
 from app.api.telegram import router as telegram_router
 from app.api.chat import router as chat_router
+from app.api.exports import router as exports_router
 from app.domain.models import Product, PriceHistory
 from app.core.config import settings
 
@@ -57,6 +58,7 @@ app.include_router(analytics_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(exports_router, prefix="/api")
 
 # --- Startup ---
 

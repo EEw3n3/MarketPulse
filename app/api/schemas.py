@@ -237,6 +237,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = Field(default=None, max_length=100)
+
+
 class UserRead(BaseModel):
     """User profile returned from /auth/me, /auth/register, /auth/login.
     `is_admin` is read-only — set server-side via ADMIN_EMAIL env, never by client."""

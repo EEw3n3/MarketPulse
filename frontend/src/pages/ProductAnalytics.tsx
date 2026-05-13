@@ -74,7 +74,7 @@ export default function ProductAnalytics() {
 
       <AiPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} onOpen={() => setAiPanelOpen(true)} />
 
-      <ExportModal open={exportOpen} onOpenChange={setExportOpen} />
+      <ExportModal open={exportOpen} onOpenChange={setExportOpen} scope="product" product={product} />
 
       <MobileBottomNav onSettingsClick={() => navigate("/settings")} />
     </div>

@@ -19,6 +19,7 @@ import {
 import { LoadingState, ErrorState, EmptyState } from "@/components/ui/state-views";
 import { cn } from "@/lib/utils";
 import CatalogFilterPanel, { FilterState, defaultFilters } from "./CatalogFilterPanel";
+import ExportModal from "@/components/product/ExportModal";
 
 type SortField = "brand" | "name" | "price" | "change" | "store";
 type SortDir = "asc" | "desc";
@@ -103,6 +104,7 @@ export default function CatalogContent() {
   const [allBrands, setAllBrands] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
 
   // page lives in URL so back-navigation restores position
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
@@ -235,9 +237,12 @@ export default function CatalogContent() {
               </span>
             </div>
           </div>
-          <button className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-muted-foreground text-[12.5px] font-medium hover:text-foreground hover:border-muted-foreground transition-colors">
+          <button
+            onClick={() => setExportOpen(true)}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-muted-foreground text-[12.5px] font-medium hover:text-foreground hover:border-muted-foreground transition-colors"
+          >
             <Download size={13} strokeWidth={1.75} />
-            Export CSV
+            Export
           </button>
         </div>
       </div>
@@ -475,6 +480,13 @@ export default function CatalogContent() {
           </button>
         </div>
       </div>
+
+      <ExportModal
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        scope="catalog"
+        filters={{ search: filters.search, brands: filters.brands, stores: filters.stores }}
+      />
     </div>
   );
 }

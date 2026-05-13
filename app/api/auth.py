@@ -151,3 +151,40 @@ async def update_preferences(
     await db.commit()
     await db.refresh(prefs)
     return schemas.UserPreferencesRead.model_validate(prefs)
+
+
+@router.patch("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: schemas.PasswordChangeRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the authenticated user's password. Verifies current_password first."""
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must differ from the current one",
+        )
+    user.hashed_password = hash_password(payload.new_password)
+    db.add(user)
+    await db.commit()
+
+
+@router.patch("/profile", response_model=schemas.UserRead)
+async def update_profile(
+    payload: schemas.ProfileUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the authenticated user's display name."""
+    user.full_name = (payload.full_name or "").strip() or None
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    prefs = await _load_preferences(db, user.id)
+    return _build_user_read(user, prefs)
