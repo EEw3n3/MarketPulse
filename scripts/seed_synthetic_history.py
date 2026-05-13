@@ -1,22 +1,27 @@
 """
-Backfill PriceHistory with synthetic 90-day random walk data.
+Backfill PriceHistory with realistic synthetic 90-day price walks.
 
-Reason: real price history only accumulates when a scrape detects a price
-change (`change_type != "no_change"`). With only 2-3 scrapes so far, most
-products have 1-2 history points → PriceChart / MarketTrendChart /
-VolatilityScatter look empty. For a pre-demo wrap-up we need plausible
-historical data.
+PROBLEM SOLVED HERE: the first version walked randomly around current_price
+ignoring real PriceHistory entries. Result: where a real "initial" event sat
+at the old price (e.g. 89.99 on Apr 27), the chart showed a single weird
+spike above a sea of synthetic 65€ noise. Also density was too low for the
+1-week view (~0.84 events expected per week → mostly empty).
 
-Properties of the generated data:
-  - 90 days backward from today
-  - ~12% chance of a price-change event per day per product
-  - Change magnitude: Gaussian (μ=0, σ=5%), clamped to ±15% per step
-  - Absolute clamp: walk-back price stays within ±40% of current_price
-  - Walk is anchored at current_price (we generate BACKWARDS in time so the
-    most-recent synthetic point lands close to today's real price — no
-    discontinuity in the chart)
-  - All rows tagged `change_type = "synthetic"` for trivial rollback:
+NEW algorithm:
+  • Treat real (non-synthetic) PriceHistory entries as ANCHORS on a trajectory.
+  • Trajectory: [(date, price), ...] real entries sorted ASC, ending implicitly
+    at (today, current_price).
+  • For each day in the synthetic window, the baseline price is linearly
+    interpolated along this trajectory.
+  • A synthetic event = baseline * (1 + small Gaussian noise), clamped to
+    ±15% of baseline.
+  • Recent days are denser (25% chance per day for last 14 days, 13% else)
+    so the 1W view always has points.
+  • All synthetic rows tagged change_type='synthetic' → trivial rollback:
       DELETE FROM price_history WHERE change_type = 'synthetic';
+
+Result: synthetic data smoothly transitions BETWEEN real points (no more
+spikes), and recent week is dense.
 
 Usage:
   docker compose exec app python scripts/seed_synthetic_history.py --dry-run
@@ -35,47 +40,83 @@ from decimal import Decimal
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from loguru import logger
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from app.core.database import async_session_maker
 from app.domain.models import Product, PriceHistory
 
 
-CHANGE_PROB_PER_DAY = 0.12
-SIGMA_DAILY = 0.05      # 5% one-day std dev
-MAX_DAILY_PCT = 0.15    # cap one-day move at ±15%
-ABS_BAND_PCT = 0.40     # walk stays within ±40% of current price
+# Tuning constants
+SIGMA_DAILY = 0.04            # Gaussian std dev around baseline
+NOISE_CLAMP = 0.15            # max ±15% deviation from baseline
+PROB_RECENT = 0.25            # daily event probability for last 14 days
+PROB_OLDER = 0.13             # daily event probability for older days
+RECENT_DAYS = 14              # cutoff between recent and older
+
+
+def _interp_baseline(t: datetime, trajectory: list[tuple[datetime, float]]) -> float:
+    """Linear interpolation across the (date, price) anchor list (sorted ASC)."""
+    if not trajectory:
+        return 0.0
+    if t <= trajectory[0][0]:
+        return trajectory[0][1]
+    if t >= trajectory[-1][0]:
+        return trajectory[-1][1]
+    for i in range(len(trajectory) - 1):
+        t1, p1 = trajectory[i]
+        t2, p2 = trajectory[i + 1]
+        if t1 <= t <= t2:
+            span = (t2 - t1).total_seconds()
+            if span <= 0:
+                return p2
+            ratio = (t - t1).total_seconds() / span
+            return p1 + (p2 - p1) * ratio
+    return trajectory[-1][1]
 
 
 def generate_events_for_product(
-    current_price: Decimal,
+    current_price: float,
+    real_history: list[tuple[datetime, float]],
     days: int,
     now: datetime,
     rng: random.Random,
 ) -> list[tuple[datetime, Decimal]]:
-    """Generate (parsed_at, price) tuples walking backwards from today."""
-    cur = float(current_price)
-    lo = cur * (1 - ABS_BAND_PCT)
-    hi = cur * (1 + ABS_BAND_PCT)
+    """Generate (parsed_at, price) tuples using a trajectory built from real points."""
+    # Build trajectory anchors. Append (now, current_price) so the walk lands at today's price.
+    trajectory = list(real_history)
+    if not trajectory or trajectory[-1][0] < now - timedelta(hours=1):
+        trajectory.append((now, current_price))
+    # Real history sometimes has duplicate timestamps — dedupe by sorted unique
+    trajectory.sort(key=lambda x: x[0])
 
-    walk = cur
-    events: list[tuple[datetime, float]] = []
-
-    # Walk back day-by-day. Note: we want the LATEST synthetic point to be
-    # near current_price, so we record events as we step back, then later
-    # we'll keep the natural chronological order in DB.
+    events: list[tuple[datetime, Decimal]] = []
     for d in range(1, days + 1):
-        if rng.random() < CHANGE_PROB_PER_DAY:
-            delta_pct = rng.gauss(0, SIGMA_DAILY)
-            delta_pct = max(-MAX_DAILY_PCT, min(MAX_DAILY_PCT, delta_pct))
-            walk = walk * (1 + delta_pct)
-            walk = max(lo, min(hi, walk))
-            parsed = now - timedelta(days=d, hours=rng.randint(0, 23), minutes=rng.randint(0, 59))
-            events.append((parsed, walk))
+        # Random hour/minute within the day for natural-looking spread
+        day_ts = now - timedelta(days=d, hours=rng.randint(0, 23), minutes=rng.randint(0, 59))
 
-    # Sort ASC (oldest → newest) so DB order matches chart x-axis
+        # Skip if a real point already exists within ±6h of this slot — avoid clumping
+        if any(abs((rt - day_ts).total_seconds()) < 6 * 3600 for rt, _ in real_history):
+            continue
+
+        baseline = _interp_baseline(day_ts, trajectory)
+        if baseline <= 0:
+            continue
+
+        # Daily noise
+        noise = rng.gauss(0, SIGMA_DAILY)
+        noise = max(-NOISE_CLAMP, min(NOISE_CLAMP, noise))
+        price = baseline * (1 + noise)
+        # Tight clamp to ±15% of baseline regardless of noise outliers
+        price = max(baseline * (1 - NOISE_CLAMP), min(baseline * (1 + NOISE_CLAMP), price))
+
+        # Density: 1W view needs dense data, older days can be sparser
+        prob = PROB_RECENT if d <= RECENT_DAYS else PROB_OLDER
+        if rng.random() < prob:
+            events.append((day_ts, Decimal(f"{price:.2f}")))
+
     events.sort(key=lambda e: e[0])
-    return [(t, Decimal(f"{p:.2f}")) for t, p in events]
+    return events
 
 
 async def seed(dry_run: bool, days: int, site: str | None, seed_val: int | None) -> None:
@@ -83,8 +124,7 @@ async def seed(dry_run: bool, days: int, site: str | None, seed_val: int | None)
     now = datetime.utcnow()
 
     async with async_session_maker() as session:
-        # Load all products with a non-zero current price
-        stmt = select(Product).where(
+        stmt = select(Product).options(selectinload(Product.history)).where(
             Product.last_price.isnot(None),
             Product.last_price > 0,
         )
@@ -97,30 +137,41 @@ async def seed(dry_run: bool, days: int, site: str | None, seed_val: int | None)
             logger.warning("No products to process — aborting")
             return
 
-        # Count existing synthetic rows for warning
         existing = (await session.execute(
             select(func.count()).select_from(PriceHistory).where(PriceHistory.change_type == "synthetic")
         )).scalar_one()
         if existing > 0:
             logger.warning(
                 f"⚠️  {existing} synthetic rows already exist. "
-                f"Running again will ADD MORE. Consider rollback first: "
-                f"DELETE FROM price_history WHERE change_type = 'synthetic';"
+                f"Running again ADDS more. Rollback first if you want a clean state:\n"
+                f"   docker compose exec db psql -U market_user market_pulse_db "
+                f"-c \"DELETE FROM price_history WHERE change_type = 'synthetic';\""
             )
 
         total_events = 0
         sample_logged = 0
         for p in products:
-            events = generate_events_for_product(p.last_price, days, now, rng)
+            real = sorted(
+                [(h.parsed_at, float(h.price)) for h in p.history if h.change_type != "synthetic"],
+                key=lambda x: x[0],
+            )
+            events = generate_events_for_product(
+                current_price=float(p.last_price),
+                real_history=real,
+                days=days,
+                now=now,
+                rng=rng,
+            )
             if not events:
                 continue
             total_events += len(events)
 
             if sample_logged < 3:
+                prices = [float(e[1]) for e in events]
                 logger.info(
                     f"  sample [{p.id}] {p.title[:40]!r} "
-                    f"current={float(p.last_price):.2f}€ events={len(events)} "
-                    f"range={float(min(e[1] for e in events)):.2f}–{float(max(e[1] for e in events)):.2f}€"
+                    f"current={float(p.last_price):.2f}€ real_points={len(real)} "
+                    f"synthetic={len(events)} range={min(prices):.2f}–{max(prices):.2f}€"
                 )
                 sample_logged += 1
 
@@ -137,7 +188,10 @@ async def seed(dry_run: bool, days: int, site: str | None, seed_val: int | None)
                 ])
 
         avg = total_events / max(len(products), 1)
-        logger.info(f"Generated {total_events} synthetic events across {len(products)} products (avg {avg:.1f}/product)")
+        logger.info(
+            f"Generated {total_events} synthetic events across {len(products)} products "
+            f"(avg {avg:.1f}/product, density {avg / days * 100:.0f}%/day)"
+        )
 
         if dry_run:
             logger.info("DRY RUN — no rows written")
