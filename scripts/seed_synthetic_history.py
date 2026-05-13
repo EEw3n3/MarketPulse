@@ -153,16 +153,55 @@ async def seed(dry_run: bool, days: int, site: str | None, seed_val: int | None)
             logger.warning("No products to process — aborting")
             return
 
-        existing = (await session.execute(
+        # Wipe any prior synthetic data so this script is idempotent
+        wipe_count = (await session.execute(
             select(func.count()).select_from(PriceHistory).where(PriceHistory.change_type == "synthetic")
         )).scalar_one()
-        if existing > 0:
-            logger.warning(
-                f"⚠️  {existing} synthetic rows already exist. "
-                f"Running again ADDS more. Rollback first if you want a clean state:\n"
-                f"   docker compose exec db psql -U market_user market_pulse_db "
-                f"-c \"DELETE FROM price_history WHERE change_type = 'synthetic';\""
+        if wipe_count > 0:
+            if dry_run:
+                logger.info(f"[DRY] would delete {wipe_count} existing synthetic rows first")
+            else:
+                from sqlalchemy import delete as sa_delete
+                await session.execute(sa_delete(PriceHistory).where(PriceHistory.change_type == "synthetic"))
+                logger.info(f"🗑️  Deleted {wipe_count} prior synthetic rows")
+
+        # Backdate clustered real events. Every product was first scraped within
+        # a tight window (e.g. Apr 27 deploy), so all their "initial" → "price_down"
+        # pairs collapse onto the same 1-2 day span. Spread the OLDEST event of
+        # each product back to a randomized point so different products have
+        # different "drop dates" instead of a synchronized cliff.
+        backdated = 0
+        for p in products:
+            real_objs = sorted(
+                [h for h in p.history if h.change_type != "synthetic"],
+                key=lambda h: h.parsed_at,
             )
+            if len(real_objs) < 2:
+                continue
+            oldest, next_oldest = real_objs[0], real_objs[1]
+            gap_days = (next_oldest.parsed_at - oldest.parsed_at).total_seconds() / 86400
+            if gap_days >= 30:
+                continue  # already spread out enough
+            # Target gap: 30-75 days back from the NEXT real point, random per product.
+            target_back = rng.uniform(30, 75)
+            new_ts = next_oldest.parsed_at - timedelta(
+                days=target_back, hours=rng.randint(0, 23), minutes=rng.randint(0, 59)
+            )
+            # Don't backdate beyond the synthetic window
+            min_ts = now - timedelta(days=days - 2)
+            if new_ts < min_ts:
+                new_ts = min_ts + timedelta(hours=rng.randint(0, 23))
+            if not dry_run:
+                oldest.parsed_at = new_ts
+                session.add(oldest)
+            backdated += 1
+
+        if backdated > 0:
+            verb = "would backdate" if dry_run else "backdated"
+            logger.info(f"📅 {verb} oldest real event for {backdated} products to spread the drop date")
+
+        if not dry_run:
+            await session.flush()  # ensure backdated timestamps are visible to subsequent reads
 
         total_events = 0
         sample_logged = 0
