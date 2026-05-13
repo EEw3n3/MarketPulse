@@ -47,20 +47,31 @@ from app.core.database import async_session_maker
 from app.domain.models import Product, PriceHistory
 
 
-# Tuning constants
-SIGMA_DAILY = 0.04            # Gaussian std dev around baseline
-NOISE_CLAMP = 0.15            # max ±15% deviation from baseline
-PROB_RECENT = 0.25            # daily event probability for last 14 days
-PROB_OLDER = 0.13             # daily event probability for older days
+# Tuning constants — denser + tighter than first pass to look like real
+# day-to-day fluctuations rather than smooth Bezier arcs.
+SIGMA_DAILY = 0.035           # Gaussian std dev around baseline (~3.5%)
+NOISE_CLAMP = 0.09            # max ±9% deviation from baseline
+PROB_RECENT = 0.55            # daily event probability for last 14 days
+PROB_OLDER = 0.30             # daily event probability for older days
 RECENT_DAYS = 14              # cutoff between recent and older
 
 
-def _interp_baseline(t: datetime, trajectory: list[tuple[datetime, float]]) -> float:
-    """Linear interpolation across the (date, price) anchor list (sorted ASC)."""
+def _interp_baseline(
+    t: datetime,
+    trajectory: list[tuple[datetime, float]],
+    pre_anchor_drift: float = 0.0,
+) -> float:
+    """Linear interpolation across the (date, price) anchor list (sorted ASC).
+
+    For dates BEFORE the earliest anchor, applies a small linear drift
+    (`pre_anchor_drift` fraction per day older) so the pre-anchor period
+    doesn't look like a perfectly flat line.
+    """
     if not trajectory:
         return 0.0
     if t <= trajectory[0][0]:
-        return trajectory[0][1]
+        days_before = (trajectory[0][0] - t).total_seconds() / 86400
+        return trajectory[0][1] * (1 + pre_anchor_drift * days_before)
     if t >= trajectory[-1][0]:
         return trajectory[-1][1]
     for i in range(len(trajectory) - 1):
@@ -90,6 +101,11 @@ def generate_events_for_product(
     # Real history sometimes has duplicate timestamps — dedupe by sorted unique
     trajectory.sort(key=lambda x: x[0])
 
+    # Per-product pre-anchor drift: small bias in the pre-anchor flat region so
+    # different products don't all look like a horizontal line on the left side.
+    # Range ±0.3% per day — over 75 pre-anchor days = ±22.5% drift envelope.
+    pre_drift = rng.uniform(-0.003, 0.003)
+
     events: list[tuple[datetime, Decimal]] = []
     for d in range(1, days + 1):
         # Random hour/minute within the day for natural-looking spread
@@ -99,7 +115,7 @@ def generate_events_for_product(
         if any(abs((rt - day_ts).total_seconds()) < 6 * 3600 for rt, _ in real_history):
             continue
 
-        baseline = _interp_baseline(day_ts, trajectory)
+        baseline = _interp_baseline(day_ts, trajectory, pre_anchor_drift=pre_drift)
         if baseline <= 0:
             continue
 
