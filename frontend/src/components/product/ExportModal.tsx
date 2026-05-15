@@ -59,7 +59,7 @@ export default function ExportModal({ open, onOpenChange, scope, product, filter
       if (scope === "product") {
         if (!product) throw new Error("No product to export");
         const baseName = safeFilename(`${product.brand ?? ""} ${product.title}`.trim());
-        await downloadProduct(product, format, periodCode, baseName);
+        await downloadProduct(product, format, periodCode, period, baseName);
       } else {
         const date = new Date().toISOString().slice(0, 10);
         const baseName = `marketpulse_catalog_${date}`;
@@ -153,10 +153,36 @@ export default function ExportModal({ open, onOpenChange, scope, product, filter
 
 // ── Dispatch helpers ─────────────────────────────────────────────────────────
 
+// Human-readable change_type labels for CSV
+const CHANGE_TYPE_LABEL: Record<string, string> = {
+  synthetic: "Estimate",
+  initial: "Initial",
+  price_down: "Drop",
+  price_up: "Rise",
+  no_change: "Flat",
+  back_in_stock: "Restocked",
+  out_of_stock: "OOS",
+};
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  // YYYY-MM-DD HH:MM
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+function deltaStr(current: number, previous: number): string {
+  if (!previous || previous === current) return "flat";
+  const pct = ((current - previous) / previous) * 100;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+}
+
 async function downloadProduct(
   product: ProductCardDetail,
   format: ExportFormat,
   periodCode: string,
+  periodLabel: string,
   baseName: string,
 ): Promise<void> {
   if (format === "csv") {
@@ -166,22 +192,58 @@ async function downloadProduct(
       .filter(h => !cutoff || new Date(h.parsed_at).getTime() >= cutoff)
       .sort((a, b) => new Date(a.parsed_at).getTime() - new Date(b.parsed_at).getTime())
       .map(h => ({
-        date: h.parsed_at,
-        price: Number(h.price),
-        in_stock: h.in_stock ? "Yes" : "No",
-        change_type: h.change_type ?? "",
+        Date: fmtDate(h.parsed_at),
+        "Price (€)": Number(h.price).toFixed(2),
+        "In stock": h.in_stock ? "Yes" : "No",
+        Change: CHANGE_TYPE_LABEL[h.change_type ?? ""] ?? (h.change_type ?? ""),
       }));
-    exportCsv(rows, `${baseName}.csv`, ["date", "price", "in_stock", "change_type"]);
+    const current = Number(product.current_price ?? 0);
+    const previous = Number(product.old_price ?? current);
+    const metadata = [
+      "MarketPulse — Price Report",
+      `Product: ${product.title ?? ""}`,
+      `Brand: ${product.brand ?? "—"}  ·  Volume: ${product.volume ?? "—"}  ·  Concentration: ${product.concentration ?? "—"}`,
+      `Store: ${product.store_name ?? "—"}`,
+      `Current: ${current.toFixed(2)} €  ·  Previous: ${previous.toFixed(2)} €  ·  Change: ${deltaStr(current, previous)}`,
+      `Period: ${periodLabel}  ·  Exported: ${fmtDate(new Date().toISOString())} UTC`,
+    ];
+    exportCsv(rows, `${baseName}.csv`, ["Date", "Price (€)", "In stock", "Change"], metadata);
     return;
   }
   if (format === "json") {
-    exportJson(product, `${baseName}.json`);
+    // Envelope: clear structure + period context. Round prices for cleanliness.
+    const rounded = {
+      ...product,
+      current_price: round2(product.current_price),
+      old_price: round2(product.old_price),
+      offers: (product.offers ?? []).map((o) => ({
+        ...o,
+        price: round2(o.price),
+        previousPrice: round2(o.previousPrice),
+        variants: (o.variants ?? []).map((v) => ({ ...v, price: round2(v.price) })),
+      })),
+      history: (product.history ?? []).map((h) => ({ ...h, price: round2(h.price) })),
+    };
+    const envelope = {
+      meta: {
+        app: "MarketPulse",
+        exported_at: new Date().toISOString(),
+        period: periodCode,
+      },
+      product: rounded,
+    };
+    exportJson(envelope, `${baseName}.json`);
     return;
   }
   await exportProductBackend(
     { productId: product.id, format, period: periodCode },
     baseName,
   );
+}
+
+function round2(v: number | null | undefined): number | null {
+  if (v === null || v === undefined) return v ?? null;
+  return Math.round(Number(v) * 100) / 100;
 }
 
 async function downloadCatalog(
@@ -200,21 +262,40 @@ async function downloadCatalog(
     const rows = await api.getCatalog(q.toString());
     if (format === "csv") {
       const cleaned = rows.map(r => ({
-        brand: r.brand,
-        title: r.name,
-        volume: r.volume,
-        type: r.type,
-        store: r.store,
-        price: r.price,
-        previous_price: r.previousPrice,
-        change_percent: r.changePercent,
-        change_direction: r.changeDirection,
-        in_stock: r.in_stock ? "Yes" : "No",
-        last_updated: r.lastUpdated,
+        Brand: r.brand,
+        Title: r.name,
+        Volume: r.volume,
+        Type: r.type,
+        Store: r.store,
+        "Price (€)": Number(r.price ?? 0).toFixed(2),
+        "Previous (€)": Number(r.previousPrice ?? 0).toFixed(2),
+        "Change %": r.changePercent != null ? `${r.changePercent}%` : "",
+        Direction: r.changeDirection ?? "",
+        "In stock": r.in_stock ? "Yes" : "No",
+        "Last updated": r.lastUpdated ?? "",
       }));
-      exportCsv(cleaned, `${baseName}.csv`);
+      const filtBits: string[] = [];
+      if (filters.search) filtBits.push(`search="${filters.search}"`);
+      if (filters.brands?.length) filtBits.push(`brands=${filters.brands.join(",")}`);
+      if (filters.stores?.length) filtBits.push(`stores=${filters.stores.join(",")}`);
+      const metadata = [
+        "MarketPulse — Catalog Export",
+        `Filters: ${filtBits.length ? filtBits.join("  ·  ") : "none"}`,
+        `Total rows: ${rows.length}`,
+        `Exported: ${fmtDate(new Date().toISOString())} UTC`,
+      ];
+      exportCsv(cleaned, `${baseName}.csv`, undefined, metadata);
     } else {
-      exportJson(rows, `${baseName}.json`);
+      const envelope = {
+        meta: {
+          app: "MarketPulse",
+          exported_at: new Date().toISOString(),
+          filters,
+          total_rows: rows.length,
+        },
+        catalog: rows.map(r => ({ ...r, price: round2(r.price), previousPrice: round2(r.previousPrice) })),
+      };
+      exportJson(envelope, `${baseName}.json`);
     }
     return;
   }

@@ -43,14 +43,25 @@ function escapeCsvCell(value: unknown): string {
   return s;
 }
 
-export function exportCsv(rows: Record<string, unknown>[], filename: string, headerOrder?: string[]): void {
+export function exportCsv(
+  rows: Record<string, unknown>[],
+  filename: string,
+  headerOrder?: string[],
+  metadata?: string[],
+): void {
+  const lines: string[] = [];
+  // Commented metadata block (lines prefixed with `# `) — Excel ignores these
+  // visually if comma-separated, but they're still human-readable on inspection.
+  if (metadata && metadata.length) {
+    for (const m of metadata) lines.push(`# ${m}`);
+    lines.push(""); // blank separator before table
+  }
   if (!rows.length) {
-    // Empty file with just a header is still a valid CSV
-    triggerDownload(new Blob(["No data\n"], { type: "text/csv;charset=utf-8" }), filename);
+    lines.push("No data");
+    triggerDownload(new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" }), filename);
     return;
   }
   const headers = headerOrder ?? Object.keys(rows[0]);
-  const lines: string[] = [];
   lines.push(headers.map(escapeCsvCell).join(","));
   for (const row of rows) {
     lines.push(headers.map(h => escapeCsvCell(row[h])).join(","));
