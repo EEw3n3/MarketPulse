@@ -210,8 +210,7 @@ def _make_placeholder_png(brand: Optional[str], size_px: int = 320) -> io.BytesI
 
 
 def _apply_box_border(ws, cell_range: str, color: str = "111827", thickness: str = "thin") -> None:
-    """Draw a thin black border around the entire cell range AND each cell inside.
-    `cell_range` is like 'A1:F14'."""
+    """Draw a thin border ONLY around the outer perimeter of the range."""
     side = Side(border_style=thickness, color=color)
     from openpyxl.utils.cell import range_boundaries
     min_col, min_row, max_col, max_row = range_boundaries(cell_range)
@@ -223,6 +222,25 @@ def _apply_box_border(ws, cell_range: str, color: str = "111827", thickness: str
             top = side if r == min_row else cell.border.top
             bottom = side if r == max_row else cell.border.bottom
             cell.border = Border(left=left, right=right, top=top, bottom=bottom)
+
+
+def _apply_grid_border(ws, cell_range: str, color: str = "111827", thickness: str = "thin") -> None:
+    """Draw borders on EVERY cell in the range (outer + inner cell separators)."""
+    side = Side(border_style=thickness, color=color)
+    from openpyxl.utils.cell import range_boundaries
+    min_col, min_row, max_col, max_row = range_boundaries(cell_range)
+    for r in range(min_row, max_row + 1):
+        for c in range(min_col, max_col + 1):
+            ws.cell(row=r, column=c).border = Border(left=side, right=side, top=side, bottom=side)
+
+
+def _add_horizontal_divider(ws, row: int, min_col: int, max_col: int, color: str = "111827") -> None:
+    """Add a thin horizontal line below the given row across columns."""
+    side = Side(border_style="thin", color=color)
+    for c in range(min_col, max_col + 1):
+        cell = ws.cell(row=row, column=c)
+        b = cell.border
+        cell.border = Border(left=b.left, right=b.right, top=b.top, bottom=side)
 
 
 def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, period: str) -> io.BytesIO:
@@ -274,9 +292,9 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         s["B8"].font = Font(name="Calibri", size=11, italic=True, strike=True, color=GRAY)
         s["B8"].alignment = Alignment(vertical="center")
         s["C8"] = f"{pct:+.1f}%"
-        s["C8"].font = Font(name="Calibri", size=12, bold=True,
-                            color=(GREEN if pct < 0 else RED))
-        s["C8"].alignment = Alignment(horizontal="left", vertical="center")
+        s["C8"].font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+        s["C8"].fill = PatternFill("solid", fgColor=(GREEN if pct < 0 else RED))
+        s["C8"].alignment = Alignment(horizontal="center", vertical="center")
 
     # Embedded image
     img_bytes = _fetch_image_bytes(product.image_url)
@@ -309,9 +327,18 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         s.cell(row=url_row, column=2).hyperlink = product.url
         s.cell(row=url_row, column=2).font = Font(name="Calibri", size=10, color="2563EB", underline="single")
 
-    # Frame the entire data table in thin black border
+    # Add cell borders to the data k/v table rows
     end_row = start_row + len(rows_data) - 1
-    _apply_box_border(s, f"A{start_row}:F{end_row}", color="111827")
+    _apply_grid_border(s, f"A{start_row}:F{end_row}", color="111827")
+
+    # Wrap ALL content (title + hero + image area + data table) in one big frame —
+    # the "house" the user asked for. Internal horizontal dividers separate sections.
+    house_end = end_row
+    _apply_box_border(s, f"A1:F{house_end}", color="111827")
+    # Horizontal divider after subtitle (row 2 → separates title block from hero block)
+    _add_horizontal_divider(s, row=2, min_col=1, max_col=6)
+    # Horizontal divider after the hero/price row (row 8 → separates hero from data table)
+    _add_horizontal_divider(s, row=8, min_col=1, max_col=6)
 
     s.column_dimensions["A"].width = 16
     s.column_dimensions["B"].width = 30
@@ -358,12 +385,19 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
                               end_type="max", end_color="FEE2E2")
         h.conditional_formatting.add(f"B4:B{last_row}", rule)
 
-        # Embedded LineChart
+        # Embedded LineChart with explicit axis labels (some Excel versions
+        # otherwise render numbers as blank ticks).
         if len(history_rows) >= 2:
             chart = LineChart()
             chart.title = "Price trend"
             chart.y_axis.title = "Price (€)"
             chart.x_axis.title = "Date"
+            chart.y_axis.delete = False
+            chart.x_axis.delete = False
+            chart.y_axis.tickLblPos = "nextTo"
+            chart.x_axis.tickLblPos = "nextTo"
+            # Drop legend (one series — legend is just noise)
+            chart.legend = None
             chart.height = 10
             chart.width = 22
             data_ref = Reference(h, min_col=2, min_row=header_row, max_col=2, max_row=last_row)
@@ -372,8 +406,8 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
             chart.set_categories(cats_ref)
             h.add_chart(chart, "F3")
 
-    # Frame the table in thin black border
-    _apply_box_border(h, f"A{header_row}:D{last_row}", color="111827")
+    # Full grid borders on every cell in the table (cell-by-cell, not just outer frame)
+    _apply_grid_border(h, f"A{header_row}:D{last_row}", color="111827")
 
     h.column_dimensions["A"].width = 22
     h.column_dimensions["B"].width = 14
@@ -406,9 +440,10 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
             o.cell(row=ri, column=2, value=op).number_format = "0.00"
             o.cell(row=ri, column=3, value=oo).number_format = "0.00"
             ch_cell = o.cell(row=ri, column=4, value=f"{opct:+.1f}%" if opct is not None else "flat")
-            ch_cell.alignment = Alignment(horizontal="left")
+            ch_cell.alignment = Alignment(horizontal="center")
             if opct is not None:
-                ch_cell.font = Font(bold=True, color=(GREEN if opct < 0 else RED))
+                ch_cell.font = Font(bold=True, color="FFFFFF")
+                ch_cell.fill = PatternFill("solid", fgColor=(GREEN if opct < 0 else RED))
             url_cell = o.cell(row=ri, column=5, value=p.url or "—")
             if p.url:
                 url_cell.hyperlink = p.url
@@ -419,8 +454,8 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
             note_row = offer_last_row + 2
             o.cell(row=note_row, column=1, value="Only one store currently carries this product at this volume.").font = Font(italic=True, color=GRAY)
 
-    # Frame
-    _apply_box_border(o, f"A{offer_header_row}:E{offer_last_row}", color="111827")
+    # Full grid borders on every cell
+    _apply_grid_border(o, f"A{offer_header_row}:E{offer_last_row}", color="111827")
 
     o.column_dimensions["A"].width = 22
     o.column_dimensions["B"].width = 14
@@ -472,8 +507,10 @@ def _build_catalog_xlsx(catalog_rows: list[Product], filters_desc: str) -> io.By
             s.cell(row=ri, column=6, value=cur).number_format = "0.00"
             s.cell(row=ri, column=7, value=prev).number_format = "0.00"
             ch = s.cell(row=ri, column=8, value=f"{pct:+.1f}%" if pct is not None else "flat")
+            ch.alignment = Alignment(horizontal="center")
             if pct is not None:
-                ch.font = Font(bold=True, color=(GREEN if pct < 0 else RED))
+                ch.font = Font(bold=True, color="FFFFFF")
+                ch.fill = PatternFill("solid", fgColor=(GREEN if pct < 0 else RED))
             s.cell(row=ri, column=9, value="Yes" if p.is_available else "No")
             url_cell = s.cell(row=ri, column=10, value=p.url or "—")
             if p.url:
@@ -481,7 +518,7 @@ def _build_catalog_xlsx(catalog_rows: list[Product], filters_desc: str) -> io.By
                 url_cell.font = Font(color="2563EB", underline="single")
         last_row = 4 + len(catalog_rows)
 
-    _apply_box_border(s, f"A{header_row}:J{last_row}", color="111827")
+    _apply_grid_border(s, f"A{header_row}:J{last_row}", color="111827")
 
     widths = [18, 40, 10, 10, 14, 12, 12, 12, 10, 50]
     for i, w in enumerate(widths, start=1):
