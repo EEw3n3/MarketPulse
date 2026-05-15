@@ -254,27 +254,63 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
     pct = _delta_percent(current, previous)
 
     # ── Summary ──────────────────────────────────────────────────────────────
+    # Layout spec (user-driven, S19.4 final):
+    #   (1) Light gray fill on A1:C6, with outer box border around it
+    #   (2) A3:C3 bottom border (inner divider inside the gray block)
+    #   (3) A9:C9 bottom border (closes the price section below the gray block)
+    #   (4) C7:C9 right border (vertical line below the gray block's right edge)
+    #   (5) E1:E9 right border (rightmost vertical line of the summary canvas)
+    #   (6) Image roughly centered in D4:E9
+    #   (7) A11:A14 each cell has all 4 borders (label column of data table)
+    #   (8) B11:E11..B14:E14 merged into one cell per row, text left-aligned
     s = wb.active
     s.title = "Summary"
-    # gridlines stay visible (Excel default)
 
-    HERO_BG = "F0F0F0"  # light gray fill behind title + hero rows
+    # Reusable thin black border side
+    BSIDE = Side(border_style="thin", color="111827")
+
+    # (1) Light gray fill on A1:C6
+    HERO_BG = "F0F0F0"
     hero_fill = PatternFill("solid", fgColor=HERO_BG)
+    for r in range(1, 7):
+        for c in range(1, 4):  # cols A=1, B=2, C=3
+            s.cell(row=r, column=c).fill = hero_fill
+    # (1) Outer box border around the gray block
+    _apply_box_border(s, "A1:C6", color="111827")
 
-    # Light gray background on A:B from row 1 through row 9 (title + hero block)
+    # (2) A3:C3 bottom border
+    for c in range(1, 4):
+        cell = s.cell(row=3, column=c)
+        b = cell.border
+        cell.border = Border(left=b.left, right=b.right, top=b.top, bottom=BSIDE)
+
+    # (3) A9:C9 bottom border
+    for c in range(1, 4):
+        cell = s.cell(row=9, column=c)
+        b = cell.border
+        cell.border = Border(left=b.left, right=b.right, top=b.top, bottom=BSIDE)
+
+    # (4) C7:C9 right border
+    for r in range(7, 10):
+        cell = s.cell(row=r, column=3)
+        b = cell.border
+        cell.border = Border(left=b.left, right=BSIDE, top=b.top, bottom=b.bottom)
+
+    # (5) E1:E9 right border
     for r in range(1, 10):
-        s.cell(row=r, column=1).fill = hero_fill
-        s.cell(row=r, column=2).fill = hero_fill
+        cell = s.cell(row=r, column=5)
+        b = cell.border
+        cell.border = Border(left=b.left, right=BSIDE, top=b.top, bottom=b.bottom)
 
-    # Title rows
+    # ── Text content within the gray block ──
     s["A1"] = "MarketPulse — Price Report"
     s["A1"].font = Font(name="Calibri", size=16, bold=True, color="111827")
     s["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  ·  Period: {PERIOD_LABEL.get(period, period)}"
     s["A2"].font = Font(name="Calibri", size=10, color=GRAY)
 
-    # Hero block — brand / title / tags
     s["A4"] = (product.brand or "—").upper()
     s["A4"].font = Font(name="Calibri", size=11, bold=True, color="111827")
+
     s["A5"] = product.title or "—"
     s["A5"].font = Font(name="Calibri", size=16, bold=True, color="111827")
     s.row_dimensions[5].height = 22
@@ -289,7 +325,7 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
     s["A6"] = tags
     s["A6"].font = Font(name="Calibri", size=10, color=GRAY)
 
-    # Price hero — row 8
+    # ── Price row (row 8 — below the gray block) ──
     s["A8"] = f"{current:.2f} €"
     s["A8"].font = Font(name="Calibri", size=24, bold=True,
                         color=(GREEN if (pct or 0) < 0 else (RED if (pct or 0) > 0 else "111827")))
@@ -299,55 +335,71 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         s["B8"] = f"was {previous:.2f} €"
         s["B8"].font = Font(name="Calibri", size=11, italic=True, strike=True, color=GRAY)
         s["B8"].alignment = Alignment(vertical="center")
-        # Delta badge (green/red fill, white text) — overrides the hero gray fill
         s["C8"] = f"{pct:+.1f}%"
         s["C8"].font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
         s["C8"].fill = PatternFill("solid", fgColor=(GREEN if pct < 0 else RED))
         s["C8"].alignment = Alignment(horizontal="center", vertical="center")
+        # Restore the right border on C8 — fill assignment doesn't touch border,
+        # but explicit re-set keeps the C7:C9 vertical line continuous.
+        cb = s["C8"].border
+        s["C8"].border = Border(left=cb.left, right=BSIDE, top=cb.top, bottom=cb.bottom)
 
-    # Embedded image at E3 with its OWN black frame on the cells it overlays
+    # (6) Image roughly centered in D4:E9 using OneCellAnchor with pixel offsets
     img_bytes = _fetch_image_bytes(product.image_url)
     img_buf = io.BytesIO(img_bytes) if img_bytes else _make_placeholder_png(product.brand)
     try:
+        from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+        from openpyxl.drawing.xdr import XDRPositiveSize2D
+        from openpyxl.utils.units import pixels_to_EMU
+
         xl_img = XLImage(img_buf)
-        xl_img.width = 150
-        xl_img.height = 150
-        s.add_image(xl_img, "E3")
+        img_size = 110
+        xl_img.width = img_size
+        xl_img.height = img_size
+        # D4 = col index 3 (D), row index 3 (4th row), both 0-indexed.
+        # Offsets nudge the image rightward & downward so it sits centered
+        # in the D4:E9 area instead of glued to the top-left corner.
+        xl_img.anchor = OneCellAnchor(
+            _from=AnchorMarker(col=3, colOff=pixels_to_EMU(40), row=3, rowOff=pixels_to_EMU(15)),
+            ext=XDRPositiveSize2D(cx=pixels_to_EMU(img_size), cy=pixels_to_EMU(img_size)),
+        )
+        s.add_image(xl_img)
     except Exception:
         pass
-    _apply_box_border(s, "E3:F10", color="111827")
 
-    # Row 10 is a deliberate visual gap before the data table — no fill, no borders.
-
-    # Data table (k/v pairs) rows 11-14 with grid borders on each cell
+    # ── Data table (rows 11-14) ──
     rows_data = [
         ("In stock", "Yes" if product.is_available else "No"),
         ("Store", (product.search_term or "—").capitalize()),
         ("URL", product.url or "—"),
         ("Exported at", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")),
     ]
-    start_row = 11
-    for i, (k, v) in enumerate(rows_data, start=start_row):
-        s.cell(row=i, column=1, value=k).font = Font(name="Calibri", size=10, bold=True, color="111827")
-        s.cell(row=i, column=2, value=v).font = Font(name="Calibri", size=10, color="111827")
-        s.cell(row=i, column=2).alignment = Alignment(horizontal="left", vertical="center")
+    full_border = Border(left=BSIDE, right=BSIDE, top=BSIDE, bottom=BSIDE)
+    for i, (k, v) in enumerate(rows_data, start=11):
+        # (7) Label cell A — all 4 borders
+        a = s.cell(row=i, column=1, value=k)
+        a.font = Font(name="Calibri", size=10, bold=True, color="111827")
+        a.border = full_border
+        a.alignment = Alignment(horizontal="left", vertical="center")
 
-    # URL hyperlink — text will overflow visually into adjacent empty cells,
-    # but the table border stays clean on the A:B perimeter.
-    url_row = start_row + 2
+        # (8) Value cell merged B:E, text left-aligned
+        s.merge_cells(start_row=i, start_column=2, end_row=i, end_column=5)
+        v_cell = s.cell(row=i, column=2, value=v)
+        v_cell.font = Font(name="Calibri", size=10, color="111827")
+        v_cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    # URL hyperlink — row 13 (third data row)
     if product.url:
-        s.cell(row=url_row, column=2).hyperlink = product.url
-        s.cell(row=url_row, column=2).font = Font(name="Calibri", size=10, color="2563EB", underline="single")
+        url_cell = s.cell(row=13, column=2)
+        url_cell.hyperlink = product.url
+        url_cell.font = Font(name="Calibri", size=10, color="2563EB", underline="single")
 
-    end_row = start_row + len(rows_data) - 1
-    _apply_grid_border(s, f"A{start_row}:B{end_row}", color="111827")
-
-    s.column_dimensions["A"].width = 14
-    s.column_dimensions["B"].width = 28
+    # Column widths — chosen so D+E together roughly form a square area for the image
+    s.column_dimensions["A"].width = 12
+    s.column_dimensions["B"].width = 24
     s.column_dimensions["C"].width = 12
     s.column_dimensions["D"].width = 8
-    s.column_dimensions["E"].width = 22
-    s.column_dimensions["F"].width = 14
+    s.column_dimensions["E"].width = 18
 
     # ── Price History ────────────────────────────────────────────────────────
     h = wb.create_sheet("Price History")
