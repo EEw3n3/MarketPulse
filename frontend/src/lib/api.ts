@@ -425,6 +425,8 @@ export const api = {
       fetchApi<AdminUserRead>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(patch) }),
     logs: (tail = 50) =>
       fetchApi<AdminLogsResponse>(`/admin/logs?tail=${tail}`),
+    workerStatus: () =>
+      fetchApi<{ online: boolean; last_seen_ago_s: number | null; queue_depth: number }>("/admin/worker/status"),
   },
 
   // Chat

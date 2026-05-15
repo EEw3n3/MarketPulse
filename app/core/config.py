@@ -59,6 +59,12 @@ class Settings:
     SMTP_PASSWORD: str | None = os.getenv("SMTP_PASSWORD") or None
     SMTP_FROM: str = os.getenv("SMTP_FROM") or "MarketPulse <noreply@marketpulse.app>"
 
+    # Distributed worker (S19.5) — server enqueues scrape jobs in Redis,
+    # local worker (on user's machine, residential IP) polls + executes + POSTs
+    # results back. WORKER_TOKEN is a shared secret for worker→server auth.
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    WORKER_TOKEN: str | None = os.getenv("WORKER_TOKEN")
+
     # Check that key is loaded
     def validate(self):
         if not self.GOOGLE_API_KEY:

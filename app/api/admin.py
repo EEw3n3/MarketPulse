@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 
-from app.api.deps import get_db, get_current_admin
+from app.api.deps import get_db, get_current_admin, get_worker
+from app.core.job_queue import job_queue
 from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -181,17 +182,173 @@ async def trigger_scrape(
     domain: str,
     _: User = Depends(get_current_admin),
 ):
-    """Trigger an ad-hoc scrape for a domain (rate-limited to once per 5 min)."""
-    import asyncio
-    from app.services.scheduler import scheduler_service
+    """Enqueue a scrape job for the distributed worker.
 
+    Server-side Playwright doesn't work for Cloudflare-protected sites
+    (notino.lv, 220.lv, etc), so the actual scraping is delegated to a local
+    worker on the user's machine (residential IP). This endpoint just pushes
+    a job to Redis; the worker long-polls /admin/scrape/poll and executes.
+    Rate-limited to once per 5 min per domain.
+    """
     now = time.time()
     if domain in _last_scrape and now - _last_scrape[domain] < SCRAPE_COOLDOWN_S:
         remaining = int(SCRAPE_COOLDOWN_S - (now - _last_scrape[domain]))
         raise HTTPException(status_code=429, detail=f"Rate limit: retry in {remaining}s")
     _last_scrape[domain] = now
-    asyncio.create_task(scheduler_service.trigger_site_scrape(domain))
-    return {"status": "queued", "domain": domain}
+    job_id = await job_queue.enqueue(domain)
+    return {"status": "queued", "domain": domain, "job_id": job_id}
+
+
+# ── Distributed scrape worker endpoints ──────────────────────────────────────
+
+
+@router.get("/scrape/poll")
+async def scrape_poll(
+    timeout: int = Query(25, ge=1, le=55),
+    _: bool = Depends(get_worker),
+):
+    """Worker long-poll: BLPOP a scrape job from the Redis queue.
+
+    Returns the job (`{id, domain}`) when one is available, or 204 after
+    `timeout` seconds with no job. Also refreshes the worker heartbeat so the
+    admin panel can show 'Worker online'.
+    """
+    await job_queue.heartbeat()
+    job = await job_queue.dequeue(timeout_s=timeout)
+    if not job:
+        return {"job": None}
+    return {"job": {"id": job["id"], "domain": job["domain"]}}
+
+
+class IngestProductIn(BaseModel):
+    url: str
+    title: str
+    brand: Optional[str] = None
+    volume: Optional[str] = None
+    concentration: Optional[str] = None
+    image_url: Optional[str] = None
+    last_price: Optional[float] = None
+    is_available: bool = True
+
+
+class IngestBatchIn(BaseModel):
+    job_id: str
+    domain: str
+    products: List[IngestProductIn]
+
+
+@router.post("/scrape/ingest")
+async def scrape_ingest(
+    payload: IngestBatchIn,
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(get_worker),
+):
+    """Worker uploads scraped products in batches.
+
+    Upserts by URL: existing product → update price/title/last_seen + emit
+    PriceHistory if price changed; new product → insert + run matcher to
+    assign group_id + emit 'initial' PriceHistory.
+    """
+    from decimal import Decimal
+    from app.services.matcher import matcher_service
+    from app.domain.models import ProductGroup
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    inserted = 0
+    updated = 0
+    price_changes = 0
+
+    for item in payload.products:
+        stmt = select(Product).where(Product.url == item.url, Product.volume == item.volume)
+        product = (await db.execute(stmt)).scalar_one_or_none()
+        price_dec = Decimal(str(item.last_price)) if item.last_price is not None else None
+
+        if product is None:
+            # Resolve group_id via matcher
+            match = await matcher_service.find_best_match(
+                db,
+                {"title": item.title, "brand": item.brand, "volume": item.volume, "concentration": item.concentration},
+            )
+            if match:
+                group_id = match.id
+            else:
+                canonical = matcher_service.get_canonical_name(item.title, brand=item.brand)
+                upsert = pg_insert(ProductGroup).values(
+                    name=canonical, category="Perfume", created_at=datetime.utcnow()
+                ).on_conflict_do_nothing(index_elements=["name"])
+                await db.execute(upsert)
+                await db.flush()
+                resolved = (await db.execute(select(ProductGroup).where(ProductGroup.name == canonical))).scalar_one()
+                group_id = resolved.id
+
+            product = Product(
+                url=item.url,
+                title=item.title,
+                brand=item.brand,
+                volume=item.volume,
+                concentration=item.concentration,
+                image_url=item.image_url,
+                search_term=payload.domain,
+                last_price=price_dec,
+                is_available=item.is_available,
+                last_seen=datetime.utcnow(),
+                group_id=group_id,
+            )
+            db.add(product)
+            await db.flush()
+            if price_dec is not None and price_dec > 0:
+                db.add(PriceHistory(
+                    product_id=product.id, price=price_dec,
+                    in_stock=item.is_available, change_type="initial",
+                ))
+            inserted += 1
+        else:
+            updated += 1
+            product.title = item.title
+            product.brand = item.brand or product.brand
+            product.volume = item.volume or product.volume
+            product.concentration = item.concentration or product.concentration
+            if item.image_url:
+                product.image_url = item.image_url
+            product.is_available = item.is_available
+            product.last_seen = datetime.utcnow()
+
+            if price_dec is not None and price_dec > 0:
+                old = product.last_price
+                if old != price_dec:
+                    if old is not None and price_dec < old:
+                        change = "price_down"
+                    elif old is not None and price_dec > old:
+                        change = "price_up"
+                    else:
+                        change = "initial"
+                    product.old_price = old
+                    product.last_price = price_dec
+                    db.add(PriceHistory(
+                        product_id=product.id, price=price_dec,
+                        in_stock=item.is_available, change_type=change,
+                    ))
+                    price_changes += 1
+
+    await db.commit()
+    return {"inserted": inserted, "updated": updated, "price_changes": price_changes}
+
+
+@router.post("/scrape/complete")
+async def scrape_complete(
+    job_id: str = Query(...),
+    status: str = Query("done", pattern="^(done|failed)$"),
+    _: bool = Depends(get_worker),
+):
+    """Worker marks a job done/failed so admin UI can reflect status."""
+    await job_queue.update_status(job_id, status)
+    return {"ok": True, "job_id": job_id, "status": status}
+
+
+@router.get("/worker/status")
+async def worker_status(_: User = Depends(get_current_admin)):
+    """Admin UI badge — is the local worker online and how big is the queue?"""
+    return await job_queue.worker_status()
 
 
 @router.get("/scheduler/status")

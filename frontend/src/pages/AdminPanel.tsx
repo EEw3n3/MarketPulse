@@ -41,6 +41,7 @@ const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
 
 function HealthTab() {
   const [data, setData] = useState<AdminHealthResponse | null>(null);
+  const [worker, setWorker] = useState<{ online: boolean; last_seen_ago_s: number | null; queue_depth: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,9 +52,18 @@ function HealthTab() {
       .then(setData)
       .catch((e) => setError(e?.message ?? "Failed to load health"))
       .finally(() => setLoading(false));
+    api.admin.workerStatus().then(setWorker).catch(() => setWorker(null));
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Refresh worker status every 5s — it's our "is the laptop running" signal
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.admin.workerStatus().then(setWorker).catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
 
   if (loading) return <LoadingState label="Loading health" />;
   if (error) return <ErrorState message={error} onRetry={load} />;
@@ -74,6 +84,32 @@ function HealthTab() {
             <span className="font-mono font-semibold tabular-nums text-[22px] text-foreground">{value}</span>
           </div>
         ))}
+      </div>
+
+      {/* Worker status — distributed scrape worker (runs on user's laptop) */}
+      <div className="border border-border rounded-md bg-surface/40 px-5 py-4 flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "w-2 h-2 rounded-full",
+              worker?.online ? "bg-[hsl(var(--success))] animate-pulse" : "bg-muted-foreground/40"
+            )}
+          />
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            Scrape worker
+          </span>
+          <span className="font-mono text-[12px] text-foreground">
+            {worker?.online ? "Online" : "Offline"}
+          </span>
+        </div>
+        {worker?.last_seen_ago_s != null && (
+          <span className="font-mono text-[10.5px] text-muted-foreground">
+            last seen {worker.last_seen_ago_s}s ago
+          </span>
+        )}
+        <span className="font-mono text-[10.5px] text-muted-foreground ml-auto">
+          queue: <span className="text-foreground">{worker?.queue_depth ?? 0}</span>
+        </span>
       </div>
 
       {/* Sites table */}

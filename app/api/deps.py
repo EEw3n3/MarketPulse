@@ -62,3 +62,25 @@ async def get_current_admin(user: User = Depends(get_current_user)) -> User:
             detail="Admin privileges required",
         )
     return user
+
+
+from fastapi import Header  # noqa: E402
+
+from app.core.config import settings  # noqa: E402
+
+
+async def get_worker(authorization: str | None = Header(default=None)) -> bool:
+    """Auth for the distributed scrape worker — Bearer <WORKER_TOKEN>.
+
+    Worker token is a long random shared secret in env on both the server and
+    the local worker machine. NOT a JWT — this is a long-lived service token.
+    """
+    if not settings.WORKER_TOKEN:
+        raise HTTPException(503, "Worker integration is not configured (WORKER_TOKEN env missing)")
+    if authorization != f"Bearer {settings.WORKER_TOKEN}":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid worker credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
