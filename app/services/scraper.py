@@ -1989,7 +1989,12 @@ class ScraperService:
                 product = Product(
                     title=item["title"],
                     url=item["url"],
-                    search_term=rule.site_name,
+                    # search_term tracks the store-of-origin and is what the
+                    # catalog/feed filters by (LIKE '%notino%' etc). MUST be the
+                    # canonical domain ('notino.lv', '220.lv', ...) — NOT
+                    # rule.site_name which defaults to 'Unknown Shop' when AI
+                    # doesn't populate it, breaking store filters silently.
+                    search_term=rule.domain,
                     group_id=final_group_id,
                     brand=item.get("brand"),
                     volume=item.get("volume"),
