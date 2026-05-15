@@ -296,8 +296,9 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         b = cell.border
         cell.border = Border(left=b.left, right=BSIDE, top=b.top, bottom=b.bottom)
 
-    # (5) E1:E9 right border
-    for r in range(1, 10):
+    # (5) E1:E10 right border (the rightmost vertical line, extended through row 10
+    # so the gap row between the gray block and the data table is also bounded).
+    for r in range(1, 11):
         cell = s.cell(row=r, column=5)
         b = cell.border
         cell.border = Border(left=b.left, right=BSIDE, top=b.top, bottom=b.bottom)
@@ -387,6 +388,15 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         v_cell = s.cell(row=i, column=2, value=v)
         v_cell.font = Font(name="Calibri", size=10, color="111827")
         v_cell.alignment = Alignment(horizontal="left", vertical="center")
+
+        # Border around the merged B:E range. openpyxl only shows borders on
+        # cells you explicitly mark — for a merged range, set the appropriate
+        # side on each underlying cell so the visual frame is complete.
+        # B = left edge; C,D = middle (top/bottom only); E = right edge.
+        s.cell(row=i, column=2).border = Border(left=BSIDE, right=None, top=BSIDE, bottom=BSIDE)
+        s.cell(row=i, column=3).border = Border(left=None, right=None, top=BSIDE, bottom=BSIDE)
+        s.cell(row=i, column=4).border = Border(left=None, right=None, top=BSIDE, bottom=BSIDE)
+        s.cell(row=i, column=5).border = Border(left=None, right=BSIDE, top=BSIDE, bottom=BSIDE)
 
     # URL hyperlink — row 13 (third data row)
     if product.url:
