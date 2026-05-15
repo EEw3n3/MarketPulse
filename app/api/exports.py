@@ -258,13 +258,21 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
     s.title = "Summary"
     # gridlines stay visible (Excel default)
 
-    # Title row
+    HERO_BG = "F0F0F0"  # light gray fill behind title + hero rows
+    hero_fill = PatternFill("solid", fgColor=HERO_BG)
+
+    # Light gray background on A:B from row 1 through row 9 (title + hero block)
+    for r in range(1, 10):
+        s.cell(row=r, column=1).fill = hero_fill
+        s.cell(row=r, column=2).fill = hero_fill
+
+    # Title rows
     s["A1"] = "MarketPulse — Price Report"
     s["A1"].font = Font(name="Calibri", size=16, bold=True, color="111827")
     s["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  ·  Period: {PERIOD_LABEL.get(period, period)}"
     s["A2"].font = Font(name="Calibri", size=10, color=GRAY)
 
-    # Hero block
+    # Hero block — brand / title / tags
     s["A4"] = (product.brand or "—").upper()
     s["A4"].font = Font(name="Calibri", size=11, bold=True, color="111827")
     s["A5"] = product.title or "—"
@@ -281,7 +289,7 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
     s["A6"] = tags
     s["A6"].font = Font(name="Calibri", size=10, color=GRAY)
 
-    # Price hero — current big and colored, previous strike, delta as colored text (no fill)
+    # Price hero — row 8
     s["A8"] = f"{current:.2f} €"
     s["A8"].font = Font(name="Calibri", size=24, bold=True,
                         color=(GREEN if (pct or 0) < 0 else (RED if (pct or 0) > 0 else "111827")))
@@ -291,23 +299,27 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         s["B8"] = f"was {previous:.2f} €"
         s["B8"].font = Font(name="Calibri", size=11, italic=True, strike=True, color=GRAY)
         s["B8"].alignment = Alignment(vertical="center")
+        # Delta badge (green/red fill, white text) — overrides the hero gray fill
         s["C8"] = f"{pct:+.1f}%"
         s["C8"].font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
         s["C8"].fill = PatternFill("solid", fgColor=(GREEN if pct < 0 else RED))
         s["C8"].alignment = Alignment(horizontal="center", vertical="center")
 
-    # Embedded image
+    # Embedded image at E3 with its OWN black frame on the cells it overlays
     img_bytes = _fetch_image_bytes(product.image_url)
     img_buf = io.BytesIO(img_bytes) if img_bytes else _make_placeholder_png(product.brand)
     try:
         xl_img = XLImage(img_buf)
         xl_img.width = 150
         xl_img.height = 150
-        s.add_image(xl_img, "E4")
+        s.add_image(xl_img, "E3")
     except Exception:
         pass
+    _apply_box_border(s, "E3:F10", color="111827")
 
-    # Data table (k/v pairs) with black borders. URL merged across B:F so it fits.
+    # Row 10 is a deliberate visual gap before the data table — no fill, no borders.
+
+    # Data table (k/v pairs) rows 11-14 with grid borders on each cell
     rows_data = [
         ("In stock", "Yes" if product.is_available else "No"),
         ("Store", (product.search_term or "—").capitalize()),
@@ -320,32 +332,22 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         s.cell(row=i, column=2, value=v).font = Font(name="Calibri", size=10, color="111827")
         s.cell(row=i, column=2).alignment = Alignment(horizontal="left", vertical="center")
 
-    # URL is on row start_row+2 — merge B:F so it stays within the table frame
+    # URL hyperlink — text will overflow visually into adjacent empty cells,
+    # but the table border stays clean on the A:B perimeter.
     url_row = start_row + 2
-    s.merge_cells(start_row=url_row, start_column=2, end_row=url_row, end_column=6)
     if product.url:
         s.cell(row=url_row, column=2).hyperlink = product.url
         s.cell(row=url_row, column=2).font = Font(name="Calibri", size=10, color="2563EB", underline="single")
 
-    # Add cell borders to the data k/v table rows
     end_row = start_row + len(rows_data) - 1
-    _apply_grid_border(s, f"A{start_row}:F{end_row}", color="111827")
+    _apply_grid_border(s, f"A{start_row}:B{end_row}", color="111827")
 
-    # Wrap ALL content (title + hero + image area + data table) in one big frame —
-    # the "house" the user asked for. Internal horizontal dividers separate sections.
-    house_end = end_row
-    _apply_box_border(s, f"A1:F{house_end}", color="111827")
-    # Horizontal divider after subtitle (row 2 → separates title block from hero block)
-    _add_horizontal_divider(s, row=2, min_col=1, max_col=6)
-    # Horizontal divider after the hero/price row (row 8 → separates hero from data table)
-    _add_horizontal_divider(s, row=8, min_col=1, max_col=6)
-
-    s.column_dimensions["A"].width = 16
-    s.column_dimensions["B"].width = 30
-    s.column_dimensions["C"].width = 14
-    s.column_dimensions["D"].width = 14
-    s.column_dimensions["E"].width = 14
-    s.column_dimensions["F"].width = 24
+    s.column_dimensions["A"].width = 14
+    s.column_dimensions["B"].width = 28
+    s.column_dimensions["C"].width = 12
+    s.column_dimensions["D"].width = 8
+    s.column_dimensions["E"].width = 22
+    s.column_dimensions["F"].width = 14
 
     # ── Price History ────────────────────────────────────────────────────────
     h = wb.create_sheet("Price History")
