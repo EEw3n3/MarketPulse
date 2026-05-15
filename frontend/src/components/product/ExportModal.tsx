@@ -59,7 +59,7 @@ export default function ExportModal({ open, onOpenChange, scope, product, filter
       if (scope === "product") {
         if (!product) throw new Error("No product to export");
         const baseName = safeFilename(`${product.brand ?? ""} ${product.title}`.trim());
-        await downloadProduct(product, format, periodCode, period, baseName);
+        await downloadProduct(product, format, periodCode, baseName);
       } else {
         const date = new Date().toISOString().slice(0, 10);
         const baseName = `marketpulse_catalog_${date}`;
@@ -172,17 +172,10 @@ function fmtDate(iso: string): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
-function deltaStr(current: number, previous: number): string {
-  if (!previous || previous === current) return "flat";
-  const pct = ((current - previous) / previous) * 100;
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
-}
-
 async function downloadProduct(
   product: ProductCardDetail,
   format: ExportFormat,
   periodCode: string,
-  periodLabel: string,
   baseName: string,
 ): Promise<void> {
   if (format === "csv") {
@@ -197,17 +190,7 @@ async function downloadProduct(
         "In stock": h.in_stock ? "Yes" : "No",
         Change: CHANGE_TYPE_LABEL[h.change_type ?? ""] ?? (h.change_type ?? ""),
       }));
-    const current = Number(product.current_price ?? 0);
-    const previous = Number(product.old_price ?? current);
-    const metadata = [
-      "MarketPulse — Price Report",
-      `Product: ${product.title ?? ""}`,
-      `Brand: ${product.brand ?? "—"}  ·  Volume: ${product.volume ?? "—"}  ·  Concentration: ${product.concentration ?? "—"}`,
-      `Store: ${product.store_name ?? "—"}`,
-      `Current: ${current.toFixed(2)} €  ·  Previous: ${previous.toFixed(2)} €  ·  Change: ${deltaStr(current, previous)}`,
-      `Period: ${periodLabel}  ·  Exported: ${fmtDate(new Date().toISOString())} UTC`,
-    ];
-    exportCsv(rows, `${baseName}.csv`, ["Date", "Price (€)", "In stock", "Change"], metadata);
+    exportCsv(rows, `${baseName}.csv`, ["Date", "Price (€)", "In stock", "Change"]);
     return;
   }
   if (format === "json") {
@@ -274,17 +257,7 @@ async function downloadCatalog(
         "In stock": r.in_stock ? "Yes" : "No",
         "Last updated": r.lastUpdated ?? "",
       }));
-      const filtBits: string[] = [];
-      if (filters.search) filtBits.push(`search="${filters.search}"`);
-      if (filters.brands?.length) filtBits.push(`brands=${filters.brands.join(",")}`);
-      if (filters.stores?.length) filtBits.push(`stores=${filters.stores.join(",")}`);
-      const metadata = [
-        "MarketPulse — Catalog Export",
-        `Filters: ${filtBits.length ? filtBits.join("  ·  ") : "none"}`,
-        `Total rows: ${rows.length}`,
-        `Exported: ${fmtDate(new Date().toISOString())} UTC`,
-      ];
-      exportCsv(cleaned, `${baseName}.csv`, undefined, metadata);
+      exportCsv(cleaned, `${baseName}.csv`);
     } else {
       const envelope = {
         meta: {

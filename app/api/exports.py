@@ -209,43 +209,49 @@ def _make_placeholder_png(brand: Optional[str], size_px: int = 320) -> io.BytesI
 # ── Excel — single product ───────────────────────────────────────────────────
 
 
+def _apply_box_border(ws, cell_range: str, color: str = "111827", thickness: str = "thin") -> None:
+    """Draw a thin black border around the entire cell range AND each cell inside.
+    `cell_range` is like 'A1:F14'."""
+    side = Side(border_style=thickness, color=color)
+    from openpyxl.utils.cell import range_boundaries
+    min_col, min_row, max_col, max_row = range_boundaries(cell_range)
+    for r in range(min_row, max_row + 1):
+        for c in range(min_col, max_col + 1):
+            cell = ws.cell(row=r, column=c)
+            left = side if c == min_col else cell.border.left
+            right = side if c == max_col else cell.border.right
+            top = side if r == min_row else cell.border.top
+            bottom = side if r == max_row else cell.border.bottom
+            cell.border = Border(left=left, right=right, top=top, bottom=bottom)
+
+
 def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, period: str) -> io.BytesIO:
-    """3-sheet branded workbook: Summary (hero + image) / Price History (with LineChart) / Offers."""
+    """3-sheet workbook with classic spreadsheet aesthetic: gridlines visible,
+    black borders around tables, no large teal banners (just bold headings)."""
     import openpyxl
     wb = openpyxl.Workbook()
-
-    # ── Summary ──────────────────────────────────────────────────────────────
-    s = wb.active
-    s.title = "Summary"
-    s.sheet_view.showGridLines = False
 
     current = float(product.last_price) if product.last_price else 0.0
     previous = float(product.old_price) if product.old_price else current
     pct = _delta_percent(current, previous)
 
-    # Banner
-    s.merge_cells("A1:F1")
-    s["A1"] = "MarketPulse · Price Report"
-    s["A1"].font = Font(name="Calibri", size=18, bold=True, color="FFFFFF")
-    s["A1"].fill = PatternFill("solid", fgColor=TEAL)
-    s["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    s.row_dimensions[1].height = 36
+    # ── Summary ──────────────────────────────────────────────────────────────
+    s = wb.active
+    s.title = "Summary"
+    # gridlines stay visible (Excel default)
 
-    s.merge_cells("A2:F2")
+    # Title row
+    s["A1"] = "MarketPulse — Price Report"
+    s["A1"].font = Font(name="Calibri", size=16, bold=True, color="111827")
     s["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  ·  Period: {PERIOD_LABEL.get(period, period)}"
-    s["A2"].font = Font(name="Calibri", size=10, color="FFFFFF")
-    s["A2"].fill = PatternFill("solid", fgColor=TEAL_DARK)
-    s["A2"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    s.row_dimensions[2].height = 20
+    s["A2"].font = Font(name="Calibri", size=10, color=GRAY)
 
     # Hero block
     s["A4"] = (product.brand or "—").upper()
-    s["A4"].font = Font(name="Calibri", size=11, bold=True, color=TEAL)
-
-    s.merge_cells("A5:D5")
+    s["A4"].font = Font(name="Calibri", size=11, bold=True, color="111827")
     s["A5"] = product.title or "—"
-    s["A5"].font = Font(name="Calibri", size=18, bold=True, color="111827")
-    s.row_dimensions[5].height = 26
+    s["A5"].font = Font(name="Calibri", size=16, bold=True, color="111827")
+    s.row_dimensions[5].height = 22
 
     tags = " · ".join(
         x for x in [
@@ -256,78 +262,75 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
     )
     s["A6"] = tags
     s["A6"].font = Font(name="Calibri", size=10, color=GRAY)
-    s.row_dimensions[6].height = 18
 
-    # Price hero
+    # Price hero — current big and colored, previous strike, delta as colored text (no fill)
     s["A8"] = f"{current:.2f} €"
-    s["A8"].font = Font(name="Calibri", size=28, bold=True,
+    s["A8"].font = Font(name="Calibri", size=24, bold=True,
                         color=(GREEN if (pct or 0) < 0 else (RED if (pct or 0) > 0 else "111827")))
-    s.row_dimensions[8].height = 38
+    s.row_dimensions[8].height = 32
 
     if pct is not None:
         s["B8"] = f"was {previous:.2f} €"
         s["B8"].font = Font(name="Calibri", size=11, italic=True, strike=True, color=GRAY)
         s["B8"].alignment = Alignment(vertical="center")
         s["C8"] = f"{pct:+.1f}%"
-        s["C8"].font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        s["C8"].fill = PatternFill("solid", fgColor=(GREEN if pct < 0 else RED))
-        s["C8"].alignment = Alignment(horizontal="center", vertical="center")
+        s["C8"].font = Font(name="Calibri", size=12, bold=True,
+                            color=(GREEN if pct < 0 else RED))
+        s["C8"].alignment = Alignment(horizontal="left", vertical="center")
 
-    # Embedded image (E2:F8 area) or placeholder
+    # Embedded image
     img_bytes = _fetch_image_bytes(product.image_url)
     img_buf = io.BytesIO(img_bytes) if img_bytes else _make_placeholder_png(product.brand)
     try:
         xl_img = XLImage(img_buf)
-        # Cap image size — Excel uses EMU units internally; setting width/height in px is approx
-        xl_img.width = 160
-        xl_img.height = 160
+        xl_img.width = 150
+        xl_img.height = 150
         s.add_image(xl_img, "E4")
     except Exception:
-        pass  # if openpyxl rejects (rare format issue), just skip
+        pass
 
-    # Data block
-    thin = Side(border_style="thin", color="E5E7EB")
-    border_box = Border(left=thin, right=thin, top=thin, bottom=thin)
-
+    # Data table (k/v pairs) with black borders. URL merged across B:F so it fits.
     rows_data = [
         ("In stock", "Yes" if product.is_available else "No"),
         ("Store", (product.search_term or "—").capitalize()),
         ("URL", product.url or "—"),
         ("Exported at", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")),
     ]
-    for i, (k, v) in enumerate(rows_data, start=11):
-        s.cell(row=i, column=1, value=k).font = Font(name="Calibri", size=10, bold=True, color=GRAY)
+    start_row = 11
+    for i, (k, v) in enumerate(rows_data, start=start_row):
+        s.cell(row=i, column=1, value=k).font = Font(name="Calibri", size=10, bold=True, color="111827")
         s.cell(row=i, column=2, value=v).font = Font(name="Calibri", size=10, color="111827")
-        s.cell(row=i, column=1).border = border_box
-        s.cell(row=i, column=2).border = border_box
+        s.cell(row=i, column=2).alignment = Alignment(horizontal="left", vertical="center")
 
-    # URL hyperlink
+    # URL is on row start_row+2 — merge B:F so it stays within the table frame
+    url_row = start_row + 2
+    s.merge_cells(start_row=url_row, start_column=2, end_row=url_row, end_column=6)
     if product.url:
-        s.cell(row=13, column=2).hyperlink = product.url
-        s.cell(row=13, column=2).font = Font(name="Calibri", size=10, color="2563EB", underline="single")
+        s.cell(row=url_row, column=2).hyperlink = product.url
+        s.cell(row=url_row, column=2).font = Font(name="Calibri", size=10, color="2563EB", underline="single")
 
-    s.column_dimensions["A"].width = 18
-    s.column_dimensions["B"].width = 38
+    # Frame the entire data table in thin black border
+    end_row = start_row + len(rows_data) - 1
+    _apply_box_border(s, f"A{start_row}:F{end_row}", color="111827")
+
+    s.column_dimensions["A"].width = 16
+    s.column_dimensions["B"].width = 30
     s.column_dimensions["C"].width = 14
     s.column_dimensions["D"].width = 14
-    s.column_dimensions["E"].width = 22
-    s.column_dimensions["F"].width = 22
+    s.column_dimensions["E"].width = 14
+    s.column_dimensions["F"].width = 24
 
     # ── Price History ────────────────────────────────────────────────────────
     h = wb.create_sheet("Price History")
-    h.sheet_view.showGridLines = False
-    h.merge_cells("A1:D1")
     h["A1"] = f"Price History — {PERIOD_LABEL.get(period, period)}"
-    h["A1"].font = Font(size=14, bold=True, color="FFFFFF")
-    h["A1"].fill = PatternFill("solid", fgColor=TEAL)
-    h["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    h.row_dimensions[1].height = 30
+    h["A1"].font = Font(size=14, bold=True, color="111827")
+    h.row_dimensions[1].height = 22
 
     headers = ["Date", "Price (€)", "In stock", "Change"]
+    header_row = 3
     for ci, label in enumerate(headers, start=1):
-        c = h.cell(row=3, column=ci, value=label)
-        c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor=TEAL_DARK)
+        c = h.cell(row=header_row, column=ci, value=label)
+        c.font = Font(bold=True, color="111827")
         c.alignment = Alignment(horizontal="left")
 
     if not history_rows:
@@ -335,6 +338,7 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
         h.cell(row=4, column=2, value=0)
         h.cell(row=4, column=3, value="—")
         h.cell(row=4, column=4, value="no data")
+        last_row = 4
     else:
         for ri, row in enumerate(history_rows, start=4):
             ct = row.change_type or ""
@@ -342,98 +346,87 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
             h.cell(row=ri, column=2, value=float(row.price)).number_format = "0.00"
             h.cell(row=ri, column=3, value="Yes" if row.in_stock else "No").alignment = Alignment(horizontal="center")
             label_cell = h.cell(row=ri, column=4, value=CHANGE_LABEL.get(ct, ct))
+            label_cell.alignment = Alignment(horizontal="left")
             fill_hex = CHANGE_FILL.get(ct)
             if fill_hex:
                 label_cell.fill = PatternFill("solid", fgColor=fill_hex)
-            # row striping
-            if ri % 2 == 0:
-                for col in range(1, 5):
-                    cell = h.cell(row=ri, column=col)
-                    if not cell.fill.fgColor or cell.fill.fgColor.rgb in (None, "00000000"):
-                        cell.fill = PatternFill("solid", fgColor="FAFAFA")
+        last_row = 3 + len(history_rows)
 
         # Conditional formatting on price column (color scale)
-        last_row = 3 + len(history_rows)
-        price_range = f"B4:B{last_row}"
         rule = ColorScaleRule(start_type="min", start_color="DCFCE7",
                               mid_type="percentile", mid_value=50, mid_color="FEF3C7",
                               end_type="max", end_color="FEE2E2")
-        h.conditional_formatting.add(price_range, rule)
+        h.conditional_formatting.add(f"B4:B{last_row}", rule)
 
         # Embedded LineChart
         if len(history_rows) >= 2:
             chart = LineChart()
             chart.title = "Price trend"
-            chart.style = 2
             chart.y_axis.title = "Price (€)"
             chart.x_axis.title = "Date"
             chart.height = 10
             chart.width = 22
-            data_ref = Reference(h, min_col=2, min_row=3, max_col=2, max_row=last_row)
+            data_ref = Reference(h, min_col=2, min_row=header_row, max_col=2, max_row=last_row)
             cats_ref = Reference(h, min_col=1, min_row=4, max_row=last_row)
             chart.add_data(data_ref, titles_from_data=True)
             chart.set_categories(cats_ref)
-            # Color the series teal
-            if chart.series:
-                from openpyxl.chart.marker import Marker
-                ser = chart.series[0]
-                ser.graphicalProperties = ser.graphicalProperties or None
-                # leave default styling, openpyxl chart styles vary across viewers
-            h.add_chart(chart, f"F3")
+            h.add_chart(chart, "F3")
+
+    # Frame the table in thin black border
+    _apply_box_border(h, f"A{header_row}:D{last_row}", color="111827")
 
     h.column_dimensions["A"].width = 22
     h.column_dimensions["B"].width = 14
     h.column_dimensions["C"].width = 12
     h.column_dimensions["D"].width = 14
-    h.freeze_panes = "A4"
+    # No freeze_panes — interacted badly with merged banner on prior version, plain header reads fine
 
     # ── Offers ───────────────────────────────────────────────────────────────
     o = wb.create_sheet("Offers")
-    o.sheet_view.showGridLines = False
-    o.merge_cells("A1:E1")
     o["A1"] = "Offers by Store"
-    o["A1"].font = Font(size=14, bold=True, color="FFFFFF")
-    o["A1"].fill = PatternFill("solid", fgColor=TEAL)
-    o["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    o.row_dimensions[1].height = 30
+    o["A1"].font = Font(size=14, bold=True, color="111827")
+    o.row_dimensions[1].height = 22
 
     offer_headers = ["Store", "Price (€)", "Previous (€)", "Change %", "URL"]
+    offer_header_row = 3
     for ci, label in enumerate(offer_headers, start=1):
-        c = o.cell(row=3, column=ci, value=label)
-        c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor=TEAL_DARK)
+        c = o.cell(row=offer_header_row, column=ci, value=label)
+        c.font = Font(bold=True, color="111827")
+        c.alignment = Alignment(horizontal="left")
 
     if not offer_rows:
         o.cell(row=4, column=1, value="—")
+        offer_last_row = 4
     else:
         for ri, p in enumerate(offer_rows, start=4):
             op = float(p.last_price) if p.last_price else 0
             oo = float(p.old_price) if p.old_price else op
             opct = _delta_percent(op, oo)
-            o.cell(row=ri, column=1, value=(p.search_term or "—").capitalize())
+            o.cell(row=ri, column=1, value=(p.search_term or "—").capitalize()).alignment = Alignment(horizontal="left")
             o.cell(row=ri, column=2, value=op).number_format = "0.00"
             o.cell(row=ri, column=3, value=oo).number_format = "0.00"
             ch_cell = o.cell(row=ri, column=4, value=f"{opct:+.1f}%" if opct is not None else "flat")
+            ch_cell.alignment = Alignment(horizontal="left")
             if opct is not None:
-                ch_cell.fill = PatternFill("solid", fgColor=("DCFCE7" if opct < 0 else "FEE2E2"))
                 ch_cell.font = Font(bold=True, color=(GREEN if opct < 0 else RED))
             url_cell = o.cell(row=ri, column=5, value=p.url or "—")
             if p.url:
                 url_cell.hyperlink = p.url
                 url_cell.font = Font(color="2563EB", underline="single")
+        offer_last_row = 3 + len(offer_rows)
 
         if len(offer_rows) == 1:
-            o.merge_cells(f"A{4 + len(offer_rows) + 1}:E{4 + len(offer_rows) + 1}")
-            note = o.cell(row=4 + len(offer_rows) + 1, column=1,
-                          value="Only one store currently carries this product at this volume.")
-            note.font = Font(italic=True, color=GRAY)
+            note_row = offer_last_row + 2
+            o.cell(row=note_row, column=1, value="Only one store currently carries this product at this volume.").font = Font(italic=True, color=GRAY)
+
+    # Frame
+    _apply_box_border(o, f"A{offer_header_row}:E{offer_last_row}", color="111827")
 
     o.column_dimensions["A"].width = 22
     o.column_dimensions["B"].width = 14
     o.column_dimensions["C"].width = 14
     o.column_dimensions["D"].width = 14
     o.column_dimensions["E"].width = 60
-    o.freeze_panes = "A4"
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -444,36 +437,28 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
 
 
 def _build_catalog_xlsx(catalog_rows: list[Product], filters_desc: str) -> io.BytesIO:
-    """Single sheet with branded header banner + filter description + table."""
+    """Single sheet with title row + filter description + bordered table."""
     import openpyxl
     wb = openpyxl.Workbook()
     s = wb.active
     s.title = "Catalog"
-    s.sheet_view.showGridLines = False
 
-    s.merge_cells("A1:J1")
-    s["A1"] = "MarketPulse · Catalog Export"
-    s["A1"].font = Font(size=18, bold=True, color="FFFFFF")
-    s["A1"].fill = PatternFill("solid", fgColor=TEAL)
-    s["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    s.row_dimensions[1].height = 32
-
-    s.merge_cells("A2:J2")
+    s["A1"] = "MarketPulse — Catalog Export"
+    s["A1"].font = Font(size=16, bold=True, color="111827")
     s["A2"] = (f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  ·  "
                f"{len(catalog_rows)} rows  ·  Filters: {filters_desc}")
-    s["A2"].font = Font(size=10, color="FFFFFF")
-    s["A2"].fill = PatternFill("solid", fgColor=TEAL_DARK)
-    s["A2"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    s.row_dimensions[2].height = 20
+    s["A2"].font = Font(size=10, color=GRAY)
 
+    header_row = 4
     headers = ["Brand", "Title", "Volume", "Type", "Store", "Current (€)", "Previous (€)", "Change %", "In stock", "URL"]
     for ci, label in enumerate(headers, start=1):
-        c = s.cell(row=4, column=ci, value=label)
-        c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor=TEAL_DARK)
+        c = s.cell(row=header_row, column=ci, value=label)
+        c.font = Font(bold=True, color="111827")
+        c.alignment = Alignment(horizontal="left")
 
     if not catalog_rows:
         s.cell(row=5, column=1, value="No products match these filters.").font = Font(italic=True, color=GRAY)
+        last_row = 5
     else:
         for ri, p in enumerate(catalog_rows, start=5):
             cur = float(p.last_price) if p.last_price else 0
@@ -488,19 +473,15 @@ def _build_catalog_xlsx(catalog_rows: list[Product], filters_desc: str) -> io.By
             s.cell(row=ri, column=7, value=prev).number_format = "0.00"
             ch = s.cell(row=ri, column=8, value=f"{pct:+.1f}%" if pct is not None else "flat")
             if pct is not None:
-                ch.fill = PatternFill("solid", fgColor=("DCFCE7" if pct < 0 else "FEE2E2"))
                 ch.font = Font(bold=True, color=(GREEN if pct < 0 else RED))
             s.cell(row=ri, column=9, value="Yes" if p.is_available else "No")
             url_cell = s.cell(row=ri, column=10, value=p.url or "—")
             if p.url:
                 url_cell.hyperlink = p.url
                 url_cell.font = Font(color="2563EB", underline="single")
-            # zebra
-            if ri % 2 == 1:
-                for col in range(1, 11):
-                    cell = s.cell(row=ri, column=col)
-                    if not cell.fill.fgColor or cell.fill.fgColor.rgb in (None, "00000000"):
-                        cell.fill = PatternFill("solid", fgColor="FAFAFA")
+        last_row = 4 + len(catalog_rows)
+
+    _apply_box_border(s, f"A{header_row}:J{last_row}", color="111827")
 
     widths = [18, 40, 10, 10, 14, 12, 12, 12, 10, 50]
     for i, w in enumerate(widths, start=1):
@@ -628,6 +609,43 @@ def _build_product_pdf(product: Product, history_rows: list, offer_rows: list, p
     story.append(Spacer(1, 8))
     story.append(HRFlowable(width="100%", thickness=0.4, color=rl_colors.HexColor("#E5E7EB"), spaceAfter=8))
 
+    # Quick stats — derived from history (or product fields if history empty)
+    story.append(Paragraph("Quick stats", h2))
+    prices = [float(h.price) for h in history_rows if h.price]
+    if prices:
+        lo = min(prices)
+        hi = max(prices)
+        avg = sum(prices) / len(prices)
+        obs = len(prices)
+        spread = ((hi - lo) / lo * 100) if lo > 0 else 0.0
+    else:
+        lo = hi = avg = current
+        obs = 0
+        spread = 0.0
+
+    stats_data = [
+        ["Lowest", "Highest", "Average", "Current", "Observations", "Spread"],
+        [f"{lo:.2f} €", f"{hi:.2f} €", f"{avg:.2f} €", f"{current:.2f} €", f"{obs}", f"{spread:.1f}%"],
+    ]
+    stats_tbl = Table(stats_data, colWidths=[2.9 * cm] * 6)
+    stats_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), rl_colors.HexColor(f"#{LIGHT}")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.HexColor("#6B7280")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 8.5),
+        ("FONTSIZE", (0, 1), (-1, 1), 11),
+        ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0, 1), (-1, 1), rl_colors.HexColor("#111827")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#D1D5DB")),
+    ]))
+    story.append(stats_tbl)
+    story.append(Spacer(1, 10))
+    story.append(HRFlowable(width="100%", thickness=0.4, color=rl_colors.HexColor("#E5E7EB"), spaceAfter=8))
+
     # Offers
     story.append(Paragraph("Offers by store", h2))
     offer_data = [["Store", "Price (€)", "Previous (€)", "Change"]]
@@ -649,7 +667,10 @@ def _build_product_pdf(product: Product, history_rows: list, offer_rows: list, p
         ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        # Store column: LEFT-aligned (header + values)
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        # Numeric columns: RIGHT-aligned (header + values), so columns line up
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor(f"#{LIGHT}")]),
         ("LINEBELOW", (0, 0), (-1, 0), 0.6, rl_colors.HexColor(f"#{TEAL}")),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
