@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -179,7 +179,11 @@ async def regenerate_rules(
 
 @router.post("/scrape/{domain}")
 async def trigger_scrape(
-    domain: str,
+    # Regex requires `{domain}` to look like a real hostname (e.g. "notino.lv",
+    # "220.lv"). Without this, POST /scrape/ingest would route here too and
+    # shadow the worker ingest endpoint below, returning a 401 because this
+    # route requires admin JWT.
+    domain: str = Path(..., pattern=r"^[a-z0-9-]+\.[a-z]{2,6}$"),
     max_items: Optional[int] = Query(None, ge=1, le=99999),
     _: User = Depends(get_current_admin),
 ):
