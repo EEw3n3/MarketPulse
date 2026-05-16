@@ -12,7 +12,18 @@ import {
   XCircle,
   ChevronRight,
   Loader,
+  Trash2,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import MobileBottomNav from "@/components/dashboard/MobileBottomNav";
@@ -170,6 +181,14 @@ function HealthTab() {
 
 // ── Scraping Tab ───────────────────────────────────────────────────────────
 
+const LIMIT_OPTIONS: { label: string; value: number | null }[] = [
+  { label: "50", value: 50 },
+  { label: "100", value: 100 },
+  { label: "500", value: 500 },
+  { label: "1000", value: 1000 },
+  { label: "Unlimited", value: null },
+];
+
 function ScrapingTab() {
   const [health, setHealth] = useState<AdminHealthResponse | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(true);
@@ -179,6 +198,11 @@ function ScrapingTab() {
   const [regenLoading, setRegenLoading] = useState<string | null>(null);
   // Domains actively scraping: maps domain → last_scrape_at snapshot before trigger
   const [scrapingDomains, setScrapingDomains] = useState<Record<string, string | null>>({});
+  // Per-site limit chosen via dropdown — null means Unlimited
+  const [perSiteLimit, setPerSiteLimit] = useState<Record<string, number | null>>({});
+  // Master limit applied by "Scrape All Sites" button
+  const [masterLimit, setMasterLimit] = useState<number | null>(100);
+  const [scrapingAll, setScrapingAll] = useState(false);
 
   const refreshHealth = useCallback(() =>
     api.admin.health().then(setHealth), []);
@@ -222,12 +246,42 @@ function ScrapingTab() {
 
   const handleScrape = async (domain: string) => {
     const currentTime = health?.sites.find((s) => s.domain === domain)?.last_scrape_at ?? null;
+    const limit = perSiteLimit[domain] === undefined ? 100 : perSiteLimit[domain];
     try {
-      await api.admin.triggerScrape(domain);
+      await api.admin.triggerScrape(domain, limit);
       setScrapingDomains((prev) => ({ ...prev, [domain]: currentTime }));
+      toast.success(`Queued ${domain} (limit=${limit ?? "unlimited"})`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       toast.error(msg);
+    }
+  };
+
+  const handleScrapeAll = async () => {
+    const sites = health?.sites ?? [];
+    if (!sites.length) return;
+    const confirmMsg = `Start scraping ALL ${sites.length} sites with limit=${masterLimit ?? "unlimited"}?\n\n` +
+      `Worker must be running locally. Jobs will be processed in parallel (concurrency=5).`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setScrapingAll(true);
+    const snapshots: Record<string, string | null> = {};
+    for (const s of sites) snapshots[s.domain] = s.last_scrape_at ?? null;
+
+    try {
+      const results = await Promise.allSettled(
+        sites.map((s) => api.admin.triggerScrape(s.domain, masterLimit))
+      );
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      setScrapingDomains((prev) => ({ ...prev, ...snapshots }));
+      if (failed === 0) {
+        toast.success(`All ${ok} scrape jobs queued — check worker logs`);
+      } else {
+        toast.error(`Queued ${ok}/${results.length} (${failed} failed — likely rate limit)`);
+      }
+    } finally {
+      setScrapingAll(false);
     }
   };
 
@@ -248,6 +302,49 @@ function ScrapingTab() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Master "Scrape All Sites" block — enqueues 5 jobs in parallel */}
+      <div className="border border-border rounded-md bg-surface/40 px-5 py-4 flex flex-wrap items-center gap-3">
+        <div className="flex flex-col">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Scrape all sites</span>
+          <span className="font-mono text-[11px] text-foreground/70">
+            Queues a job per site for the local worker (parallel, concurrency=5)
+          </span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <label className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground">
+            Master limit:
+          </label>
+          <select
+            value={masterLimit === null ? "unlimited" : String(masterLimit)}
+            onChange={(e) =>
+              setMasterLimit(e.target.value === "unlimited" ? null : parseInt(e.target.value, 10))
+            }
+            className="h-7 px-2 rounded border border-border bg-background text-[11.5px] font-mono text-foreground"
+          >
+            {LIMIT_OPTIONS.map((opt) => (
+              <option key={opt.label} value={opt.value === null ? "unlimited" : String(opt.value)}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleScrapeAll}
+            disabled={scrapingAll || (health?.sites ?? []).length === 0}
+            className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded bg-primary text-primary-foreground text-[12px] font-semibold font-mono hover:brightness-110 transition-all disabled:opacity-60"
+          >
+            {scrapingAll ? (
+              <>
+                <Loader size={12} className="animate-spin" /> Queueing…
+              </>
+            ) : (
+              <>
+                <PlayCircle size={12} /> Scrape All {(health?.sites ?? []).length} Sites
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
       <div className="border border-border rounded-md bg-surface/40 overflow-hidden">
         <div className="grid grid-cols-[1fr_auto] gap-3 px-5 py-3 border-b border-border bg-surface/60">
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Domain</span>
@@ -258,7 +355,9 @@ function ScrapingTab() {
             <div className="px-5 py-8 text-center">
               <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">No scraping rules configured.</p>
             </div>
-          ) : (health?.sites ?? []).map((s) => (
+          ) : (health?.sites ?? []).map((s) => {
+            const limit = perSiteLimit[s.domain] === undefined ? 100 : perSiteLimit[s.domain];
+            return (
             <div key={s.domain} className="flex items-center justify-between gap-3 px-5 py-3.5">
               <div>
                 <p className="font-mono text-[12.5px] text-foreground">{s.domain}</p>
@@ -279,6 +378,24 @@ function ScrapingTab() {
                   <Sparkles size={11} />
                   {regenLoading === s.domain ? "…" : "Regen"}
                 </button>
+                <select
+                  value={limit === null ? "unlimited" : String(limit)}
+                  onChange={(e) =>
+                    setPerSiteLimit((prev) => ({
+                      ...prev,
+                      [s.domain]: e.target.value === "unlimited" ? null : parseInt(e.target.value, 10),
+                    }))
+                  }
+                  disabled={s.domain in scrapingDomains}
+                  className="h-7 px-2 rounded border border-border bg-background text-[11px] font-mono text-foreground disabled:opacity-50"
+                  title="Scrape limit"
+                >
+                  {LIMIT_OPTIONS.map((opt) => (
+                    <option key={opt.label} value={opt.value === null ? "unlimited" : String(opt.value)}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   onClick={() => handleScrape(s.domain)}
                   disabled={s.domain in scrapingDomains}
@@ -298,7 +415,7 @@ function ScrapingTab() {
                 </button>
               </div>
             </div>
-          ))}
+          );})}
         </div>
       </div>
 
@@ -503,6 +620,10 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [userToDelete, setUserToDelete] = useState<AdminUserRead | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [batching, setBatching] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -529,59 +650,181 @@ function UsersTab() {
     }
   };
 
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const selectableIds = users.filter((u) => !u.is_admin).map((u) => u.id);
+  const allChecked = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleAll = () =>
+    setSelected(allChecked ? new Set() : new Set(selectableIds));
+
+  const handleBatchDeactivate = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Deactivate ${selected.size} selected user(s)?`)) return;
+    setBatching(true);
+    try {
+      const res = await api.admin.batchDeactivate(Array.from(selected));
+      toast.success(
+        `Deactivated ${res.updated}` +
+        (res.skipped_self > 0 ? ` (skipped self)` : "")
+      );
+      setSelected(new Set());
+      load();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Batch deactivate failed");
+    } finally {
+      setBatching(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!userToDelete) return;
+    setDeleting(true);
+    try {
+      await api.admin.deleteUser(userToDelete.id);
+      setUsers((prev) => prev.filter((u) => u.id !== userToDelete.id));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(userToDelete.id);
+        return next;
+      });
+      toast.success(`Deleted ${userToDelete.email}`);
+      setUserToDelete(null);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <LoadingState label="Loading users" />;
   if (error) return <ErrorState message={error} onRetry={load} />;
 
   return (
-    <div className="border border-border rounded-md bg-surface/40 overflow-hidden">
-      <div className="grid grid-cols-[1fr_80px_64px_90px_auto] gap-3 px-5 py-3 border-b border-border bg-surface/60">
-        {["Email / Name", "Joined", "Favs", "Status", "Action"].map((h) => (
-          <span key={h} className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{h}</span>
-        ))}
-      </div>
-      <div className="divide-y divide-border">
-        {users.length === 0 ? (
-          <div className="px-5 py-8 text-center">
-            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">No users yet.</p>
-          </div>
-        ) : users.map((u) => (
-          <div key={u.id} className="grid grid-cols-[1fr_80px_64px_90px_auto] gap-3 px-5 py-3.5 items-center">
-            <div className="min-w-0">
-              <p className="text-[13px] text-foreground truncate">{u.email}</p>
-              <p className="font-mono text-[10px] text-muted-foreground truncate">
-                {u.full_name ?? "—"}
-                {u.is_admin && <span className="ml-1.5 text-amber-400">admin</span>}
-              </p>
+    <>
+      {/* Batch action bar — appears when any row selected */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06]">
+          <span className="font-mono text-[11.5px] text-amber-400">
+            {selected.size} selected
+          </span>
+          <button
+            onClick={handleBatchDeactivate}
+            disabled={batching}
+            className="ml-auto h-7 px-3 rounded text-[11px] font-mono border border-destructive/40 text-destructive hover:bg-destructive/[0.08] transition-colors disabled:opacity-50"
+          >
+            {batching ? "…" : "Deactivate selected"}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="h-7 px-3 rounded text-[11px] font-mono border border-border text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      <div className="border border-border rounded-md bg-surface/40 overflow-hidden">
+        <div className="grid grid-cols-[28px_1fr_80px_64px_90px_auto] gap-3 px-5 py-3 border-b border-border bg-surface/60">
+          <input
+            type="checkbox"
+            checked={allChecked}
+            onChange={toggleAll}
+            className="accent-primary"
+            title="Select all (non-admin) users"
+          />
+          {["Email / Name", "Joined", "Favs", "Status", "Action"].map((h) => (
+            <span key={h} className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{h}</span>
+          ))}
+        </div>
+        <div className="divide-y divide-border">
+          {users.length === 0 ? (
+            <div className="px-5 py-8 text-center">
+              <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">No users yet.</p>
             </div>
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {new Date(u.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
-            </span>
-            <span className="font-mono tabular-nums text-[12px] text-foreground">{u.favorites_count}</span>
-            <span className={cn(
-              "inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap justify-self-start",
-              u.is_active
-                ? "text-[hsl(var(--success))] border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/[0.06]"
-                : "text-muted-foreground border-border bg-surface-2"
-            )}>
-              {u.is_active ? "active" : "disabled"}
-            </span>
-            <button
-              onClick={() => toggleActive(u)}
-              disabled={actionId === u.id || u.is_admin}
-              title={u.is_admin ? "Cannot modify admin accounts" : ""}
-              className={cn(
-                "h-7 px-2.5 rounded border text-[11px] font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+          ) : users.map((u) => (
+            <div key={u.id} className="grid grid-cols-[28px_1fr_80px_64px_90px_auto] gap-3 px-5 py-3.5 items-center">
+              <input
+                type="checkbox"
+                checked={selected.has(u.id)}
+                disabled={u.is_admin}
+                onChange={() => toggleSelect(u.id)}
+                className="accent-primary disabled:opacity-30"
+                title={u.is_admin ? "Cannot select admin accounts" : ""}
+              />
+              <div className="min-w-0">
+                <p className="text-[13px] text-foreground truncate">{u.email}</p>
+                <p className="font-mono text-[10px] text-muted-foreground truncate">
+                  {u.full_name ?? "—"}
+                  {u.is_admin && <span className="ml-1.5 text-amber-400">admin</span>}
+                </p>
+              </div>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {new Date(u.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+              </span>
+              <span className="font-mono tabular-nums text-[12px] text-foreground">{u.favorites_count}</span>
+              <span className={cn(
+                "inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap justify-self-start",
                 u.is_active
-                  ? "border-destructive/30 text-destructive hover:border-destructive hover:bg-destructive/[0.06]"
-                  : "border-[hsl(var(--success))]/30 text-[hsl(var(--success))] hover:border-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/[0.06]"
-              )}
-            >
-              {actionId === u.id ? <RefreshCw size={11} className="animate-spin" /> : u.is_active ? "Deactivate" : "Reactivate"}
-            </button>
-          </div>
-        ))}
+                  ? "text-[hsl(var(--success))] border-[hsl(var(--success))]/30 bg-[hsl(var(--success))]/[0.06]"
+                  : "text-muted-foreground border-border bg-surface-2"
+              )}>
+                {u.is_active ? "active" : "disabled"}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => toggleActive(u)}
+                  disabled={actionId === u.id || u.is_admin}
+                  title={u.is_admin ? "Cannot modify admin accounts" : ""}
+                  className={cn(
+                    "h-7 px-2.5 rounded border text-[11px] font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+                    u.is_active
+                      ? "border-destructive/30 text-destructive hover:border-destructive hover:bg-destructive/[0.06]"
+                      : "border-[hsl(var(--success))]/30 text-[hsl(var(--success))] hover:border-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/[0.06]"
+                  )}
+                >
+                  {actionId === u.id ? <RefreshCw size={11} className="animate-spin" /> : u.is_active ? "Deactivate" : "Reactivate"}
+                </button>
+                <button
+                  onClick={() => setUserToDelete(u)}
+                  disabled={u.is_admin}
+                  title={u.is_admin ? "Cannot delete admin accounts" : "Permanently delete user"}
+                  className="h-7 w-7 inline-flex items-center justify-center rounded border border-destructive/30 text-destructive hover:border-destructive hover:bg-destructive/[0.06] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+
+      <AlertDialog open={!!userToDelete} onOpenChange={(o) => !o && setUserToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete user {userToDelete?.email}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the user, all their favorites, and preferences.
+              The email becomes available for re-registration. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

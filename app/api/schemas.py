@@ -11,7 +11,11 @@ class PriceHistoryRead(BaseModel):
     in_stock: bool
     parsed_at: datetime
     change_type: str
-    
+    # store_name identifies which store this point belongs to (for multi-line
+    # PriceChart that overlays history from all stores in a ProductGroup).
+    # Empty string for legacy callers that don't populate this.
+    store_name: str = ""
+
     model_config = ConfigDict(from_attributes=True)
 
 # --- UI Specific Schemas ---

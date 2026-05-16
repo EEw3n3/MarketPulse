@@ -52,6 +52,8 @@ SERVER_URL = os.getenv("SERVER_URL", "http://46.101.174.12:8000").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN")
 POLL_TIMEOUT = int(os.getenv("POLL_TIMEOUT", "25"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
+CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "5"))
+DEFAULT_MAX_ITEMS = int(os.getenv("DEFAULT_MAX_ITEMS", "9999"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 logger.remove()
@@ -78,9 +80,10 @@ def _target_for_domain(domain: str) -> Optional[dict]:
     return None
 
 
-async def run_scrape(domain: str) -> Optional[float]:
-    """Run a full local scrape for `domain`. Returns the job start timestamp
-    (so we can later select products touched after this) or None on failure."""
+async def run_scrape(domain: str, max_items: int) -> Optional[float]:
+    """Run a full local scrape for `domain` with a cap of `max_items` products.
+    Returns the job start timestamp (so we can later select products touched
+    after this) or None on failure."""
     target = _target_for_domain(domain)
     if not target:
         logger.error(f"Domain {domain} not found in configs/categories.json")
@@ -98,9 +101,9 @@ async def run_scrape(domain: str) -> Optional[float]:
     }
 
     started = time.time()
-    logger.info(f"🔍 Starting local scrape: {domain} ({target['url']})")
+    logger.info(f"🔍 Starting local scrape: {domain} (max_items={max_items})")
     try:
-        await process_target_worker(target_payload, None, None, enable_price_filter=True, max_items=9999)
+        await process_target_worker(target_payload, None, None, enable_price_filter=True, max_items=max_items)
     except Exception as e:
         logger.exception(f"Scrape failed for {domain}: {e}")
         return None
@@ -169,14 +172,66 @@ async def mark_complete(client: httpx.AsyncClient, job_id: str, status: str) -> 
         logger.warning(f"Could not mark complete: {e}")
 
 
+async def handle_job(
+    sem: asyncio.Semaphore,
+    client: httpx.AsyncClient,
+    job: dict,
+) -> None:
+    """End-to-end processing of one job: scrape → fetch fresh → ingest → mark.
+
+    Bounded by `sem` so concurrent jobs don't exceed WORKER_CONCURRENCY.
+    """
+    async with sem:
+        job_id = job["id"]
+        domain = job["domain"]
+        max_items = job.get("max_items") or DEFAULT_MAX_ITEMS
+        logger.info(f"📦 Received job {job_id} → {domain} (limit={max_items})")
+
+        since = await run_scrape(domain, max_items)
+        if since is None:
+            await mark_complete(client, job_id, "failed")
+            return
+
+        products = await fetch_fresh_products(domain, since)
+        if not products:
+            logger.warning(f"No fresh products to upload for {domain}")
+            await mark_complete(client, job_id, "done")
+            return
+
+        logger.info(f"📤 Uploading {len(products)} products to server for {domain}")
+        try:
+            totals = await push_to_server(client, job_id, domain, products)
+            logger.info(
+                f"✅ Job {job_id} ({domain}) complete — inserted={totals['inserted']}  "
+                f"updated={totals['updated']}  price_changes={totals['price_changes']}"
+            )
+            await mark_complete(client, job_id, "done")
+        except Exception:
+            await mark_complete(client, job_id, "failed")
+
+
 async def worker_loop() -> None:
     if not WORKER_TOKEN:
         logger.error("WORKER_TOKEN env var is required. Set it and re-run.")
         sys.exit(1)
 
-    logger.info(f"🤖 Worker started — server={SERVER_URL}  poll={POLL_TIMEOUT}s  batch={BATCH_SIZE}")
+    logger.info(
+        f"🤖 Worker started — server={SERVER_URL}  poll={POLL_TIMEOUT}s  "
+        f"batch={BATCH_SIZE}  concurrency={CONCURRENCY}"
+    )
+    sem = asyncio.Semaphore(CONCURRENCY)
+    pending: set[asyncio.Task] = set()
+
     async with httpx.AsyncClient() as client:
         while True:
+            # Reap finished tasks
+            done = {t for t in pending if t.done()}
+            pending -= done
+            for t in done:
+                exc = t.exception()
+                if exc:
+                    logger.error(f"Job task crashed: {exc!r}")
+
             try:
                 resp = await client.get(
                     f"{SERVER_URL}/api/admin/scrape/poll",
@@ -192,34 +247,14 @@ async def worker_loop() -> None:
 
             job = resp.json().get("job")
             if not job:
-                logger.debug("Poll returned no job — continuing")
+                # No job ready, just loop and poll again
                 continue
 
-            job_id = job["id"]
-            domain = job["domain"]
-            logger.info(f"📦 Received job {job_id} → {domain}")
-
-            since = await run_scrape(domain)
-            if since is None:
-                await mark_complete(client, job_id, "failed")
-                continue
-
-            products = await fetch_fresh_products(domain, since)
-            if not products:
-                logger.warning(f"No fresh products to upload for {domain}")
-                await mark_complete(client, job_id, "done")
-                continue
-
-            logger.info(f"📤 Uploading {len(products)} products to server")
-            try:
-                totals = await push_to_server(client, job_id, domain, products)
-                logger.info(
-                    f"✅ Job {job_id} complete — inserted={totals['inserted']}  "
-                    f"updated={totals['updated']}  price_changes={totals['price_changes']}"
-                )
-                await mark_complete(client, job_id, "done")
-            except Exception:
-                await mark_complete(client, job_id, "failed")
+            # Spawn job processing in its own task — caps at CONCURRENCY via the
+            # semaphore inside handle_job. Polling continues immediately so 5
+            # jobs in queue all start almost simultaneously.
+            task = asyncio.create_task(handle_job(sem, client, job))
+            pending.add(task)
 
 
 def main() -> None:

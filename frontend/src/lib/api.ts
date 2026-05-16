@@ -112,6 +112,9 @@ export interface PriceHistoryRead {
   in_stock: boolean;
   parsed_at: string;
   change_type: string;
+  /** Lowercase canonical store domain (e.g. "douglas.lv"). Used by PriceChart
+   *  to render one line per store across the product's group. */
+  store_name?: string;
 }
 
 export interface StoreOfferVariant {
@@ -415,8 +418,20 @@ export const api = {
       fetchApi<AdminScrapingRule>(`/admin/rules/${encodeURIComponent(domain)}`),
     regenerateRules: (domain: string) =>
       fetchApi<{ status: string; domain: string }>(`/admin/rules/${encodeURIComponent(domain)}/regenerate`, { method: "POST" }),
-    triggerScrape: (domain: string) =>
-      fetchApi<{ status: string; domain: string }>(`/admin/scrape/${encodeURIComponent(domain)}`, { method: "POST" }),
+    triggerScrape: (domain: string, maxItems?: number | null) => {
+      const qs = maxItems != null ? `?max_items=${maxItems}` : "";
+      return fetchApi<{ status: string; domain: string; job_id: string; max_items: number | null }>(
+        `/admin/scrape/${encodeURIComponent(domain)}${qs}`,
+        { method: "POST" }
+      );
+    },
+    deleteUser: (userId: number) =>
+      fetchApi<void>(`/admin/users/${userId}`, { method: "DELETE" }),
+    batchDeactivate: (userIds: number[]) =>
+      fetchApi<{ updated: number; skipped_self: number }>(`/admin/users/batch/deactivate`, {
+        method: "POST",
+        body: JSON.stringify({ user_ids: userIds }),
+      }),
     dataQuality: () =>
       fetchApi<AdminDataQuality>("/admin/data-quality"),
     users: () =>

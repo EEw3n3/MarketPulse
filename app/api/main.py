@@ -357,6 +357,39 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
     # whenever cross-site grouping was imperfect. Better to show the real image.
     display_image = product.image_url
 
+    # History: gather PriceHistory for ALL products in the same group so the
+    # chart can render one line per store. Falls back to just this product's
+    # history if it isn't in a group.
+    history_items: list[schemas.PriceHistoryRead] = []
+    if product.group_id:
+        grp_hist_stmt = (
+            select(PriceHistory, Product.search_term)
+            .join(Product, Product.id == PriceHistory.product_id)
+            .where(Product.group_id == product.group_id)
+            .order_by(PriceHistory.parsed_at.asc())
+        )
+        rows = (await db.execute(grp_hist_stmt)).all()
+        history_items = [
+            schemas.PriceHistoryRead(
+                id=h.id,
+                price=h.price,
+                in_stock=h.in_stock,
+                parsed_at=h.parsed_at,
+                change_type=h.change_type,
+                store_name=(search_term or "").lower(),
+            )
+            for h, search_term in rows
+        ]
+    else:
+        history_items = [
+            schemas.PriceHistoryRead(
+                id=h.id, price=h.price, in_stock=h.in_stock,
+                parsed_at=h.parsed_at, change_type=h.change_type,
+                store_name=(product.search_term or "").lower(),
+            )
+            for h in product.history
+        ]
+
     return schemas.ProductCardDetail(
         id=product.id,
         url=product.url,
@@ -370,7 +403,7 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         old_price=float(product.old_price) if product.old_price else None,
         store_name=product.search_term.capitalize(),
         is_available=product.is_available,
-        history=[schemas.PriceHistoryRead.model_validate(h) for h in product.history],
+        history=history_items,
         offers=offers,
     )
 

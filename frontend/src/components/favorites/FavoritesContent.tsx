@@ -306,6 +306,15 @@ function FavoriteRow({
             </span>
           )}
         </p>
+        <p className="font-mono text-[10px] text-muted-foreground/70 mt-0.5">
+          Added {new Date(fav.created_at).toLocaleString("en-GB", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
       </div>
 
       {/* Store tag */}

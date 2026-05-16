@@ -3,15 +3,15 @@ import time
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, delete, update
 
 from app.api.deps import get_db, get_current_admin, get_worker
 from app.core.job_queue import job_queue
-from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite
+from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -180,6 +180,7 @@ async def regenerate_rules(
 @router.post("/scrape/{domain}")
 async def trigger_scrape(
     domain: str,
+    max_items: Optional[int] = Query(None, ge=1, le=99999),
     _: User = Depends(get_current_admin),
 ):
     """Enqueue a scrape job for the distributed worker.
@@ -188,15 +189,17 @@ async def trigger_scrape(
     (notino.lv, 220.lv, etc), so the actual scraping is delegated to a local
     worker on the user's machine (residential IP). This endpoint just pushes
     a job to Redis; the worker long-polls /admin/scrape/poll and executes.
-    Rate-limited to once per 5 min per domain.
+
+    `max_items` — optional cap on products to scrape. None = unlimited (worker
+    defaults to 9999). Rate-limited to once per 5 min per domain.
     """
     now = time.time()
     if domain in _last_scrape and now - _last_scrape[domain] < SCRAPE_COOLDOWN_S:
         remaining = int(SCRAPE_COOLDOWN_S - (now - _last_scrape[domain]))
         raise HTTPException(status_code=429, detail=f"Rate limit: retry in {remaining}s")
     _last_scrape[domain] = now
-    job_id = await job_queue.enqueue(domain)
-    return {"status": "queued", "domain": domain, "job_id": job_id}
+    job_id = await job_queue.enqueue(domain, max_items=max_items)
+    return {"status": "queued", "domain": domain, "job_id": job_id, "max_items": max_items}
 
 
 # ── Distributed scrape worker endpoints ──────────────────────────────────────
@@ -217,7 +220,13 @@ async def scrape_poll(
     job = await job_queue.dequeue(timeout_s=timeout)
     if not job:
         return {"job": None}
-    return {"job": {"id": job["id"], "domain": job["domain"]}}
+    return {
+        "job": {
+            "id": job["id"],
+            "domain": job["domain"],
+            "max_items": job.get("max_items"),
+        }
+    }
 
 
 class IngestProductIn(BaseModel):
@@ -450,6 +459,47 @@ async def patch_user(
         created_at=user.created_at,
         favorites_count=fav_count,
     )
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """Hard-delete a user + cascading favorites + preferences. Email is freed.
+    Admins cannot delete themselves."""
+    if user_id == current_admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    target = await db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.execute(delete(Favorite).where(Favorite.user_id == user_id))
+    await db.execute(delete(UserPreferences).where(UserPreferences.user_id == user_id))
+    await db.execute(delete(User).where(User.id == user_id))
+    await db.commit()
+
+
+class BatchDeactivateRequest(BaseModel):
+    user_ids: List[int]
+
+
+@router.post("/users/batch/deactivate")
+async def batch_deactivate_users(
+    payload: BatchDeactivateRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """Deactivate multiple users at once. Silently skips current admin's own id."""
+    safe_ids = [uid for uid in payload.user_ids if uid != current_admin.id]
+    skipped_self = len(payload.user_ids) - len(safe_ids)
+    if not safe_ids:
+        return {"updated": 0, "skipped_self": skipped_self}
+    await db.execute(
+        update(User).where(User.id.in_(safe_ids)).values(is_active=False)
+    )
+    await db.commit()
+    return {"updated": len(safe_ids), "skipped_self": skipped_self}
 
 
 @router.get("/logs", response_model=LogsResponse)

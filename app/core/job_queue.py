@@ -42,22 +42,29 @@ class JobQueue:
                     self._client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         return self._client
 
-    async def enqueue(self, domain: str) -> str:
-        """Push a new scrape job. Returns the job_id."""
+    async def enqueue(self, domain: str, max_items: Optional[int] = None) -> str:
+        """Push a new scrape job. `max_items=None` means worker uses its default
+        (9999 = unlimited). Returns the job_id."""
         c = await self.client()
         job_id = uuid.uuid4().hex[:12]
-        payload = json.dumps({"id": job_id, "domain": domain, "created_at": time.time()})
-        await c.rpush(_QUEUE_KEY, payload)
+        job_payload = {
+            "id": job_id,
+            "domain": domain,
+            "created_at": time.time(),
+            "max_items": max_items,
+        }
+        await c.rpush(_QUEUE_KEY, json.dumps(job_payload))
         await c.hset(
             _STATE_PREFIX + job_id,
             mapping={
                 "domain": domain,
                 "status": "queued",
                 "created_at": str(time.time()),
+                "max_items": str(max_items) if max_items is not None else "",
             },
         )
         await c.expire(_STATE_PREFIX + job_id, 86400)  # state cleared after 24h
-        logger.info(f"[QUEUE] Enqueued job {job_id} for {domain}")
+        logger.info(f"[QUEUE] Enqueued job {job_id} for {domain} (max_items={max_items or 'unlimited'})")
         return job_id
 
     async def dequeue(self, timeout_s: int = 25) -> Optional[dict]:

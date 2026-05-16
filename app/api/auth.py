@@ -42,8 +42,16 @@ async def register(payload: schemas.UserCreate, db: AsyncSession = Depends(get_d
     """Create user + empty preferences in one transaction. Auto-promotes to admin if email == ADMIN_EMAIL."""
     email = payload.email.lower().strip()
 
-    existing = await db.execute(select(User).where(User.email == email))
-    if existing.scalar_one_or_none():
+    existing_user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if existing_user:
+        # Differentiate deactivated (blocked) vs active (already taken). Deleted
+        # users have their row removed entirely, so this branch is hit only when
+        # the email still belongs to someone in the system.
+        if not existing_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email belongs to a deactivated account. Contact admin if you believe this is an error.",
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
