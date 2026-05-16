@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -177,36 +177,11 @@ async def regenerate_rules(
     return {"status": "queued", "domain": domain}
 
 
-@router.post("/scrape/{domain}")
-async def trigger_scrape(
-    # Regex requires `{domain}` to look like a real hostname (e.g. "notino.lv",
-    # "220.lv"). Without this, POST /scrape/ingest would route here too and
-    # shadow the worker ingest endpoint below, returning a 401 because this
-    # route requires admin JWT.
-    domain: str = Path(..., pattern=r"^[a-z0-9-]+\.[a-z]{2,6}$"),
-    max_items: Optional[int] = Query(None, ge=1, le=99999),
-    _: User = Depends(get_current_admin),
-):
-    """Enqueue a scrape job for the distributed worker.
-
-    Server-side Playwright doesn't work for Cloudflare-protected sites
-    (notino.lv, 220.lv, etc), so the actual scraping is delegated to a local
-    worker on the user's machine (residential IP). This endpoint just pushes
-    a job to Redis; the worker long-polls /admin/scrape/poll and executes.
-
-    `max_items` — optional cap on products to scrape. None = unlimited (worker
-    defaults to 9999). Rate-limited to once per 5 min per domain.
-    """
-    now = time.time()
-    if domain in _last_scrape and now - _last_scrape[domain] < SCRAPE_COOLDOWN_S:
-        remaining = int(SCRAPE_COOLDOWN_S - (now - _last_scrape[domain]))
-        raise HTTPException(status_code=429, detail=f"Rate limit: retry in {remaining}s")
-    _last_scrape[domain] = now
-    job_id = await job_queue.enqueue(domain, max_items=max_items)
-    return {"status": "queued", "domain": domain, "job_id": job_id, "max_items": max_items}
-
-
 # ── Distributed scrape worker endpoints ──────────────────────────────────────
+# IMPORTANT: these MUST be declared before `POST /scrape/{domain}` because
+# FastAPI matches routes in declaration order — `/scrape/{domain}` (POST)
+# would otherwise shadow `/scrape/ingest`, `/scrape/complete` etc and force
+# the wrong auth (admin JWT) on what should be worker-only endpoints.
 
 
 @router.get("/scrape/poll")
@@ -362,6 +337,34 @@ async def scrape_complete(
 async def worker_status(_: User = Depends(get_current_admin)):
     """Admin UI badge — is the local worker online and how big is the queue?"""
     return await job_queue.worker_status()
+
+
+# Declared AFTER the worker endpoints above (poll/ingest/complete) so the
+# parametric `/scrape/{domain}` route doesn't shadow them in FastAPI's
+# in-order route matching.
+@router.post("/scrape/{domain}")
+async def trigger_scrape(
+    domain: str,
+    max_items: Optional[int] = Query(None, ge=1, le=99999),
+    _: User = Depends(get_current_admin),
+):
+    """Enqueue a scrape job for the distributed worker.
+
+    Server-side Playwright doesn't work for Cloudflare-protected sites
+    (notino.lv, 220.lv, etc), so the actual scraping is delegated to a local
+    worker on the user's machine (residential IP). This endpoint just pushes
+    a job to Redis; the worker long-polls /admin/scrape/poll and executes.
+
+    `max_items` — optional cap on products to scrape. None = unlimited (worker
+    defaults to 9999). Rate-limited to once per 5 min per domain.
+    """
+    now = time.time()
+    if domain in _last_scrape and now - _last_scrape[domain] < SCRAPE_COOLDOWN_S:
+        remaining = int(SCRAPE_COOLDOWN_S - (now - _last_scrape[domain]))
+        raise HTTPException(status_code=429, detail=f"Rate limit: retry in {remaining}s")
+    _last_scrape[domain] = now
+    job_id = await job_queue.enqueue(domain, max_items=max_items)
+    return {"status": "queued", "domain": domain, "job_id": job_id, "max_items": max_items}
 
 
 @router.get("/scheduler/status")
