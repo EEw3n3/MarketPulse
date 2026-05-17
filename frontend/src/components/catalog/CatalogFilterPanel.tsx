@@ -4,7 +4,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { canonicalStore } from "@/lib/stores";
+import { canonicalStore, isStoreUnavailable } from "@/lib/stores";
 
 export type FilterState = {
   search: string;
@@ -150,22 +150,34 @@ export default function CatalogFilterPanel({
                     // by canonicalizing both sides.
                     const key = canonicalStore(store);
                     const checked = filters.stores.includes(key);
+                    const unavailable = isStoreUnavailable(key);
                     return (
                       <label
                         key={store}
                         htmlFor={`store-${store}`}
+                        title={unavailable ? "Data integration in progress — no products yet" : undefined}
                         className={cn(
-                          "flex items-center gap-3 cursor-pointer group",
-                          checked ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                          "flex items-center gap-3 group",
+                          unavailable
+                            ? "cursor-not-allowed text-muted-foreground/50"
+                            : checked
+                              ? "cursor-pointer text-foreground"
+                              : "cursor-pointer text-muted-foreground hover:text-foreground"
                         )}
                       >
                         <Checkbox
                           id={`store-${store}`}
                           checked={checked}
-                          onCheckedChange={() => toggleArrayItem("stores", key)}
-                          className="data-[state=checked]:bg-foreground data-[state=checked]:border-foreground data-[state=checked]:text-background"
+                          disabled={unavailable}
+                          onCheckedChange={() => !unavailable && toggleArrayItem("stores", key)}
+                          className="data-[state=checked]:bg-foreground data-[state=checked]:border-foreground data-[state=checked]:text-background disabled:opacity-50"
                         />
                         <span className="text-[12.5px] flex-1 transition-colors">{store}</span>
+                        {unavailable && (
+                          <span className="font-mono text-[9px] uppercase tracking-[0.1em] px-1 py-0.5 rounded border border-amber-500/30 text-amber-400/70 bg-amber-500/5">
+                            in progress
+                          </span>
+                        )}
                       </label>
                     );
                   })}

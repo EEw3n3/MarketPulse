@@ -19,6 +19,16 @@ export const STORE_OPTIONS: StoreOption[] = [
 
 export const STORE_LABELS = STORE_OPTIONS.map((s) => s.label);
 
+// Canonical keys for stores whose scraper integration is temporarily blocked
+// (e.g. Cloudflare Managed Challenge on 1a.lv). The UI greys these out in
+// filter lists with a "Data integration in progress" tooltip so users don't
+// expect catalog rows from them.
+export const UNAVAILABLE_STORE_KEYS = new Set<string>(["1a"]);
+
+export function isStoreUnavailable(keyOrLabel: string): boolean {
+  return UNAVAILABLE_STORE_KEYS.has(canonicalStore(keyOrLabel));
+}
+
 /** Normalizes any store-name variant ("Douglas Latvia", "douglas.lv", "Douglas")
  * to its canonical key ("douglas"). */
 export function canonicalStore(s: string): string {

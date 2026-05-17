@@ -413,8 +413,18 @@ function ScrapingTab() {
             const limit = perSiteLimit[s.domain] === undefined ? 100 : perSiteLimit[s.domain];
             return (
             <div key={s.domain} className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <div>
-                <p className="font-mono text-[12.5px] text-foreground">{s.domain}</p>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-[12.5px] text-foreground">{s.domain}</p>
+                  {s.product_count === 0 && (
+                    <span
+                      title="Cloudflare Managed Challenge blocks our worker on this site. Integration in progress — paid solver or undetected-chromedriver planned."
+                      className="font-mono text-[9.5px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-400 bg-amber-500/10"
+                    >
+                      Blocked · in progress
+                    </span>
+                  )}
+                </div>
                 <p className="font-mono text-[10px] text-muted-foreground">{s.site_name} · {s.product_count} products</p>
               </div>
               <div className="flex items-center gap-2">
