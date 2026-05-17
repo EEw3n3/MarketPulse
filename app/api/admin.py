@@ -19,7 +19,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 _last_scrape: dict[str, float] = {}
 _last_regen: dict[str, float] = {}
-SCRAPE_COOLDOWN_S = 300   # 5 min between scrapes per domain
+SCRAPE_COOLDOWN_S = 30    # 30s between scrapes per domain (demo-friendly)
 REGEN_COOLDOWN_S = 3600   # 1 hour between AI regenerations per domain
 
 # ── Pydantic models ───────────────────────────────────────────────────────────

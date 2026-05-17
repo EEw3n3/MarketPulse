@@ -272,13 +272,31 @@ function ScrapingTab() {
       const results = await Promise.allSettled(
         sites.map((s) => api.admin.triggerScrape(s.domain, masterLimit))
       );
-      const ok = results.filter((r) => r.status === "fulfilled").length;
-      const failed = results.length - ok;
-      setScrapingDomains((prev) => ({ ...prev, ...snapshots }));
-      if (failed === 0) {
-        toast.success(`All ${ok} scrape jobs queued — check worker logs`);
+      const okDomains: string[] = [];
+      const failures: { domain: string; reason: string }[] = [];
+      results.forEach((r, idx) => {
+        const domain = sites[idx].domain;
+        if (r.status === "fulfilled") {
+          okDomains.push(domain);
+        } else {
+          const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+          failures.push({ domain, reason: msg });
+        }
+      });
+      // Only snapshot domains that were actually queued — failed ones keep their old timer
+      const updatedSnapshots: Record<string, string | null> = {};
+      for (const d of okDomains) updatedSnapshots[d] = snapshots[d];
+      setScrapingDomains((prev) => ({ ...prev, ...updatedSnapshots }));
+      if (failures.length === 0) {
+        toast.success(`All ${okDomains.length} scrape jobs queued — check worker logs`);
       } else {
-        toast.error(`Queued ${ok}/${results.length} (${failed} failed — likely rate limit)`);
+        const failList = failures
+          .map((f) => `${f.domain}: ${f.reason.replace(/^API Error:\s*/, "")}`)
+          .join("\n");
+        toast.error(
+          `Queued ${okDomains.length}/${results.length}. Failed:\n${failList}`,
+          { duration: 8000 }
+        );
       }
     } finally {
       setScrapingAll(false);
