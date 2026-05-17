@@ -52,12 +52,22 @@ class Settings:
     # Public base URL for webhook registration (e.g. https://api.marketpulse.app)
     PUBLIC_BASE_URL: str | None = os.getenv("PUBLIC_BASE_URL")
 
-    # Email / SMTP
+    # Email / SMTP (legacy path — DigitalOcean blocks outbound port 587 on new
+    # droplets, so SMTP rarely works in prod. Kept as fallback for local dev.)
     SMTP_HOST: str = os.getenv("SMTP_HOST") or "smtp.gmail.com"
     SMTP_PORT: int = int(os.getenv("SMTP_PORT") or "587")
     SMTP_USER: str | None = os.getenv("SMTP_USER") or None
     SMTP_PASSWORD: str | None = os.getenv("SMTP_PASSWORD") or None
     SMTP_FROM: str = os.getenv("SMTP_FROM") or "MarketPulse <noreply@marketpulse.app>"
+
+    # Email via Resend HTTP API (resend.com) — preferred path on DO/cloud where
+    # SMTP egress is blocked. If RESEND_API_KEY is set, email_sender uses it
+    # instead of aiosmtplib. Sign-up is free (100 emails/day, no credit card).
+    RESEND_API_KEY: str | None = os.getenv("RESEND_API_KEY") or None
+    # Sender address. For unverified domains Resend lets you send only via
+    # `onboarding@resend.dev`. Set this to your verified domain sender once you
+    # verify a domain.
+    RESEND_FROM: str = os.getenv("RESEND_FROM") or "MarketPulse <onboarding@resend.dev>"
 
     # Distributed worker (S19.5) — server enqueues scrape jobs in Redis,
     # local worker (on user's machine, residential IP) polls + executes + POSTs

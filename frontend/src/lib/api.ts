@@ -131,6 +131,7 @@ export interface StoreOfferVariant {
   price: number;
   url: string;
   image_url: string | null;
+  concentration?: string | null;
 }
 
 export interface StoreOffer {
@@ -144,6 +145,7 @@ export interface StoreOffer {
   changePercent: number;
   changeDirection: "up" | "down" | "none";
   image_url: string | null;
+  concentration?: string | null;
   variants: StoreOfferVariant[];
 }
 

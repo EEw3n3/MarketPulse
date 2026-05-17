@@ -57,6 +57,7 @@ class StoreOfferVariant(BaseModel):
     price: float
     url: str
     image_url: Optional[str] = None
+    concentration: Optional[str] = None   # EDT / EDP / Parfum — surfaced as listing label
 
 
 class StoreOffer(BaseModel):
@@ -74,6 +75,7 @@ class StoreOffer(BaseModel):
     changePercent: float
     changeDirection: Literal["up", "down", "none"]
     image_url: Optional[str] = None
+    concentration: Optional[str] = None   # EDT / EDP / Parfum of the BEST listing
     variants: List[StoreOfferVariant] = []
 
 

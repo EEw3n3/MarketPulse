@@ -191,8 +191,13 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
                     <span className="w-8 h-6 rounded-sm bg-surface-2 border border-border font-mono text-[10px] font-medium text-muted-foreground flex items-center justify-center shrink-0">
                       {storeTag(o.storeName)}
                     </span>
-                    <span className="text-[12.5px] text-foreground flex-1 truncate">
+                    <span className="text-[12.5px] text-foreground flex-1 truncate flex items-center gap-1.5">
                       {o.storeName}
+                      {o.concentration && (
+                        <span className="font-mono text-[9px] uppercase tracking-[0.08em] px-1 py-0.5 rounded border border-border/70 text-muted-foreground">
+                          {o.concentration}
+                        </span>
+                      )}
                     </span>
                     <span
                       className={`font-mono tabular-nums font-semibold text-[13px] ${
@@ -205,6 +210,21 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
                       <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[hsl(var(--success))] font-semibold">
                         Best
                       </span>
+                    )}
+                    {!hasVariants && (
+                      // External link to the retailer's product page. Even when
+                      // a store has just one listing we still want the user to
+                      // be able to click out to the actual shop.
+                      <a
+                        href={o.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        title={`Open on ${o.storeName}`}
+                        className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-muted-foreground hover:text-foreground hover:bg-surface-2"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
                     )}
                   </div>
                 );
@@ -238,6 +258,11 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
                               Best
                             </span>
                             Listing #1
+                            {o.concentration && (
+                              <span className="font-mono text-[9px] uppercase tracking-[0.08em] px-1 py-0.5 rounded border border-border text-muted-foreground">
+                                {o.concentration}
+                              </span>
+                            )}
                             <ExternalLink size={10} className="text-muted-foreground" />
                           </span>
                           <span className="font-mono tabular-nums text-[12px] text-[hsl(var(--success))] font-semibold shrink-0">
@@ -253,8 +278,13 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
                             onClick={(e) => e.stopPropagation()}
                             className="flex items-center justify-between gap-2 px-2 py-2 hover:bg-surface-2/60 rounded-sm"
                           >
-                            <span className="text-[12px] text-foreground truncate flex items-center gap-1">
+                            <span className="text-[12px] text-foreground truncate flex items-center gap-1.5">
                               Listing #{vi + 2}
+                              {v.concentration && (
+                                <span className="font-mono text-[9px] uppercase tracking-[0.08em] px-1 py-0.5 rounded border border-border text-muted-foreground">
+                                  {v.concentration}
+                                </span>
+                              )}
                               <ExternalLink size={10} className="text-muted-foreground" />
                             </span>
                             <span className="font-mono tabular-nums text-[12px] text-foreground shrink-0">

@@ -73,7 +73,7 @@ async def _send_email(payload: _AlertPayload) -> None:
     p = payload.product
     h = payload.history
 
-    await send_price_alert_email(
+    sent = await send_price_alert_email(
         to_email=payload.user.email,
         user_id=payload.user.id,
         product_id=p.id,
@@ -87,7 +87,13 @@ async def _send_email(payload: _AlertPayload) -> None:
         change_percent=payload.percent_change,
         base_url=base_url,
     )
-    logger.info(f"[DISPATCH] Email sent to user={payload.user.id} product={p.id}")
+    if sent:
+        logger.info(f"[DISPATCH] Email sent to user={payload.user.id} product={p.id}")
+    else:
+        logger.warning(
+            f"[DISPATCH] Email NOT delivered to user={payload.user.id} product={p.id}"
+            " — check SMTP / RESEND config and provider logs"
+        )
 
 
 class NotificationDispatcher:

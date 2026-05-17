@@ -336,12 +336,14 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
             changePercent=cp_percent,
             changeDirection=cp_direction,
             image_url=main.image_url,
+            concentration=main.concentration,
             variants=[
                 schemas.StoreOfferVariant(
                     product_id=e.id,
                     price=float(e.last_price),
                     url=e.url,
                     image_url=e.image_url,
+                    concentration=e.concentration,
                 )
                 for e in extras
             ],
@@ -357,30 +359,35 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
     # whenever cross-site grouping was imperfect. Better to show the real image.
     display_image = product.image_url
 
-    # History: gather PriceHistory for ALL products in the same group so the
-    # chart can render one line per store. Falls back to just this product's
-    # history if it isn't in a group.
+    # History: gather PriceHistory for products in the same group that share
+    # the SAME volume as the requested product (matches the offer-list filter).
+    # Without this filter we leaked history from other volumes — e.g. opening
+    # "JPG Le Male 40ml" (only on Makeup) showed a Notino line because the
+    # group also contained 75 ml on Notino. The chart's "N stores" count would
+    # then disagree with the "1 store" price comparison sidebar — confusing.
     history_items: list[schemas.PriceHistoryRead] = []
     if product.group_id:
-        grp_hist_stmt = (
-            select(PriceHistory, Product.search_term)
-            .join(Product, Product.id == PriceHistory.product_id)
-            .where(Product.group_id == product.group_id)
-            .order_by(PriceHistory.parsed_at.asc())
-        )
-        rows = (await db.execute(grp_hist_stmt)).all()
-        history_items = [
-            schemas.PriceHistoryRead(
-                id=h.id,
-                price=h.price,
-                in_stock=h.in_stock,
-                parsed_at=h.parsed_at,
-                change_type=h.change_type,
-                store_name=(search_term or "").lower(),
+        same_volume_ids = [p.id for p in volume_filtered]
+        if same_volume_ids:
+            grp_hist_stmt = (
+                select(PriceHistory, Product.search_term)
+                .join(Product, Product.id == PriceHistory.product_id)
+                .where(PriceHistory.product_id.in_(same_volume_ids))
+                .order_by(PriceHistory.parsed_at.asc())
             )
-            for h, search_term in rows
-        ]
-    else:
+            rows = (await db.execute(grp_hist_stmt)).all()
+            history_items = [
+                schemas.PriceHistoryRead(
+                    id=h.id,
+                    price=h.price,
+                    in_stock=h.in_stock,
+                    parsed_at=h.parsed_at,
+                    change_type=h.change_type,
+                    store_name=(search_term or "").lower(),
+                )
+                for h, search_term in rows
+            ]
+    if not history_items:
         history_items = [
             schemas.PriceHistoryRead(
                 id=h.id, price=h.price, in_stock=h.in_stock,
