@@ -196,8 +196,13 @@ function ScrapingTab() {
   const [rules, setRules] = useState<AdminScrapingRule | null>(null);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [regenLoading, setRegenLoading] = useState<string | null>(null);
-  // Domains actively scraping: maps domain → last_scrape_at snapshot before trigger
-  const [scrapingDomains, setScrapingDomains] = useState<Record<string, string | null>>({});
+  // Domains actively scraping: maps domain → { snapshot, startedAt }
+  // - snapshot: last_scrape_at value at trigger time, used to detect completion
+  // - startedAt: ms since epoch when trigger fired, used as a stuck-state safety timeout
+  const [scrapingDomains, setScrapingDomains] = useState<
+    Record<string, { snapshot: string | null; startedAt: number }>
+  >({});
+  const SCRAPING_MAX_MS = 6 * 60 * 1000; // 6 min hard cap on "Scraping..." UI state
   // Per-site limit chosen via dropdown — null means Unlimited
   const [perSiteLimit, setPerSiteLimit] = useState<Record<string, number | null>>({});
   // Master limit applied by "Scrape All Sites" button
@@ -212,19 +217,27 @@ function ScrapingTab() {
   }, [refreshHealth]);
 
   // Poll every 8s while any domain is scraping; detect completion via last_scrape_at change
+  // OR via stuck-state timeout (failed scrapes / 429 don't update last_scrape_at, so without
+  // the timeout the UI would spin forever).
   useEffect(() => {
     if (Object.keys(scrapingDomains).length === 0) return;
     const interval = setInterval(async () => {
       const updated = await api.admin.health().catch(() => null);
-      if (!updated) return;
-      setHealth(updated);
+      if (updated) setHealth(updated);
       setScrapingDomains((prev) => {
         const next = { ...prev };
+        const now = Date.now();
         for (const domain of Object.keys(prev)) {
-          const site = updated.sites.find((s) => s.domain === domain);
+          const { snapshot, startedAt } = prev[domain];
+          const site = updated?.sites.find((s) => s.domain === domain);
           const newTime = site?.last_scrape_at ?? null;
-          if (newTime !== prev[domain]) {
+          if (updated && newTime !== snapshot) {
             toast.success(`Scraping finished for ${domain}`);
+            delete next[domain];
+            continue;
+          }
+          if (now - startedAt > SCRAPING_MAX_MS) {
+            toast.error(`${domain} stuck >6 min — clearing UI. Check worker logs.`);
             delete next[domain];
           }
         }
@@ -233,6 +246,11 @@ function ScrapingTab() {
     }, 8000);
     return () => clearInterval(interval);
   }, [scrapingDomains]);
+
+  const clearScrapingState = () => {
+    setScrapingDomains({});
+    toast.success("Cleared scraping state");
+  };
 
   const handleViewRules = (domain: string) => {
     setSelectedDomain(domain);
@@ -249,7 +267,10 @@ function ScrapingTab() {
     const limit = perSiteLimit[domain] === undefined ? 100 : perSiteLimit[domain];
     try {
       await api.admin.triggerScrape(domain, limit);
-      setScrapingDomains((prev) => ({ ...prev, [domain]: currentTime }));
+      setScrapingDomains((prev) => ({
+        ...prev,
+        [domain]: { snapshot: currentTime, startedAt: Date.now() },
+      }));
       toast.success(`Queued ${domain} (limit=${limit ?? "unlimited"})`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -283,10 +304,16 @@ function ScrapingTab() {
           failures.push({ domain, reason: msg });
         }
       });
-      // Only snapshot domains that were actually queued — failed ones keep their old timer
-      const updatedSnapshots: Record<string, string | null> = {};
-      for (const d of okDomains) updatedSnapshots[d] = snapshots[d];
-      setScrapingDomains((prev) => ({ ...prev, ...updatedSnapshots }));
+      // Only mark successfully-queued domains as scraping. Failed ones (429, etc) shouldn't
+      // spin in the UI. Replace any prior state for these domains with a fresh startedAt.
+      const startedAt = Date.now();
+      setScrapingDomains((prev) => {
+        const next = { ...prev };
+        for (const d of okDomains) {
+          next[d] = { snapshot: snapshots[d], startedAt };
+        }
+        return next;
+      });
       if (failures.length === 0) {
         toast.success(`All ${okDomains.length} scrape jobs queued — check worker logs`);
       } else {
@@ -360,6 +387,15 @@ function ScrapingTab() {
               </>
             )}
           </button>
+          {Object.keys(scrapingDomains).length > 0 && (
+            <button
+              onClick={clearScrapingState}
+              title="Force-clear the spinning 'Scraping…' UI state for all domains. Use when a scrape was rejected (429) or failed silently and the buttons are stuck."
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded border border-amber-500/40 text-[11.5px] font-mono text-amber-300/90 hover:bg-amber-500/10 transition-colors"
+            >
+              Clear ({Object.keys(scrapingDomains).length})
+            </button>
+          )}
         </div>
       </div>
 
