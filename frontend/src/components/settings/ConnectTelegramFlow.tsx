@@ -89,11 +89,37 @@ export default function ConnectTelegramFlow() {
 
   const copyToken = async () => {
     if (!startToken) return;
+    // navigator.clipboard only works in secure contexts (HTTPS or localhost).
+    // The prod site runs on plain HTTP, so we must fall back to the legacy
+    // execCommand("copy") path with a hidden textarea.
     try {
-      await navigator.clipboard.writeText(startToken);
-      toast.success("Copied to clipboard");
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        window.isSecureContext
+      ) {
+        await navigator.clipboard.writeText(startToken);
+        toast.success("Copied to clipboard");
+        return;
+      }
+      const ta = document.createElement("textarea");
+      ta.value = startToken;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-1000px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) {
+        toast.success("Copied to clipboard");
+      } else {
+        toast.error("Couldn't copy — select the text and press Ctrl+C");
+      }
     } catch {
-      toast.error("Couldn't copy — select and copy manually");
+      toast.error("Couldn't copy — select the text and press Ctrl+C");
     }
   };
 

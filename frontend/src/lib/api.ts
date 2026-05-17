@@ -16,7 +16,16 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     },
   });
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    let detail = "";
+    try {
+      const body = await response.clone().json();
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // body wasn't JSON — fall back to statusText
+    }
+    throw new Error(
+      `API Error: ${response.status} ${detail || response.statusText}`
+    );
   }
   if (response.status === 204 || response.headers.get("content-length") === "0") {
     return undefined as T;

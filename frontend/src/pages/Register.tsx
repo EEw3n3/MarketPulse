@@ -32,7 +32,20 @@ export default function Register() {
       await register(email, password, fullName || undefined);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
-      setError(msg.includes("409") ? "Email already registered" : "Registration failed. Try again.");
+      // fetchApi formats errors as: "API Error: <status> <detail-or-statusText>"
+      const m = msg.match(/^API Error:\s*(\d+)\s*(.*)$/);
+      const status = m ? Number(m[1]) : 0;
+      const detail = m ? m[2].trim() : "";
+      if (status === 409) {
+        setError("Email already registered");
+      } else if (status === 403 && detail) {
+        // 403 from /auth/register = deactivated account
+        setError(detail);
+      } else if (detail) {
+        setError(detail);
+      } else {
+        setError("Registration failed. Try again.");
+      }
     } finally {
       setLoading(false);
     }
