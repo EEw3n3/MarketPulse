@@ -541,13 +541,16 @@ class ScraperService:
                                 is_avail = True
                                 if "out of stock" in p_stock or "nav pieejams" in p_stock or "soon back" in p_stock or "drīz tirdzniecībā" in p_stock:
                                     is_avail = False
-                                    
+
                                 seen_vols.add(p_vol)
                                 douglas_variants.append({
                                     "title_suffix": p_vol,
                                     "price": p_price,
                                     "is_available": is_avail
                                 })
+                                # DEBUG (S20.1): show what Tealium returns so we can see why all
+                                # variants of one product end up with the same normalized volume.
+                                logger.info(f"  🔎 Tealium variant: title_suffix={p_vol!r}  price={p_price}  avail={is_avail}")
                     except Exception as e:
                         logger.debug(f"Douglas Tealium JSON parse error: {e}")
                         continue
@@ -1749,6 +1752,12 @@ class ScraperService:
                             base_norm = perfume_normalizer.extract_all(d["title"])
                             if d.get("catalog_concentration") and not base_norm.get("concentration"):
                                 base_norm["concentration"] = d["catalog_concentration"]
+                            # DEBUG (S20.1): log what we pass to _add_candidate to track
+                            # how multi-variant products collapse to a single Product row.
+                            logger.info(
+                                f"  📥 Add candidate: title={d['title']!r}  "
+                                f"volume={base_norm.get('volume')!r}  url={d['url']!r}"
+                            )
                             self._add_candidate(
                                 candidates, d["title"], d["price"], d["is_available"],
                                 d["url"], d["image_url"], d["brand"], base_norm,
