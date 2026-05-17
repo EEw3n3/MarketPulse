@@ -1724,11 +1724,27 @@ class ScraperService:
 
                             results = []
                             for d in details:
-                                full_title = f"{title} {d['title_suffix']}".strip()
-                                # Fallback: single-variant Douglas products have empty title_suffix;
-                                # stitch catalog volume onto the title so normalizer can pick it up.
-                                if catalog_volume and not re.search(r'\d+\s*(ml|l|oz)\b', full_title, re.IGNORECASE):
-                                    full_title = f"{full_title} {catalog_volume}".strip()
+                                suffix = (d.get("title_suffix") or "").strip()
+                                if suffix:
+                                    # Variant explicitly knows its volume. The catalog `title` already
+                                    # has the PRIMARY variant's volume baked in (e.g. "Polo 67 40 ml")
+                                    # — leaving it in would create titles like "Polo 67 40 ml 125 ml"
+                                    # and normalizer.extract_all picks the FIRST volume it sees, so
+                                    # every variant would collapse to the same `volume` and dedup
+                                    # by `(url, volume)` would merge them in `_flush_candidates`.
+                                    # Strip any leading volume token from base title first.
+                                    base = re.sub(
+                                        r'\b\d+(?:[.,]\d+)?\s*(ml|l|oz)\b',
+                                        '', title, flags=re.IGNORECASE
+                                    )
+                                    base = re.sub(r'\s+', ' ', base).strip()
+                                    full_title = f"{base} {suffix}".strip()
+                                else:
+                                    # Single-variant Douglas product (empty suffix). Keep catalog title
+                                    # as-is and fall back to catalog_volume if title has no ml token.
+                                    full_title = title
+                                    if catalog_volume and not re.search(r'\d+\s*(ml|l|oz)\b', full_title, re.IGNORECASE):
+                                        full_title = f"{full_title} {catalog_volume}".strip()
                                 results.append({
                                     "url": url,
                                     "image_url": image_url,
