@@ -52,22 +52,50 @@ class BrowserManager:
         self.lock = asyncio.Lock()
 
     async def start(self):
-        """Starts Playwright and the browser"""
+        """Starts Playwright and the browser.
+
+        Strategy: prefer the user's real installed Chrome via channel="chrome".
+        Real Chrome has the full plugin/font/codec footprint, correct TLS+JA3
+        fingerprint, and clean WebGL/Audio context output — none of which the
+        bundled chromium replicates. Cloudflare Managed Challenge (1a.lv) is
+        very effective at flagging bundled headless chromium even with stealth
+        patches; using real Chrome gets us past it in practice.
+
+        Falls back to bundled chromium if Chrome isn't installed (e.g. server
+        without GUI). Falls back to headless if non-headless fails (no display).
+        """
         async with self.lock:
-            if not self.playwright:
-                self.playwright = await async_playwright().start()
-                # Running in headless=True for the server, but with arguments hiding it
-                self.browser = await self.playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--disable-blink-features=AutomationControlled", # Hides "controlled by automation"
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu" 
-                    ]
-                )
-                logger.info("🚜 Tier 3: Browser Engine (Chromium) started.")
+            if self.playwright:
+                return
+            self.playwright = await async_playwright().start()
+
+            base_args = [
+                "--disable-blink-features=AutomationControlled",  # hide "controlled by automation"
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ]
+
+            # Try real Chrome non-headless first (best stealth posture)
+            launch_attempts = [
+                {"channel": "chrome", "headless": False, "args": base_args, "label": "real Chrome (headed)"},
+                {"channel": "chrome", "headless": True,  "args": base_args, "label": "real Chrome (headless)"},
+                {"headless": True, "args": base_args, "label": "bundled chromium (headless)"},
+            ]
+
+            last_err: Exception | None = None
+            for cfg in launch_attempts:
+                label = cfg.pop("label")
+                try:
+                    self.browser = await self.playwright.chromium.launch(**cfg)
+                    logger.info(f"🚜 Tier 3: Browser Engine started — {label}")
+                    return
+                except Exception as e:
+                    last_err = e
+                    logger.warning(f"Browser launch failed ({label}): {e}")
+
+            raise RuntimeError(f"All browser launch attempts failed. Last error: {last_err}")
 
     async def get_context(self) -> BrowserContext:
         """Creates and returns a new browser context with stealth and human-like settings."""
@@ -108,8 +136,62 @@ class BrowserManager:
         context = await self.browser.new_context(
             user_agent=random.choice(user_agents),
             viewport=random.choice(viewports),
-            proxy=proxy_config
+            proxy=proxy_config,
+            locale="lv-LV",            # Latvian locale matches our target sites
+            timezone_id="Europe/Riga",  # matches LV-LV
         )
+
+        # ── Stealth init script ──────────────────────────────────────────────
+        # Runs in every page BEFORE site JS executes. We patch the most common
+        # bot tells that Cloudflare/DataDome/PerimeterX use to fingerprint
+        # automation:
+        #   - navigator.webdriver         → undefined (was true)
+        #   - navigator.plugins           → fake 3-plugin list (was empty)
+        #   - navigator.languages         → ["lv-LV", "lv", "en-US", "en"]
+        #   - window.chrome               → fake runtime object (missing in HL)
+        #   - WebGL UNMASKED_VENDOR/RENDERER → Intel/Iris instead of SwiftShader
+        await context.add_init_script("""
+            // Hide webdriver
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+            // Fake plugin list — empty plugins is a huge red flag
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin' },
+                ],
+            });
+
+            // Languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['lv-LV', 'lv', 'en-US', 'en'],
+            });
+
+            // window.chrome runtime
+            if (!window.chrome) {
+                window.chrome = { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} };
+            }
+
+            // Permissions API: notifications should be 'default', not 'denied'
+            const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
+            if (originalQuery) {
+                window.navigator.permissions.query = (parameters) =>
+                    parameters.name === 'notifications'
+                        ? Promise.resolve({ state: Notification.permission })
+                        : originalQuery(parameters);
+            }
+
+            // WebGL vendor/renderer spoof — bundled chromium returns
+            // 'Google Inc. (Google)' / 'ANGLE (Google, SwiftShader, ...)' which is a tell.
+            const getParameterProxy = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(param) {
+                if (param === 37445) return 'Intel Inc.';                            // UNMASKED_VENDOR_WEBGL
+                if (param === 37446) return 'Intel(R) Iris(TM) Plus Graphics 640';   // UNMASKED_RENDERER_WEBGL
+                return getParameterProxy.apply(this, [param]);
+            };
+        """)
+
         return context
 
     # Phrases CF uses across Turnstile / Managed Challenge / I'm Under Attack pages.
