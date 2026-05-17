@@ -112,64 +112,114 @@ class BrowserManager:
         )
         return context
 
+    # Phrases CF uses across Turnstile / Managed Challenge / I'm Under Attack pages.
+    # We check the rendered page text for ANY of these to decide whether we're still
+    # behind a challenge. Multiple variants because CF rotates wording per challenge type.
+    __CF_CHALLENGE_PHRASES__ = (
+        "Just a moment...",
+        "Verifying you are human",
+        "Checking your browser",
+        "Please verify you are a human",
+        "needs to review the security",
+        "Performance & security by Cloudflare",
+        "Verify you are human",
+    )
+
+    async def _challenge_still_present(self, page: Page) -> bool:
+        try:
+            content = await page.content()
+        except Exception:
+            return True  # if we can't read content, assume still challenged
+        return any(phrase in content for phrase in self.__CF_CHALLENGE_PHRASES__)
+
     async def _solve_cloudflare(self, page: Page) -> bool:
         """
-        Attempts to solve Cloudflare Turnstile challenge using coordinate-based clicking.
-        Inspired by Scrapling logic.
+        Attempts to pass a Cloudflare interstitial (Turnstile / Managed Challenge).
+
+        Strategy, in order:
+          1. Wait up to 15s for the challenge to auto-pass (some Managed Challenges
+             clear themselves once Cloudflare finishes silent JS verification).
+          2. If still blocked, locate the Turnstile iframe and human-click the
+             checkbox: real mouse movement to the click point, randomized offset,
+             slight pause, then click.
+          3. Wait up to 25s for the page text to lose every challenge phrase we
+             know about.
+
+        Returns True when the page is usable (no challenge OR challenge cleared),
+        False when a challenge is still present after we've exhausted our attempts.
+        Callers can use False as a signal to reload and re-try.
         """
         try:
-            # Check if CF challenge is present
-            content = await page.content()
-            if "Just a moment..." not in content and "Verifying you are human" not in content:
-                return False
+            if not await self._challenge_still_present(page):
+                return True  # page is already clean
 
-            logger.info("🛡️ Cloudflare challenge detected. Attempting to solve...")
+            logger.info("🛡️ Cloudflare challenge detected. Attempting to solve…")
 
-            # Turnstile iframe can take 3-8 seconds to spawn after the page loads.
-            # Poll for up to ~12s instead of a single 2-second sleep — the old
-            # code consistently lost the race on slower sites like 1a.lv.
+            # ── Step 1: passive wait — many Managed Challenges auto-resolve ────────
+            for _ in range(15):
+                await asyncio.sleep(1)
+                if not await self._challenge_still_present(page):
+                    logger.success("✅ Cloudflare challenge auto-resolved (no click needed).")
+                    return True
+
+            # ── Step 2: locate Turnstile iframe ────────────────────────────────────
             import re
             iframe = None
             for attempt in range(12):
-                await asyncio.sleep(1)
                 for frame in page.frames:
                     if re.match(self.__CF_PATTERN__, frame.url):
                         iframe = frame
                         break
                 if iframe:
-                    logger.info(f"🛡️ Turnstile iframe found after {attempt + 1}s")
+                    logger.info(f"🛡️ Turnstile iframe found after auto-wait + {attempt}s")
                     break
+                await asyncio.sleep(1)
 
             if not iframe:
-                logger.warning("⚠️ Cloudflare iframe not found.")
-                return False
+                logger.warning("⚠️ Cloudflare iframe not found after passive wait.")
+                return False  # caller may reload and re-try
 
-            # Ensure iframe is visible and get bounding box
+            # ── Step 3: human-like click on checkbox ──────────────────────────────
             try:
-                # We know iframe is not None here
                 frame_element = await iframe.frame_element()
-                if not frame_element: return False
-                
+                if not frame_element:
+                    return False
+                try:
+                    await frame_element.scroll_into_view_if_needed(timeout=3000)
+                except Exception:
+                    pass
+
                 box = await frame_element.bounding_box()
-                if not box: return False
-                
-                # Turnstile checkbox is usually in the top-left area
-                # Scrapling offsets: X + 27, Y + 26
-                click_x = box["x"] + random.randint(25, 30)
-                click_y = box["y"] + random.randint(25, 30)
-                
-                logger.info(f"👆 Clicking Turnstile at ({click_x}, {click_y})")
-                await page.mouse.click(click_x, click_y, delay=random.randint(100, 200))
-                
-                # Wait for the challenge to resolve
-                for _ in range(10):
+                if not box:
+                    return False
+
+                # Turnstile checkbox sits ~30px from iframe top-left. Jitter to look human.
+                click_x = box["x"] + random.randint(25, 32)
+                click_y = box["y"] + random.randint(25, 32)
+
+                # Move the mouse to a random idle position first, then trace to the
+                # click point in steps. CF's interaction-detector flags teleport-clicks.
+                start_x = box["x"] + box["width"] + random.randint(50, 200)
+                start_y = box["y"] + random.randint(-50, 50)
+                await page.mouse.move(start_x, start_y)
+                await asyncio.sleep(random.uniform(0.3, 0.7))
+                await page.mouse.move(click_x, click_y, steps=random.randint(15, 25))
+                await asyncio.sleep(random.uniform(0.15, 0.35))
+
+                logger.info(f"👆 Clicking Turnstile at ({click_x:.0f}, {click_y:.0f})")
+                await page.mouse.click(click_x, click_y, delay=random.randint(80, 180))
+
+                # ── Step 4: wait for resolution (longer window) ───────────────────
+                for _ in range(25):
                     await asyncio.sleep(1)
-                    if "Just a moment..." not in await page.content():
+                    if not await self._challenge_still_present(page):
                         logger.success("✅ Cloudflare challenge solved!")
                         return True
+
+                logger.warning("⚠️ Cloudflare challenge still present after click + 25s wait.")
             except Exception as e:
                 logger.error(f"❌ Error during CF solving: {e}")
-                
+
             return False
         except Exception:
             return False
@@ -226,7 +276,19 @@ class BrowserManager:
             
             # === CLOUDFLARE SOLVER ===
             if solve_cf:
-                await self._solve_cloudflare(page)
+                cf_ok = await self._solve_cloudflare(page)
+                if not cf_ok:
+                    # CF often lets you through on the second hit because the first
+                    # navigation set the cf_clearance / cf_chl_* cookies — reload
+                    # the page once and try the solver again.
+                    logger.info("🔁 Reloading page to retry Cloudflare challenge…")
+                    try:
+                        await page.reload(wait_until="domcontentloaded", timeout=60000)
+                    except Exception as e:
+                        logger.warning(f"Reload failed during CF retry: {e}")
+                    cf_ok = await self._solve_cloudflare(page)
+                    if not cf_ok:
+                        logger.error("❌ Cloudflare still blocking after reload + retry.")
 
             # === AUTO-CONSENT (Cookies) ===
             try:
