@@ -14,7 +14,21 @@ import {
 
 type Status = "idle" | "modal" | "waiting" | "timeout";
 
-const WEB_TELEGRAM_URL = "https://web.telegram.org/k/#@MarketPulseBot";
+/**
+ * Derive the Telegram Web URL for the actual bot configured on the server.
+ * The bot username can differ between environments (dev/staging/prod), so we
+ * MUST extract it from the deeplink the backend just generated — hardcoding
+ * "@MarketPulseBot" sends users to Web Telegram's fuzzy-match, which can open
+ * a totally different bot from the user's chat history.
+ */
+function deriveWebTelegramUrl(deepLink: string): string {
+  // deepLink form: https://t.me/<BotUsername>?start=mp_<token>
+  const m = deepLink.match(/t\.me\/([A-Za-z0-9_]+)/i);
+  const username = m ? m[1] : "";
+  return username
+    ? `https://web.telegram.org/k/#@${username}`
+    : "https://web.telegram.org/k/";
+}
 
 /**
  * Telegram connect flow with explicit confirmation.
@@ -83,7 +97,8 @@ export default function ConnectTelegramFlow() {
   };
 
   const openInWeb = () => {
-    window.open(WEB_TELEGRAM_URL, "_blank");
+    if (!deepLink) return;
+    window.open(deriveWebTelegramUrl(deepLink), "_blank");
     beginPolling();
   };
 
@@ -226,15 +241,19 @@ export default function ConnectTelegramFlow() {
             {startToken && (
               <div className="flex flex-col gap-1.5 px-3 py-2.5 rounded-md border border-border bg-surface-2">
                 <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  Manual command (paste to bot in Web Telegram)
+                  Manual command — click field, press Ctrl+C, paste to bot
                 </span>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 font-mono text-[11.5px] text-foreground truncate select-all">
-                    {startToken}
-                  </code>
+                  <input
+                    readOnly
+                    value={startToken}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onClick={(e) => e.currentTarget.select()}
+                    className="flex-1 font-mono text-[11.5px] text-foreground bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:border-primary"
+                  />
                   <button
                     onClick={copyToken}
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded text-[10.5px] font-mono border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors"
+                    className="inline-flex items-center gap-1 h-7 px-2 rounded text-[10.5px] font-mono border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors"
                   >
                     <Copy size={11} />
                     Copy
