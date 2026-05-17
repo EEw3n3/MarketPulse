@@ -40,8 +40,12 @@ class NetworkInterceptor:
 
 
 class BrowserManager:
-    __CF_PATTERN__ = r"^https?://cloudflare\.com/cdn-cgi/challenge-platform/.*"
-                                                                                                                                                                                                               
+    # Cloudflare Turnstile iframes load from the `challenges.cloudflare.com`
+    # subdomain (NOT the apex `cloudflare.com`). Earlier we matched only the
+    # apex, so the solver always logged "iframe not found" on sites like 1a.lv
+    # and gave up. Match any cloudflare.com subdomain to be safe.
+    __CF_PATTERN__ = r"^https?://(?:[\w-]+\.)?cloudflare\.com/.*challenge.*"
+
     def __init__(self) -> None:
         self.playwright: Playwright | None = None
         self.browser: Browser | None = None
@@ -120,18 +124,22 @@ class BrowserManager:
                 return False
 
             logger.info("🛡️ Cloudflare challenge detected. Attempting to solve...")
-            
-            # Wait for any network activity to settle slightly
-            await asyncio.sleep(2)
-            
-            # Find Turnstile iframe
+
+            # Turnstile iframe can take 3-8 seconds to spawn after the page loads.
+            # Poll for up to ~12s instead of a single 2-second sleep — the old
+            # code consistently lost the race on slower sites like 1a.lv.
+            import re
             iframe = None
-            for frame in page.frames:
-                import re
-                if re.match(self.__CF_PATTERN__, frame.url):
-                    iframe = frame
+            for attempt in range(12):
+                await asyncio.sleep(1)
+                for frame in page.frames:
+                    if re.match(self.__CF_PATTERN__, frame.url):
+                        iframe = frame
+                        break
+                if iframe:
+                    logger.info(f"🛡️ Turnstile iframe found after {attempt + 1}s")
                     break
-            
+
             if not iframe:
                 logger.warning("⚠️ Cloudflare iframe not found.")
                 return False
