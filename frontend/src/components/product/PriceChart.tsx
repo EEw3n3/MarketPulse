@@ -251,19 +251,26 @@ export default function PriceChart({ period, onPeriodChange, history, storeName 
                   iconType="circle"
                 />
               )}
-              {stores.map((s) => (
-                <Line
-                  key={s}
-                  type="monotone"
-                  dataKey={s}
-                  name={s}
-                  stroke={colorFor(s)}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: colorFor(s), fill: "hsl(220, 30%, 8%)" }}
-                  connectNulls
-                />
-              ))}
+              {stores.map((s) => {
+                // Count actual data points for this store. If only 1 point, force
+                // a visible dot — `dot={false}` would render nothing (Recharts
+                // doesn't connect a single point into anything). Multi-point series
+                // look cleaner without per-point dots.
+                const points = rows.filter((r) => typeof r[s] === "number").length;
+                return (
+                  <Line
+                    key={s}
+                    type="monotone"
+                    dataKey={s}
+                    name={s}
+                    stroke={colorFor(s)}
+                    strokeWidth={2}
+                    dot={points <= 1 ? { r: 4, strokeWidth: 2, stroke: colorFor(s), fill: "hsl(220, 30%, 8%)" } : false}
+                    activeDot={{ r: 4, strokeWidth: 2, stroke: colorFor(s), fill: "hsl(220, 30%, 8%)" }}
+                    connectNulls
+                  />
+                );
+              })}
             </LineChart>
           </ResponsiveContainer>
         )}
