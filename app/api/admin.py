@@ -260,7 +260,9 @@ async def scrape_ingest(
             if match:
                 group_id = match.id
             else:
-                canonical = matcher_service.get_canonical_name(item.title, brand=item.brand)
+                canonical = matcher_service.get_canonical_name(
+                    item.title, brand=item.brand, concentration=item.concentration
+                )
                 upsert = pg_insert(ProductGroup).values(
                     name=canonical, category="Perfume", created_at=datetime.utcnow()
                 ).on_conflict_do_nothing(index_elements=["name"])

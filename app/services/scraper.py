@@ -1997,7 +1997,11 @@ class ScraperService:
                     if match:
                         final_group_id = match.id
                     else:
-                        canonical = matcher_service.get_canonical_name(item["title"], brand=item.get("brand"))
+                        canonical = matcher_service.get_canonical_name(
+                            item["title"],
+                            brand=item.get("brand"),
+                            concentration=item.get("concentration"),
+                        )
                         upsert_stmt = insert_fn(ProductGroup).values(
                             name=canonical,
                             category="Perfume",

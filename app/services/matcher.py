@@ -94,16 +94,29 @@ class MatcherService:
                 return group
         return None
 
-    def get_canonical_name(self, title: str, brand: Optional[str] = None) -> str:
+    def get_canonical_name(
+        self,
+        title: str,
+        brand: Optional[str] = None,
+        concentration: Optional[str] = None,
+    ) -> str:
         """Returns a clean, standardized name for the ProductGroup.
 
         Must produce UNIQUE names per distinct product. Two different perfumes
         of the same brand+concentration must NEVER share a canonical name —
         otherwise `ON CONFLICT DO NOTHING` on ProductGroup.name silently merges
         them into one group, bypassing matcher fuzzy logic.
+
+        `concentration` is an explicit override used when the scraper extracted
+        it from structured product data (Tealium / page metadata) but the title
+        string itself doesn't contain an EDT/EDP/Parfum keyword. Without this,
+        e.g. all Makeup "Chanel Bleu 50ml" variants (whose `concentration`
+        column is correctly populated but title is bare) collapse into one
+        group because `extract_all(title)` returns None for concentration.
         """
         norm = perfume_normalizer.extract_all(title, explicit_brand=brand)
         final_brand = brand or norm["brand"]
+        final_concentration = concentration or norm["concentration"]
 
         parts: list[str] = []
         if final_brand:
@@ -128,8 +141,8 @@ class MatcherService:
         if product_token:
             parts.append(product_token)
 
-        if norm["concentration"]:
-            parts.append(norm["concentration"])
+        if final_concentration:
+            parts.append(final_concentration)
 
         # Final cleanup: unique words in order
         final_parts = []
