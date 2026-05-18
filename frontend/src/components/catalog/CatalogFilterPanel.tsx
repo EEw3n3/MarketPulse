@@ -11,6 +11,7 @@ export type FilterState = {
   brands: string[];
   stores: string[];
   types: string[];
+  volumes: string[];
   priceRange: [number, number];
   inStock: boolean | null;
 };
@@ -20,6 +21,7 @@ export const defaultFilters: FilterState = {
   brands: [],
   stores: [],
   types: [],
+  volumes: [],
   priceRange: [0, 500],
   inStock: null,
 };
@@ -30,6 +32,7 @@ interface Props {
   availableBrands: string[];
   availableStores: string[];
   availableTypes: string[];
+  availableVolumes: string[];
 }
 
 export default function CatalogFilterPanel({
@@ -38,15 +41,17 @@ export default function CatalogFilterPanel({
   availableBrands,
   availableStores,
   availableTypes,
+  availableVolumes,
 }: Props) {
   const activeCount =
     filters.brands.length +
     filters.stores.length +
     filters.types.length +
+    filters.volumes.length +
     (filters.priceRange[0] > 0 || filters.priceRange[1] < 500 ? 1 : 0) +
     (filters.inStock !== null ? 1 : 0);
 
-  const toggleArrayItem = (key: keyof Pick<FilterState, "brands" | "stores" | "types">, item: string) => {
+  const toggleArrayItem = (key: keyof Pick<FilterState, "brands" | "stores" | "types" | "volumes">, item: string) => {
     setFilters((prev) => {
       const arr = prev[key];
       return {
@@ -178,6 +183,45 @@ export default function CatalogFilterPanel({
                             in progress
                           </span>
                         )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* Volumes */}
+            <AccordionItem value="volume" className="border-b-0 px-6">
+              <AccordionTrigger className={sectionTrigger}>
+                <div className="flex items-center gap-2">
+                  Volume
+                  {filters.volumes.length > 0 && (
+                    <span className="font-mono text-[10px] tabular-nums text-foreground bg-surface-2 px-1.5 py-0.5 rounded border border-border">
+                      {filters.volumes.length}
+                    </span>
+                  )}
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pb-4">
+                <div className="grid grid-cols-2 gap-2 pt-1 max-h-[220px] overflow-y-auto pr-2 scrollbar-hide">
+                  {availableVolumes.map((volume) => {
+                    const checked = filters.volumes.includes(volume);
+                    return (
+                      <label
+                        key={volume}
+                        htmlFor={`volume-${volume}`}
+                        className={cn(
+                          "flex items-center gap-2 cursor-pointer",
+                          checked ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <Checkbox
+                          id={`volume-${volume}`}
+                          checked={checked}
+                          onCheckedChange={() => toggleArrayItem("volumes", volume)}
+                          className="data-[state=checked]:bg-foreground data-[state=checked]:border-foreground data-[state=checked]:text-background"
+                        />
+                        <span className="text-[12.5px] flex-1 transition-colors font-mono">{volume}</span>
                       </label>
                     );
                   })}

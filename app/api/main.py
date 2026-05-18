@@ -295,6 +295,32 @@ def _canonical_store_key(search_term: str) -> str:
     return s
 
 
+@app.get("/api/products/volumes")
+async def get_all_volumes(db: AsyncSession = Depends(get_db)) -> List[dict]:
+    """All distinct volumes with product counts, sorted by canonical ml ASC.
+
+    Used by the catalog filter panel. Volumes come from `Product.volume` as
+    strings like "50ml", "100ml" — we extract the numeric component for
+    sorting so 100ml > 75ml > 50ml, not lexicographic "100ml" < "50ml".
+    """
+    import re
+    stmt = (
+        select(Product.volume, func.count(Product.id).label("count"))
+        .where(Product.volume.isnot(None), Product.volume != "")
+        .group_by(Product.volume)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    def _ml(v: str) -> int:
+        m = re.search(r"(\d+)", v or "")
+        return int(m.group(1)) if m else 0
+
+    payload = [{"value": row[0], "count": int(row[1] or 0)} for row in rows]
+    payload.sort(key=lambda r: _ml(r["value"]))
+    return payload
+
+
 @app.get("/api/products/stores")
 async def get_all_stores(db: AsyncSession = Depends(get_db)) -> List[dict]:
     """All stores currently present in the catalog, with product counts.
@@ -343,7 +369,12 @@ def _store_filter_clause(stores: List[str]):
     return or_(*(func.lower(Product.search_term).like(f"%{s.lower()}%") for s in stores))
 
 
-def _catalog_base_stmt(search: Optional[str], brands: Optional[List[str]], stores: Optional[List[str]]):
+def _catalog_base_stmt(
+    search: Optional[str],
+    brands: Optional[List[str]],
+    stores: Optional[List[str]],
+    volumes: Optional[List[str]] = None,
+):
     """Shared filter logic for catalog endpoints."""
     stmt = select(Product)
     if search:
@@ -352,6 +383,8 @@ def _catalog_base_stmt(search: Optional[str], brands: Optional[List[str]], store
         stmt = stmt.where(Product.brand.in_(brands))
     if stores:
         stmt = stmt.where(_store_filter_clause(stores))
+    if volumes:
+        stmt = stmt.where(Product.volume.in_(volumes))
     return stmt
 
 
@@ -360,10 +393,11 @@ async def get_catalog_count(
     search: Optional[str] = None,
     brands: List[str] = Query(None),
     stores: List[str] = Query(None),
+    volumes: List[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Total number of products matching the given filters."""
-    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores).subquery())
+    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores, volumes).subquery())
     total = await db.scalar(stmt)
     return {"total": int(total or 0)}
 
@@ -373,12 +407,13 @@ async def get_catalog(
     search: Optional[str] = None,
     brands: List[str] = Query(None),
     stores: List[str] = Query(None),
+    volumes: List[str] = Query(None),
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
     """Full catalog with filtering and search."""
-    stmt = _catalog_base_stmt(search, brands, stores).offset(skip).limit(limit)
+    stmt = _catalog_base_stmt(search, brands, stores, volumes).offset(skip).limit(limit)
     result = await db.execute(stmt)
     products = result.scalars().all()
     

@@ -372,6 +372,8 @@ export const api = {
     fetchApi<Array<{ name: string; count: number }>>(`/products/brands`),
   getStores: () =>
     fetchApi<Array<{ key: string; label: string; count: number }>>(`/products/stores`),
+  getVolumes: () =>
+    fetchApi<Array<{ value: string; count: number }>>(`/products/volumes`),
   getProduct: (id: number | string) =>
     fetchApi<ProductCardDetail>(`/products/${id}`),
   getStats: () =>

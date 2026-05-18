@@ -79,6 +79,7 @@ export default function CatalogContent() {
     search: searchParams.get("search") ?? "",
     brands: searchParams.getAll("brands"),
     stores: searchParams.getAll("stores"),
+    volumes: searchParams.getAll("volumes"),
     types: extraFilters.types,
     priceRange: extraFilters.priceRange,
     inStock: extraFilters.inStock,
@@ -92,10 +93,12 @@ export default function CatalogContent() {
     params.delete("search");
     params.delete("brands");
     params.delete("stores");
+    params.delete("volumes");
     params.set("page", "1"); // reset page on any filter change
     if (next.search) params.set("search", next.search);
     next.brands.forEach((b) => params.append("brands", b));
     next.stores.forEach((s) => params.append("stores", s));
+    next.volumes.forEach((v) => params.append("volumes", v));
     setSearchParams(params, { replace: true });
     // Extra (non-URL) fields
     setExtraFilters({ types: next.types, priceRange: next.priceRange, inStock: next.inStock });
@@ -110,6 +113,7 @@ export default function CatalogContent() {
   // Stores discovered via /api/products/stores — merged with HARDCODED_STORES
   // so newly added retailers automatically show up in the filter checkbox list.
   const [discoveredStores, setDiscoveredStores] = useState<string[]>([]);
+  const [availableVolumes, setAvailableVolumes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -145,6 +149,15 @@ export default function CatalogContent() {
     return () => { cancelled = true; };
   }, []);
 
+  // Fetch distinct volumes for the catalog filter panel. Sorted ml ASC server-side.
+  useEffect(() => {
+    let cancelled = false;
+    api.getVolumes()
+      .then(rows => { if (!cancelled) setAvailableVolumes(rows.map(r => r.value)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // Merge HARDCODED_STORES (pretty labels, preserved order) with discovered
   // stores from the API, deduped by canonical key. New retailers added via
   // configs/categories.json appear here automatically after first scrape.
@@ -173,6 +186,7 @@ export default function CatalogContent() {
     if (filters.search) p.append("search", filters.search);
     filters.brands.forEach(b => p.append("brands", b));
     filters.stores.forEach(s => p.append("stores", s));
+    filters.volumes.forEach(v => p.append("volumes", v));
     return p;
   };
 
@@ -184,7 +198,7 @@ export default function CatalogContent() {
       .then(res => { if (!cancelled) setTotal(res.total); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [filters.search, filters.brands.join(","), filters.stores.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -204,7 +218,7 @@ export default function CatalogContent() {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [filters.search, filters.brands.join(","), filters.stores.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -307,6 +321,7 @@ export default function CatalogContent() {
           availableBrands={allBrands.length > 0 ? allBrands : Array.from(new Set(products.map(p => p.brand)))}
           availableStores={mergedStores}
           availableTypes={types}
+          availableVolumes={availableVolumes}
         />
 
         {/* View toggle */}
@@ -526,7 +541,7 @@ export default function CatalogContent() {
         open={exportOpen}
         onOpenChange={setExportOpen}
         scope="catalog"
-        filters={{ search: filters.search, brands: filters.brands, stores: filters.stores }}
+        filters={{ search: filters.search, brands: filters.brands, stores: filters.stores, volumes: filters.volumes }}
       />
     </div>
   );

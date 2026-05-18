@@ -34,6 +34,7 @@ interface CatalogFilters {
   search?: string;
   brands?: string[];
   stores?: string[];
+  volumes?: string[];
 }
 
 interface Props {
@@ -241,6 +242,7 @@ async function downloadCatalog(
     if (filters.search) q.set("search", filters.search);
     (filters.brands ?? []).forEach(b => q.append("brands", b));
     (filters.stores ?? []).forEach(s => q.append("stores", s));
+    (filters.volumes ?? []).forEach(v => q.append("volumes", v));
     q.set("limit", "2000");
     const rows = await api.getCatalog(q.toString());
     if (format === "csv") {
