@@ -90,69 +90,74 @@ async def bootstrap_scraping_rules_from_categories() -> None:
     """Ensure a ScrapingRule row exists for every target listed in
     `configs/categories.json`. Without this, newly added retailers don't show
     up in Admin → Scraping until someone successfully scrapes them once —
-    chicken-and-egg.
-
-    Now: adding a target to categories.json + restart → row appears in the
-    admin panel immediately with `last_scrape_at=NULL` and product_count=0,
-    so the operator can click "Scrape now" to bootstrap the new site.
+    chicken-and-egg. With it, adding a target to categories.json + restart
+    makes the row appear with `last_success=NULL` and product_count=0, so the
+    operator can click "Scrape now" to bootstrap the new site.
 
     Idempotent: only inserts rows whose `domain` doesn't already exist.
-    """
-    import json
-    import os
-    from urllib.parse import urlparse
-    from app.core.database import async_session_maker
-    from app.domain.models import ScrapingRule
 
-    cfg_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "configs", "categories.json")
-    )
+    Wrapped in a single try/except — even if a bug here would otherwise crash
+    startup (and 502 the whole API), we'd rather log the failure and continue
+    serving than break login for a non-critical bootstrap step.
+    """
+    from loguru import logger
     try:
+        import json
+        import os
+        from urllib.parse import urlparse
+        from app.core.database import async_session_maker
+        from app.domain.models import ScrapingRule
+
+        cfg_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "configs", "categories.json")
+        )
         with open(cfg_path, "r", encoding="utf-8") as f:
             cats = json.load(f)
+
+        discovered: list[tuple[str, str]] = []  # (domain, site_name)
+        for category_block in cats.values():
+            for target in category_block.get("targets", []):
+                url = target.get("url", "")
+                site = target.get("site")
+                if not url:
+                    continue
+                domain = urlparse(url).netloc.lower()
+                if domain.startswith("www."):
+                    domain = domain[4:]
+                if not domain:
+                    continue
+                discovered.append((domain, site or domain))
+
+        if not discovered:
+            return
+
+        async with async_session_maker() as session:
+            existing_rows = await session.execute(select(ScrapingRule.domain))
+            existing = {row[0] for row in existing_rows.all()}
+
+            added = 0
+            for domain, site_name in discovered:
+                if domain in existing:
+                    continue
+                # `container_css` / `title_css` are NOT NULL in the model — we
+                # leave them empty here, the first scrape's AI self-healing
+                # path populates them with real selectors before any data
+                # extraction is attempted.
+                session.add(ScrapingRule(
+                    domain=domain,
+                    site_name=site_name,
+                    container_css="",
+                    title_css="",
+                    success_count=0,
+                    failure_count=0,
+                ))
+                added += 1
+
+            if added:
+                await session.commit()
+                logger.info(f"🪴 Bootstrapped {added} new ScrapingRule(s) from categories.json")
     except Exception as exc:
-        from loguru import logger
-        logger.warning(f"bootstrap_scraping_rules: cannot read categories.json: {exc}")
-        return
-
-    discovered: list[tuple[str, str]] = []  # (domain, site_name)
-    for category_block in cats.values():
-        for target in category_block.get("targets", []):
-            url = target.get("url", "")
-            site = target.get("site")
-            if not url:
-                continue
-            domain = urlparse(url).netloc.lower()
-            if domain.startswith("www."):
-                domain = domain[4:]
-            if not domain:
-                continue
-            discovered.append((domain, site or domain))
-
-    if not discovered:
-        return
-
-    async with async_session_maker() as session:
-        existing_rows = await session.execute(select(ScrapingRule.domain))
-        existing = {row[0] for row in existing_rows.all()}
-
-        added = 0
-        for domain, site_name in discovered:
-            if domain in existing:
-                continue
-            session.add(ScrapingRule(
-                domain=domain,
-                site_name=site_name,
-                health_score=0.0,
-                success_count=0,
-                failure_count=0,
-            ))
-            added += 1
-
-        if added:
-            await session.commit()
-            from loguru import logger
-            logger.info(f"🪴 Bootstrapped {added} new ScrapingRule(s) from categories.json")
+        logger.warning(f"bootstrap_scraping_rules failed (non-fatal): {exc!r}")
 
 
 # APScheduler disabled — scraping is triggered manually (server-side scraping not yet viable due to IP bans)
