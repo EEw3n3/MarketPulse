@@ -82,7 +82,12 @@ class PerfumeNormalizer:
         r"\bvīriešiem\b", r"\bmen\b", r"\bhomme\b", r"\bfor men\b",
         r"\bpour\b", r"\bfor\b", r"\bwoman\b", r"\bfemale\b", r"\bsievietēm\b",
         r"\bprocentai\b",
-        r"\bintensive\b", r"\bintense\b", r"\bset\b", r"\bkomplekts\b",
+        # NOTE: 'intense' / 'intensive' INTENTIONALLY removed from NOISE.
+        # Words like "Intense" are PRODUCT-LINE distinguishers — "Dior Sauvage"
+        # and "Dior Sauvage Intense" are entirely different perfumes, but
+        # stripping the word made them chain into one group. Same with
+        # "Le Male" vs "Le Male Intense", etc.
+        r"\bset\b", r"\bkomplekts\b",
         r"\bafter shave\b", r"\baftershave\b", r"\btester\b", r"\btestieris\b",
         r"\bparfums\b", r"\bman\b", r"\bwomen\b", r"\bwoman\b", r"\bmen\b",
         r"\bdezodorants\b", r"\bminiatūra\b", r"\bantiperspirants\b", r"\bantiseptiķis\b", 

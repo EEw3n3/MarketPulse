@@ -49,31 +49,35 @@ class MatcherService:
         groups = results.scalars().all()
 
         for group in groups:
-            # For each group, we check if it matches our criteria
-            # We might want to store attributes in ProductGroup eventually, 
-            # but for now we can infer them from the group name or associated products.
-            # Actually, a better way: check the products already in this group.
-            
-            # Since ProductGroup name is usually the first product's name,
-            # let's normalize the Group Name too.
+            # Normalize the group's canonical name to extract its attributes.
             group_norm = perfume_normalizer.extract_all(group.name)
-            
+
             # Rule 1: Brand must match 100% (if present)
             if brand and group_norm["brand"] and brand.lower() != group_norm["brand"].lower():
                 continue
-            
-            # NOTE: Volume and Concentration restrictions removed to allow 
-            # different variants (EDT/EDP, 50ml/100ml) to join the same scent Chain.
-            # Filters can be applied later in the UI.
 
-            # Rule 4: Name Similarity (Fuzzy)
+            # Rule 2: Concentration must match exactly (or both null).
+            # "Chanel Bleu EDT" and "Chanel Bleu Parfum" are DIFFERENT perfumes
+            # and must never share a chain. Lenient "one null is OK" mode was
+            # rejected because it lets products with missing concentration
+            # (Douglas catalog, ~6% of rows) silently attach to whichever EDT/
+            # EDP group was created first, polluting cross-store comparisons.
+            this_conc = (concentration or "").lower()
+            grp_conc = (group_norm["concentration"] or "").lower()
+            if this_conc != grp_conc:
+                continue
+
+            # Rule 3: Name Similarity (Fuzzy)
             if not clean_name or not group_norm["clean_name"]:
-                continue # Don't match empty names
-                
+                continue
+
             score = fuzz.token_sort_ratio(clean_name.lower(), group_norm["clean_name"].lower())
-            
+
             if score >= self.FUZZY_THRESHOLD:
-                logger.info(f"🔗 CHAIN LINKED! ({score}%): '{title}' joined '{group.name}'")
+                logger.info(
+                    f"🔗 CHAIN LINKED! ({score}%, conc={concentration or '∅'}): "
+                    f"'{title}' joined '{group.name}'"
+                )
                 return group
 
         return None
