@@ -1,0 +1,21 @@
+{
+    # Email used by Let's Encrypt for cert expiry notifications.
+    email ervinubinin1@gmail.com
+}
+
+marketpulse1.me, www.marketpulse1.me {
+    # Backend API (FastAPI on internal port 8000).
+    # Caddy auto-injects X-Forwarded-For / X-Forwarded-Proto.
+    handle /api/* {
+        reverse_proxy app:8000
+    }
+
+    # Frontend (Vite dev server inside Docker on internal port 8080).
+    # WebSocket upgrades happen automatically — HMR works over HTTPS.
+    handle {
+        reverse_proxy frontend:8080
+    }
+
+    # Compression for static assets — frontend bundle is ~1.5 MB.
+    encode zstd gzip
+}
