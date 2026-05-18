@@ -24,7 +24,12 @@ import ExportModal from "@/components/product/ExportModal";
 type SortField = "brand" | "name" | "price" | "change" | "store";
 type SortDir = "asc" | "desc";
 
-const stores = ["Douglas.lv", "Notino.lv", "1a.lv", "Makeup.lv", "220.lv"];
+// Hardcoded stores act as the authoritative "first-class" list with pretty
+// labels in the desired display order. The catalog filter merges this with
+// the dynamic `/api/products/stores` payload (canonical key) so newly added
+// retailers (added via configs/categories.json + first scrape) appear in
+// the filter automatically without a frontend rebuild.
+const HARDCODED_STORES = ["Douglas.lv", "Notino.lv", "1a.lv", "Makeup.lv", "220.lv"];
 const types = ["EDP", "EDT", "Parfum", "Cologne"];
 const ROWS_PER_PAGE = 12;
 
@@ -102,6 +107,9 @@ export default function CatalogContent() {
   const [products, setProducts] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [allBrands, setAllBrands] = useState<string[]>([]);
+  // Stores discovered via /api/products/stores — merged with HARDCODED_STORES
+  // so newly added retailers automatically show up in the filter checkbox list.
+  const [discoveredStores, setDiscoveredStores] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -126,6 +134,39 @@ export default function CatalogContent() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Fetch dynamic store list (from product.search_term distinct values).
+  // Failure mode: silent fall back to HARDCODED_STORES only — no user-visible breakage.
+  useEffect(() => {
+    let cancelled = false;
+    api.getStores()
+      .then(rows => { if (!cancelled) setDiscoveredStores(rows.map(r => r.label)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Merge HARDCODED_STORES (pretty labels, preserved order) with discovered
+  // stores from the API, deduped by canonical key. New retailers added via
+  // configs/categories.json appear here automatically after first scrape.
+  const mergedStores = useMemo(() => {
+    const seenKeys = new Set<string>();
+    const out: string[] = [];
+    for (const s of HARDCODED_STORES) {
+      const k = s.toLowerCase().replace(/\.lv$/, "").replace(/\s+latvia$/, "").trim();
+      if (!seenKeys.has(k)) {
+        seenKeys.add(k);
+        out.push(s);
+      }
+    }
+    for (const s of discoveredStores) {
+      const k = s.toLowerCase().replace(/\.lv$/, "").replace(/\s+latvia$/, "").trim();
+      if (k && !seenKeys.has(k)) {
+        seenKeys.add(k);
+        out.push(s);
+      }
+    }
+    return out;
+  }, [discoveredStores]);
 
   const buildFilterParams = () => {
     const p = new URLSearchParams();
@@ -264,7 +305,7 @@ export default function CatalogContent() {
           filters={filters}
           setFilters={setFilters}
           availableBrands={allBrands.length > 0 ? allBrands : Array.from(new Set(products.map(p => p.brand)))}
-          availableStores={stores}
+          availableStores={mergedStores}
           availableTypes={types}
         />
 

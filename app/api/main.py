@@ -85,6 +85,76 @@ async def register_telegram_webhook() -> None:
         await bot.set_webhook(webhook_url, secret_token=settings.TELEGRAM_WEBHOOK_SECRET)
 
 
+@app.on_event("startup")
+async def bootstrap_scraping_rules_from_categories() -> None:
+    """Ensure a ScrapingRule row exists for every target listed in
+    `configs/categories.json`. Without this, newly added retailers don't show
+    up in Admin → Scraping until someone successfully scrapes them once —
+    chicken-and-egg.
+
+    Now: adding a target to categories.json + restart → row appears in the
+    admin panel immediately with `last_scrape_at=NULL` and product_count=0,
+    so the operator can click "Scrape now" to bootstrap the new site.
+
+    Idempotent: only inserts rows whose `domain` doesn't already exist.
+    """
+    import json
+    import os
+    from urllib.parse import urlparse
+    from app.core.database import async_session_maker
+    from app.domain.models import ScrapingRule
+
+    cfg_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "configs", "categories.json")
+    )
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cats = json.load(f)
+    except Exception as exc:
+        from loguru import logger
+        logger.warning(f"bootstrap_scraping_rules: cannot read categories.json: {exc}")
+        return
+
+    discovered: list[tuple[str, str]] = []  # (domain, site_name)
+    for category_block in cats.values():
+        for target in category_block.get("targets", []):
+            url = target.get("url", "")
+            site = target.get("site")
+            if not url:
+                continue
+            domain = urlparse(url).netloc.lower()
+            if domain.startswith("www."):
+                domain = domain[4:]
+            if not domain:
+                continue
+            discovered.append((domain, site or domain))
+
+    if not discovered:
+        return
+
+    async with async_session_maker() as session:
+        existing_rows = await session.execute(select(ScrapingRule.domain))
+        existing = {row[0] for row in existing_rows.all()}
+
+        added = 0
+        for domain, site_name in discovered:
+            if domain in existing:
+                continue
+            session.add(ScrapingRule(
+                domain=domain,
+                site_name=site_name,
+                health_score=0.0,
+                success_count=0,
+                failure_count=0,
+            ))
+            added += 1
+
+        if added:
+            await session.commit()
+            from loguru import logger
+            logger.info(f"🪴 Bootstrapped {added} new ScrapingRule(s) from categories.json")
+
+
 # APScheduler disabled — scraping is triggered manually (server-side scraping not yet viable due to IP bans)
 # @app.on_event("startup")
 # async def start_scheduler() -> None:
@@ -196,6 +266,68 @@ async def get_all_brands(db: AsyncSession = Depends(get_db)) -> List[dict]:
     )
     result = await db.execute(stmt)
     return [{"name": row[0], "count": row[1]} for row in result.all()]
+
+
+# ── Pretty labels for known stores. Stores not in this map use their raw
+# search_term as display label (good enough for newly added stores until UI
+# defaults are added).
+_STORE_PRETTY_LABELS = {
+    "douglas": "Douglas",
+    "notino": "Notino",
+    "220": "220.lv",
+    "makeup": "Makeup.lv",
+    "1a": "1a.lv",
+}
+
+
+def _canonical_store_key(search_term: str) -> str:
+    """Mirror of frontend's canonicalStore(): lower + strip .lv / latvija / latvia."""
+    s = (search_term or "").lower().strip()
+    for suffix in (".lv", " latvija", " latvia"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)].strip()
+            break
+    return s
+
+
+@app.get("/api/products/stores")
+async def get_all_stores(db: AsyncSession = Depends(get_db)) -> List[dict]:
+    """All stores currently present in the catalog, with product counts.
+
+    Used by the catalog filter panel — combined with the hardcoded
+    STORE_OPTIONS on the frontend, this lets newly added retailers
+    (added via configs/categories.json + first scrape) appear in the
+    filter automatically without a frontend rebuild.
+
+    Stores with `count == 0` are also returned so the frontend can mark
+    them as "in progress" (existing pattern, e.g. 1a.lv when Cloudflare
+    blocks scraping).
+    """
+    stmt = (
+        select(Product.search_term, func.count(Product.id).label("count"))
+        .where(Product.search_term.isnot(None), Product.search_term != "")
+        .group_by(Product.search_term)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    # Aggregate by canonical key (collapses "Notino" + "notino.lv" into one).
+    aggregated: dict[str, int] = {}
+    for search_term, count in rows:
+        key = _canonical_store_key(search_term)
+        if not key:
+            continue
+        aggregated[key] = aggregated.get(key, 0) + int(count or 0)
+
+    payload = [
+        {
+            "key": key,
+            "label": _STORE_PRETTY_LABELS.get(key, key),
+            "count": count,
+        }
+        for key, count in sorted(aggregated.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    return payload
 
 
 def _store_filter_clause(stores: List[str]):
