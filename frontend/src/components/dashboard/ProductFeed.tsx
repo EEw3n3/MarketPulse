@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ProductFeedItem } from "@/lib/api";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { canonicalStore } from "@/lib/stores";
+import { canonicalStore, STORE_OPTIONS } from "@/lib/stores";
 
 function ChangeBadge({ direction, percent }: { direction: "up" | "down" | "none"; percent: number }) {
   if (direction === "none") {
@@ -275,12 +275,30 @@ export default function ProductFeed() {
     const loadFeed = async () => {
       try {
         setLoading(true);
-        const data = await api.getFeed({
-          limit: 50,
-          stores: filterStores.length > 0 ? filterStores : undefined,
-          brands: filterBrands.length > 0 ? filterBrands : undefined,
-          search: filterSearch || undefined,
-        });
+        // Each store gets its OWN top-50 by last_seen DESC. Without per-store
+        // calls a single global feed?limit=N is dominated by whichever store
+        // was scraped most recently (Makeup's ingest gave 10k recent rows),
+        // so other-store sections appear empty under any filter.
+        //
+        // We fan out one call per store (~5) in parallel via Promise.all,
+        // each scoped to that store's canonical key + same brand/search
+        // filters. Results are flattened and the existing
+        // group-by-store grouping below handles the rest.
+        const storeKeysToQuery = filterStores.length > 0
+          ? filterStores
+          : STORE_OPTIONS.map((s) => s.key);
+
+        const results = await Promise.all(
+          storeKeysToQuery.map((storeKey) =>
+            api.getFeed({
+              limit: 50,
+              stores: [storeKey],
+              brands: filterBrands.length > 0 ? filterBrands : undefined,
+              search: filterSearch || undefined,
+            })
+          )
+        );
+        const data = results.flat();
         setProducts(data);
         setError(null);
       } catch (err) {
