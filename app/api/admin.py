@@ -247,7 +247,16 @@ async def scrape_ingest(
     price_changes = 0
 
     for item in payload.products:
-        stmt = select(Product).where(Product.url == item.url, Product.volume == item.volume)
+        # Tolerate accidental duplicates by URL+volume (race condition leftovers
+        # from earlier parallel uploads created some). `scalar_one_or_none()`
+        # crashes on >1 row; we just take the first match — subsequent ingests
+        # will overwrite it cleanly.
+        stmt = (
+            select(Product)
+            .where(Product.url == item.url, Product.volume == item.volume)
+            .order_by(Product.id)
+            .limit(1)
+        )
         product = (await db.execute(stmt)).scalar_one_or_none()
         price_dec = Decimal(str(item.last_price)) if item.last_price is not None else None
 
