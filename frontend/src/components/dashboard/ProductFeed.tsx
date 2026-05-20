@@ -35,7 +35,10 @@ function ProductCard({ product, compact = false }: { product: ProductFeedItem; c
   const navigate = useNavigate();
   const { isFavorite, toggleFavorite } = useFavorites();
   const width = compact ? "w-48" : "w-[220px]";
-  const imgHeight = compact ? "h-28" : "h-36";
+  // Taller image area + white background — perfume packshots almost always
+  // ship on white, so a white tile blends seamlessly with the product photo
+  // and lets the bottle fill the card edge-to-edge.
+  const imgHeight = compact ? "h-44" : "h-52";
 
   const handleClick = () => navigate(`/product/${product.id}`);
   const fav = isFavorite(product.id);
@@ -50,12 +53,12 @@ function ProductCard({ product, compact = false }: { product: ProductFeedItem; c
       {...(!compact && product.id === 1 ? { "data-tutorial": "product-card" } : {})}
     >
       {/* Image area */}
-      <div className={`${imgHeight} relative overflow-hidden bg-surface-2 border-b border-border flex items-center justify-center`}>
+      <div className={`${imgHeight} relative overflow-hidden bg-white border-b border-border flex items-center justify-center`}>
         {product.image_url ? (
           <img
             src={product.image_url}
             alt={product.title}
-            className="w-full h-full object-contain p-3"
+            className="w-full h-full object-contain p-1"
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
