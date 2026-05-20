@@ -231,7 +231,13 @@ async def get_product_feed(
     if stores:
         stmt = stmt.where(_store_filter_clause(stores))
     if search:
-        stmt = stmt.where(or_(Product.title.ilike(f"%{search}%"), Product.brand.ilike(f"%{search}%")))
+        # Brand-alias expansion: JPG → Jean Paul Gaultier, YSL → Yves Saint Laurent, etc.
+        search_variants = _expand_search_term_with_aliases(search)
+        ors = []
+        for s in search_variants:
+            ors.append(Product.title.ilike(f"%{s}%"))
+            ors.append(Product.brand.ilike(f"%{s}%"))
+        stmt = stmt.where(or_(*ors))
     stmt = stmt.order_by(desc(Product.last_seen)).limit(limit)
     result = await db.execute(stmt)
     products = result.scalars().all()
@@ -369,6 +375,45 @@ def _store_filter_clause(stores: List[str]):
     return or_(*(func.lower(Product.search_term).like(f"%{s.lower()}%") for s in stores))
 
 
+def _expand_search_term_with_aliases(search: str) -> list[str]:
+    """For a catalog search query, return the query plus every brand-alias
+    equivalent so 'JPG' matches Jean Paul Gaultier products, 'YSL' matches
+    Yves Saint Laurent, 'D&G' matches Dolce & Gabbana, etc.
+
+    Without this, the search box appears broken for users who use industry
+    shorthand brand names ("jpg le male") — perfume titles get stored in the
+    long canonical form by the normalizer, so a literal LIKE '%jpg%' against
+    titles/brands finds nothing.
+
+    Match is case-insensitive and EITHER the full search query OR any token
+    in it can match an alias key/value.
+    """
+    from app.services.normalizer import perfume_normalizer
+
+    if not search:
+        return []
+    out: list[str] = [search]
+    seen = {search.lower()}
+    aliases = perfume_normalizer.BRAND_ALIASES
+    search_lower = search.lower().strip()
+    # Tokens in the search query — handles "jpg le male" (token 'jpg' matches alias)
+    tokens = [t for t in search_lower.split() if t]
+    candidates = {search_lower, *tokens}
+    for cand in candidates:
+        for short, long_form in aliases.items():
+            if cand == short.lower():
+                # Add the long canonical form too
+                if long_form.lower() not in seen:
+                    out.append(long_form)
+                    seen.add(long_form.lower())
+            elif cand == long_form.lower():
+                # Add the short alias too
+                if short.lower() not in seen:
+                    out.append(short)
+                    seen.add(short.lower())
+    return out
+
+
 def _catalog_base_stmt(
     search: Optional[str],
     brands: Optional[List[str]],
@@ -378,7 +423,14 @@ def _catalog_base_stmt(
     """Shared filter logic for catalog endpoints."""
     stmt = select(Product)
     if search:
-        stmt = stmt.where(or_(Product.title.ilike(f"%{search}%"), Product.brand.ilike(f"%{search}%")))
+        # Expand short brand aliases (JPG → Jean Paul Gaultier, etc.) so the
+        # search box works for industry-standard short names.
+        search_variants = _expand_search_term_with_aliases(search)
+        ors = []
+        for s in search_variants:
+            ors.append(Product.title.ilike(f"%{s}%"))
+            ors.append(Product.brand.ilike(f"%{s}%"))
+        stmt = stmt.where(or_(*ors))
     if brands:
         stmt = stmt.where(Product.brand.in_(brands))
     if stores:
