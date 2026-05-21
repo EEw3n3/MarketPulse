@@ -394,21 +394,27 @@ export default function ProductFeed() {
         </div>
       </div>
 
-      {/* Latest changes — main row */}
-      <section>
-        <SectionHeader
-          eyebrow="01 · Activity"
-          title="Latest changes"
-          count={prioritized.length}
-        />
-        <ScrollableRow products={prioritized} scrollKey="latest" />
-      </section>
+      {/* Latest changes — main row. Hidden when the user has filtered down to a
+          single store, since the per-store section below would be an exact
+          duplicate. */}
+      {storeOrder.length !== 1 && (
+        <section>
+          <SectionHeader
+            eyebrow="01 · Activity"
+            title="Latest changes"
+            count={prioritized.length}
+          />
+          <ScrollableRow products={prioritized} scrollKey="latest" />
+        </section>
+      )}
 
       {/* Per-store sections */}
       {storeOrder.map((store, idx) => (
         <section key={store}>
           <SectionHeader
-            eyebrow={`0${idx + 2} · ${store}`}
+            // When "Latest changes" is hidden (single-store filter), this
+            // section becomes 01 — otherwise it shifts down to 02+.
+            eyebrow={`0${storeOrder.length === 1 ? idx + 1 : idx + 2} · ${store}`}
             title={`Movements on ${store}`}
             count={byStore[store].length}
             cta={{ label: "See all", onClick: () => navigate(`/catalog?stores=${encodeURIComponent(canonicalStore(store))}`) }}
