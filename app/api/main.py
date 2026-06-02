@@ -227,7 +227,7 @@ async def get_product_feed(
     """Latest price changes for the dashboard feed."""
     stmt = select(Product).where(Product.old_price.isnot(None))
     if brands:
-        stmt = stmt.where(Product.brand.in_(brands))
+        stmt = stmt.where(_brand_filter_clause(brands))
     if stores:
         stmt = stmt.where(_store_filter_clause(stores))
     if search:
@@ -414,6 +414,29 @@ def _expand_search_term_with_aliases(search: str) -> list[str]:
     return out
 
 
+def _brand_filter_clause(brands: List[str]):
+    """Case-insensitive + alias-aware brand match for catalog/feed filters.
+
+    The brand chips on the frontend send a canonical display name ("Dior",
+    "YSL", "Dolce & Gabbana"), but `Product.brand` is stored inconsistently
+    across stores:
+      - Douglas: "DIOR" (uppercase)
+      - Notino/Makeup/1a/220: "Dior"
+      - 220.lv even has "Christian Dior"
+      - "YSL" chip vs DB "Yves Saint Laurent"
+    A plain `Product.brand.in_(brands)` is exact + case-sensitive, so e.g.
+    filtering Douglas by "Dior" returned zero rows. We expand each requested
+    brand through the same alias map used by search, lowercase everything,
+    and substring-match — which also catches "Christian Dior" via "%dior%".
+    """
+    variants: set[str] = set()
+    for b in brands:
+        variants.add(b.lower())
+        for v in _expand_search_term_with_aliases(b):
+            variants.add(v.lower())
+    return or_(*(func.lower(Product.brand).like(f"%{v}%") for v in variants))
+
+
 def _catalog_base_stmt(
     search: Optional[str],
     brands: Optional[List[str]],
@@ -432,7 +455,7 @@ def _catalog_base_stmt(
             ors.append(Product.brand.ilike(f"%{s}%"))
         stmt = stmt.where(or_(*ors))
     if brands:
-        stmt = stmt.where(Product.brand.in_(brands))
+        stmt = stmt.where(_brand_filter_clause(brands))
     if stores:
         stmt = stmt.where(_store_filter_clause(stores))
     if volumes:

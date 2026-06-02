@@ -55,6 +55,9 @@ lab_debug.html
 scraped_domains.txt
 .gemini/
 
+# Claude Code local settings (personal, per-machine — not shared)
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
