@@ -125,10 +125,13 @@ function HealthTab() {
 
       {/* Sites table */}
       <div className="border border-border rounded-md bg-surface/40 overflow-hidden">
-        <div className="grid grid-cols-[1fr_80px_80px_90px_90px_80px] gap-3 px-5 py-3 border-b border-border bg-surface/60">
-          {["Domain", "Products", "Health", "Success", "Failure", "Last scrape"].map((h) => (
-            <span key={h} className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{h}</span>
-          ))}
+        <div className="grid grid-cols-[1fr_90px_120px_90px_90px_110px] gap-4 px-5 py-3 border-b border-border bg-surface/60">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Domain</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground text-right">Products</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Health</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground text-right">Success</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground text-right">Failure</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground text-right">Last scrape</span>
         </div>
         <div className="divide-y divide-border">
           {data.sites.length === 0 ? (
@@ -136,26 +139,26 @@ function HealthTab() {
               <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">No scraping rules found.</p>
             </div>
           ) : data.sites.map((s) => (
-            <div key={s.domain} className="grid grid-cols-[1fr_80px_80px_90px_90px_80px] gap-3 px-5 py-3 items-center">
+            <div key={s.domain} className="grid grid-cols-[1fr_90px_120px_90px_90px_110px] gap-4 px-5 py-3 items-center">
               <div className="min-w-0">
-                <p className="font-mono text-[12px] text-foreground">{s.domain}</p>
+                <p className="font-mono text-[12px] text-foreground truncate">{s.domain}</p>
                 <p className="font-mono text-[10px] text-muted-foreground truncate">{s.site_name}</p>
               </div>
-              <span className="font-mono tabular-nums text-[12px] text-foreground">{s.product_count}</span>
+              <span className="font-mono tabular-nums text-[12px] text-foreground text-right">{s.product_count}</span>
               <div className="flex items-center gap-1.5">
-                <div className="w-full h-1 bg-surface-2 rounded-full overflow-hidden">
+                <div className="flex-1 h-1 bg-surface-2 rounded-full overflow-hidden">
                   <div
                     className={cn("h-full rounded-full", s.health_score > 0.7 ? "bg-[hsl(var(--success))]" : s.health_score > 0.4 ? "bg-amber-500" : "bg-destructive")}
                     style={{ width: `${s.health_score * 100}%` }}
                   />
                 </div>
-                <span className="font-mono text-[10px] tabular-nums text-muted-foreground shrink-0">
+                <span className="font-mono text-[10px] tabular-nums text-muted-foreground shrink-0 w-8 text-right">
                   {(s.health_score * 100).toFixed(0)}%
                 </span>
               </div>
-              <span className="font-mono tabular-nums text-[12px] text-[hsl(var(--success))]">{s.success_count}</span>
-              <span className="font-mono tabular-nums text-[12px] text-destructive">{s.failure_count}</span>
-              <span className="font-mono text-[10.5px] text-muted-foreground">
+              <span className="font-mono tabular-nums text-[12px] text-[hsl(var(--success))] text-right">{s.success_count}</span>
+              <span className="font-mono tabular-nums text-[12px] text-destructive text-right">{s.failure_count}</span>
+              <span className="font-mono text-[10.5px] text-muted-foreground text-right">
                 {s.last_scrape_at ? new Date(s.last_scrape_at).toLocaleDateString() : "—"}
               </span>
             </div>

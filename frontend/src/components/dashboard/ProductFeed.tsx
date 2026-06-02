@@ -6,6 +6,7 @@ import { api, ProductFeedItem } from "@/lib/api";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { canonicalStore, STORE_OPTIONS } from "@/lib/stores";
+import { expandBrandAliases } from "@/lib/brands";
 
 function ChangeBadge({ direction, percent }: { direction: "up" | "down" | "none"; percent: number }) {
   if (direction === "none") {
@@ -244,7 +245,10 @@ function prioritizeByPreferences(
   preferredStores: string[]
 ): ProductFeedItem[] {
   if (preferredBrands.length === 0 && preferredStores.length === 0) return items;
-  const brandsLower = new Set(preferredBrands.map((b) => b.toLowerCase()));
+  // Expand each preferred brand through its aliases so a shorthand preference
+  // ("YSL") still matches products stored under the full name
+  // ("Yves Saint Laurent"). Without this, alias brands never get prioritized.
+  const brandsLower = new Set(preferredBrands.flatMap((b) => expandBrandAliases(b)));
   const storesLower = new Set(preferredStores.map((s) => s.toLowerCase()));
   const score = (p: ProductFeedItem) => {
     const brandMatch = brandsLower.has(p.brand.toLowerCase()) ? 2 : 0;

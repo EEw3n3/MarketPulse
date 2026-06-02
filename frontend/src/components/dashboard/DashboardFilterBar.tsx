@@ -1,21 +1,48 @@
 import { Plus, SlidersHorizontal, Check, X, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { BRAND_OPTIONS, QUICK_PICK_BRANDS } from "@/lib/brands";
 import { STORE_OPTIONS } from "@/lib/stores";
+import { useAuth } from "@/contexts/AuthContext";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 const chip =
   "inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition-colors whitespace-nowrap border";
 
+// Once-per-browser-session guard so the onboarding store pre-select only
+// applies on the user's first Dashboard visit of the session — after that
+// the user's manual filter choices (including "All") are respected.
+const PREFS_APPLIED_KEY = "mp_dashboard_prefs_applied";
+
 export default function DashboardFilterBar() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const [brandSheetOpen, setBrandSheetOpen] = useState(false);
   const [brandSearch, setBrandSearch] = useState("");
 
   const selectedStores = searchParams.getAll("stores");
   const selectedBrands = searchParams.getAll("brands");
+
+  // Pre-select the user's monitored stores from onboarding the first time they
+  // land on the Dashboard. monitored_stores already holds canonical keys
+  // ("douglas", "notino") matching STORE_OPTIONS[].key and the ?stores= URL
+  // format, so no conversion is needed. The STORE chips and ProductFeed both
+  // read ?stores from the URL, so they pick this up automatically.
+  useEffect(() => {
+    const prefStores = user?.preferences?.monitored_stores ?? [];
+    if (prefStores.length === 0) return;
+    // Don't override an existing filter or re-apply within the same session.
+    const hasUrlFilters =
+      searchParams.has("stores") || searchParams.has("brands") || searchParams.has("search");
+    if (hasUrlFilters) return;
+    if (sessionStorage.getItem(PREFS_APPLIED_KEY)) return;
+    sessionStorage.setItem(PREFS_APPLIED_KEY, "1");
+    const next = new URLSearchParams(searchParams);
+    prefStores.forEach((s) => next.append("stores", s));
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const updateParam = (key: "stores" | "brands", values: string[]) => {
     const next = new URLSearchParams(searchParams);
