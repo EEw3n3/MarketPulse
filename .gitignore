@@ -2,6 +2,8 @@
 .env
 *.env
 .env.*
+# ...but DO ship the template so users know which vars to set
+!.env.example
 
 # Python
 __pycache__/
@@ -62,16 +64,39 @@ scraped_domains.txt
 .DS_Store
 Thumbs.db
 
-# Project Docs (if they are temporary/local versions)
-# PROJECT_VISION.txt
+# Internal dev/working docs (kept locally, not shipped in the public repo)
+CLAUDE.md
+CURRENT_STATE.md
+PROJECT_VISION.txt
+ANALYTICS_GUIDE.md
+DRAWIO_GUIDE.md
 
-# SSH Keys
-MarketPulse
-MarketPulse.pub
+# AI-agent local config (Cline / agent rules)
+.agents/
+.clinerules/
 
-# iGO Navigation
+# Testing laboratory (local dev tool, isolated from prod)
+lab/
+
+# One-off maintenance scripts (kept locally, run manually when needed)
+scripts/fix_search_term.py
+scripts/regroup_products.py
+scripts/renormalize_titles.py
+scripts/reupload_to_server.py
+
+# Frontend: keep npm lockfile only, ignore bun lockfiles + Lovable artifacts
+frontend/bun.lock
+frontend/bun.lockb
+frontend/.lovable/
+
+# iGO Navigation (unrelated — moved out of project)
 igo_nav/
+dummy_check/
 IGO/
 *.ui
 *.lua
 diMkaWA_aP133_default.zip
+
+# SSH Keys
+MarketPulse
+MarketPulse.pub
