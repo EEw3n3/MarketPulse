@@ -255,7 +255,18 @@ function prioritizeByPreferences(
     const storeMatch = storesLower.has(p.storeName.toLowerCase()) ? 1 : 0;
     return brandMatch + storeMatch;
   };
-  return [...items].sort((a, b) => score(b) - score(a));
+  // Recency (last_seen) is the tie-breaker. The feed is built from 5 per-store
+  // calls flattened in STORE_OPTIONS order, so without this every store with an
+  // equal preference score keeps that fixed order (Douglas always first). When
+  // all stores are equally preferred (or none are), the freshest change wins —
+  // a just-scraped store surfaces at the top regardless of its list position.
+  const freshness = (p: ProductFeedItem) =>
+    p.lastUpdated ? new Date(p.lastUpdated).getTime() : 0;
+  return [...items].sort((a, b) => {
+    const byScore = score(b) - score(a);
+    if (byScore !== 0) return byScore;
+    return freshness(b) - freshness(a);
+  });
 }
 
 export default function ProductFeed() {

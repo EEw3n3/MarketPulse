@@ -261,7 +261,8 @@ async def get_product_feed(
             storeInitial=get_store_initial(p.search_term),
             storeName=p.search_term.capitalize(),
             storeColor=get_store_color(p.search_term),
-            image_url=p.image_url
+            image_url=p.image_url,
+            lastUpdated=p.last_seen.isoformat() if p.last_seen else "",
         ))
     return feed_items
 

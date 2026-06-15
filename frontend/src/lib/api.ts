@@ -96,6 +96,7 @@ export interface ProductFeedItem {
   storeName: string;
   storeColor: string;
   image_url: string | null;
+  lastUpdated?: string; // ISO timestamp of last_seen — used to sort "Latest changes" by recency
 }
 
 export interface CatalogItem {

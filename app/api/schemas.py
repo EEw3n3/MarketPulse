@@ -33,6 +33,7 @@ class ProductFeedItem(BaseModel):
     storeName: str     # e.g., "Douglas.lv"
     storeColor: str    # Tailwind class e.g., "bg-blue-500"
     image_url: Optional[str] = None
+    lastUpdated: str = ""  # ISO timestamp of last_seen — lets the dashboard sort "Latest changes" by recency
 
 class CatalogItem(BaseModel):
     """Schema for CatalogContent.tsx table and grid"""
