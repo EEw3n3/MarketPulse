@@ -337,10 +337,33 @@ async def scrape_ingest(
 async def scrape_complete(
     job_id: str = Query(...),
     status: str = Query("done", pattern="^(done|failed)$"),
+    db: AsyncSession = Depends(get_db),
     _: bool = Depends(get_worker),
 ):
-    """Worker marks a job done/failed so admin UI can reflect status."""
+    """Worker marks a job done/failed so admin UI can reflect status.
+
+    Also stamps the matching ScrapingRule's health fields on the SERVER's DB.
+    The scrape itself runs on the local worker against its OWN database, so the
+    rule-health updates inside scraper.py (last_success / success_count) only
+    touch the worker's local rules — they never reach the server. Without this,
+    the admin Health page's "LAST SCRAPE" date would never advance even after a
+    fully successful scrape. The domain is resolved from the job state hash.
+    """
     await job_queue.update_status(job_id, status)
+
+    state = await job_queue.get_state(job_id)
+    domain = (state or {}).get("domain")
+    if domain:
+        rule = await db.scalar(select(ScrapingRule).where(ScrapingRule.domain == domain))
+        if rule:
+            if status == "done":
+                rule.last_success = datetime.utcnow()
+                rule.success_count += 1
+                rule.last_error = None
+            else:
+                rule.failure_count += 1
+            await db.commit()
+
     return {"ok": True, "job_id": job_id, "status": status}
 
 
