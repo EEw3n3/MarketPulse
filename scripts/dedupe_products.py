@@ -35,10 +35,15 @@ Usage (inside the app container):
     python scripts/dedupe_products.py --apply    # performs the cleanup
 """
 import asyncio
+import os
 import re
 import sys
 from collections import defaultdict
 from datetime import datetime
+
+# Make the project root importable when run as `python scripts/dedupe_products.py`
+# (sys.path[0] is the scripts/ dir otherwise, so `import app` fails).
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sqlalchemy import select, update
 
