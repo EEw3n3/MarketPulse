@@ -238,11 +238,19 @@ async def get_product_feed(
             ors.append(Product.title.ilike(f"%{s}%"))
             ors.append(Product.brand.ilike(f"%{s}%"))
         stmt = stmt.where(or_(*ors))
-    stmt = stmt.order_by(desc(Product.last_seen)).limit(limit)
+    # Over-fetch: the same physical product can exist as several DB rows
+    # (Notino serves one item under multiple URL forms, e.g. ".../slug/" and
+    # ".../slug/p-12345/", which created duplicate Product records with desynced
+    # prices). We de-duplicate below and apply `limit` only AFTER that, so we
+    # must pull more candidates than requested. Capped to avoid scanning the
+    # whole table.
+    fetch_cap = max(limit * 6, 300)
+    stmt = stmt.order_by(desc(Product.last_seen)).limit(fetch_cap)
     result = await db.execute(stmt)
     products = result.scalars().all()
-    
+
     feed_items = []
+    seen_keys: set = set()
     for p in products:
         rounded_percent, direction = _price_delta(p.last_price, p.old_price)
 
@@ -250,10 +258,34 @@ async def get_product_feed(
         if direction == "none" or rounded_percent == 0:
             continue
 
+        # De-duplicate: collapse multiple rows of the SAME perfume (brand +
+        # title + volume + concentration + store) into one. Rows are ordered
+        # last_seen DESC, so the first one seen is the freshest — keep it, drop
+        # the rest. Different concentrations (EDT vs EDP vs Parfum) have distinct
+        # keys, so they correctly remain separate cards.
+        dedupe_key = (
+            (p.brand or "").lower(),
+            (p.title or "").lower(),
+            (p.volume or "").lower(),
+            (p.concentration or "").lower(),
+            (p.search_term or "").lower(),
+        )
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
+        # Surface concentration in the card title so genuinely different
+        # variants (EDT/EDP/Parfum) of the same name+volume are visually
+        # distinguishable instead of looking like duplicates.
+        display_title = p.title or ""
+        conc = (p.concentration or "").strip()
+        if conc and conc.lower() not in display_title.lower():
+            display_title = f"{display_title} · {conc}"
+
         feed_items.append(schemas.ProductFeedItem(
             id=p.id,
             brand=p.brand or "Unknown",
-            title=p.title,
+            title=display_title,
             currentPrice=float(p.last_price),
             previousPrice=float(p.old_price) if p.old_price else float(p.last_price),
             changePercent=rounded_percent,
@@ -264,6 +296,8 @@ async def get_product_feed(
             image_url=p.image_url,
             lastUpdated=p.last_seen.isoformat() if p.last_seen else "",
         ))
+        if len(feed_items) >= limit:
+            break
     return feed_items
 
 @app.get("/api/products/brands")
