@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, desc, func, or_
+from sqlalchemy import desc, func, or_
 
 from app.api import schemas
 from app.api.deps import get_current_user, get_db
@@ -196,33 +196,35 @@ async def _build_search_block(
     ]
     search_kw = content_kw or keywords
 
-    # AND across keywords (each must appear in title OR brand). This narrows
-    # "versace eros" to actual Versace Eros listings instead of EVERY Versace
-    # product — otherwise dozens of unrelated Versace rows fill the LIMIT and
-    # push the alphabetically-last store (notino) out of the result set, making
-    # the assistant falsely claim "not available on Notino".
-    match_clause = and_(*[
+    # OR across keywords for broad recall (AND would drop everything the moment
+    # a stray non-stopword like "можешь" sneaks into the keyword list). We then
+    # RANK in Python by how many keywords actually appear in title+brand, so
+    # exact matches ("Versace Eros") rise to the top instead of being pushed out
+    # of the LIMIT by alphabetical store order — which previously hid the notino
+    # listing and made the assistant falsely claim "not available on Notino".
+    conditions = [
         or_(Product.title.ilike(f"%{kw}%"), Product.brand.ilike(f"%{kw}%"))
         for kw in search_kw[:5]
-    ])
+    ]
 
     in_stock_stmt = (
         select(Product)
         .where(
-            match_clause,
+            or_(*conditions),
             Product.is_available.is_(True),
             Product.last_price > 0,
         )
-        # Fetch a broad set; we cap per-store in Python below.
-        .order_by(
-            Product.search_term,
-            Product.brand,
-            Product.title,
-            Product.last_price,
-        )
-        .limit(150)
+        .limit(300)  # broad fetch; ranked + per-store capped in Python below
     )
     all_in_stock = (await db.execute(in_stock_stmt)).scalars().all()
+
+    def _relevance(p: Product) -> int:
+        hay = f"{p.brand or ''} {p.title or ''}".lower()
+        return sum(1 for kw in search_kw if kw in hay)
+
+    # Most-relevant first so the per-store cap keeps the best matches (e.g. the
+    # notino "Versace Eros" row beats an unrelated Versace product elsewhere).
+    all_in_stock = sorted(all_in_stock, key=_relevance, reverse=True)
 
     # Cap at 8 products per store so no single retailer dominates the context.
     _PER_STORE_LIMIT = 8
@@ -237,7 +239,7 @@ async def _build_search_block(
     fallback_stmt = (
         select(Product)
         .where(
-            match_clause,
+            or_(*conditions),
             or_(
                 Product.is_available.is_(False),
                 Product.last_price.is_(None),
@@ -245,9 +247,10 @@ async def _build_search_block(
             ),
         )
         .order_by(Product.search_term, Product.title, desc(Product.last_seen))
-        .limit(20)
+        .limit(40)
     )
     all_oos = (await db.execute(fallback_stmt)).scalars().all()
+    all_oos = sorted(all_oos, key=_relevance, reverse=True)
 
     # For OOS: cap at 3 per store to keep context tight.
     oos_store_counts: dict[str, int] = {}
