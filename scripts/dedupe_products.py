@@ -81,8 +81,16 @@ async def main(apply: bool) -> None:
         removed = 0
         # Worst offenders first for readable output
         for key, rows in sorted(dupe_groups.items(), key=lambda kv: -len(kv[1])):
-            # Freshest row wins — it carries the correct current price.
-            rows.sort(key=lambda p: p.last_seen or datetime.min, reverse=True)
+            # Pick the keeper: freshest row first (it carries the correct
+            # current price); on a date tie prefer the CANONICAL url (no
+            # "/p-<id>/" suffix), because the live scraper only refreshes that
+            # form — keeping a "/p-id/" row would freeze its price forever.
+            def _is_canonical(p: Product) -> bool:
+                return not bool(_P_SUFFIX.search(p.url or ""))
+            rows.sort(
+                key=lambda p: (p.last_seen or datetime.min, _is_canonical(p)),
+                reverse=True,
+            )
             keeper = rows[0]
             losers = rows[1:]
             print(f"KEEP id={keeper.id} vol={key[1]!r} price={keeper.last_price} "
