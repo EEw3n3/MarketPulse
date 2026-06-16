@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import desc, func, or_
+from sqlalchemy import and_, desc, func, or_
 
 from app.api import schemas
 from app.api.deps import get_current_user, get_db
@@ -118,6 +118,14 @@ def _is_volume_only_keyword(kw: str) -> bool:
     return bool(_VOLUME_RE.match(kw))
 
 
+# Store names live in Product.search_term, not title/brand — exclude them from
+# the text match so they don't act as dead/over-broad search terms.
+_STORE_TOKENS = {
+    "notino", "notino.lv", "douglas", "douglas.lv", "makeup", "makeup.lv",
+    "220", "220.lv", "1a", "1a.lv",
+}
+
+
 def _extract_search_keywords(message: str) -> list[str]:
     """Extract content-bearing keywords (likely brand/product names) from a query."""
     keywords: list[str] = []
@@ -179,17 +187,29 @@ async def _build_search_block(
     if not keywords:
         return ""
 
-    conditions = []
-    for kw in keywords[:5]:
-        conditions.extend([
-            Product.title.ilike(f"%{kw}%"),
-            Product.brand.ilike(f"%{kw}%"),
-        ])
+    # Store names and bare volumes live in search_term/volume, NOT in title/brand,
+    # so they must not be matched against text. Keeping them here would also be
+    # dead OR-terms. Strip them to get the real product/brand keywords.
+    content_kw = [
+        k for k in keywords
+        if k not in _STORE_TOKENS and not _is_volume_only_keyword(k)
+    ]
+    search_kw = content_kw or keywords
+
+    # AND across keywords (each must appear in title OR brand). This narrows
+    # "versace eros" to actual Versace Eros listings instead of EVERY Versace
+    # product — otherwise dozens of unrelated Versace rows fill the LIMIT and
+    # push the alphabetically-last store (notino) out of the result set, making
+    # the assistant falsely claim "not available on Notino".
+    match_clause = and_(*[
+        or_(Product.title.ilike(f"%{kw}%"), Product.brand.ilike(f"%{kw}%"))
+        for kw in search_kw[:5]
+    ])
 
     in_stock_stmt = (
         select(Product)
         .where(
-            or_(*conditions),
+            match_clause,
             Product.is_available.is_(True),
             Product.last_price > 0,
         )
@@ -200,7 +220,7 @@ async def _build_search_block(
             Product.title,
             Product.last_price,
         )
-        .limit(80)
+        .limit(150)
     )
     all_in_stock = (await db.execute(in_stock_stmt)).scalars().all()
 
@@ -217,7 +237,7 @@ async def _build_search_block(
     fallback_stmt = (
         select(Product)
         .where(
-            or_(*conditions),
+            match_clause,
             or_(
                 Product.is_available.is_(False),
                 Product.last_price.is_(None),
