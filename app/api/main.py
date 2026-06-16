@@ -477,6 +477,7 @@ def _catalog_base_stmt(
     brands: Optional[List[str]],
     stores: Optional[List[str]],
     volumes: Optional[List[str]] = None,
+    types: Optional[List[str]] = None,
 ):
     """Shared filter logic for catalog endpoints."""
     stmt = select(Product)
@@ -495,6 +496,10 @@ def _catalog_base_stmt(
         stmt = stmt.where(_store_filter_clause(stores))
     if volumes:
         stmt = stmt.where(Product.volume.in_(volumes))
+    if types:
+        # Concentration match is case-insensitive so the UI labels (EDP/EDT/
+        # Parfum/EDC) line up with however the value is cased in the DB.
+        stmt = stmt.where(func.lower(Product.concentration).in_([t.lower() for t in types]))
     return stmt
 
 
@@ -504,10 +509,11 @@ async def get_catalog_count(
     brands: List[str] = Query(None),
     stores: List[str] = Query(None),
     volumes: List[str] = Query(None),
+    types: List[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Total number of products matching the given filters."""
-    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores, volumes).subquery())
+    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores, volumes, types).subquery())
     total = await db.scalar(stmt)
     return {"total": int(total or 0)}
 
@@ -518,12 +524,13 @@ async def get_catalog(
     brands: List[str] = Query(None),
     stores: List[str] = Query(None),
     volumes: List[str] = Query(None),
+    types: List[str] = Query(None),
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
     """Full catalog with filtering and search."""
-    stmt = _catalog_base_stmt(search, brands, stores, volumes).offset(skip).limit(limit)
+    stmt = _catalog_base_stmt(search, brands, stores, volumes, types).offset(skip).limit(limit)
     result = await db.execute(stmt)
     products = result.scalars().all()
     

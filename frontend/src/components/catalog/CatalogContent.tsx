@@ -30,7 +30,7 @@ type SortDir = "asc" | "desc";
 // retailers (added via configs/categories.json + first scrape) appear in
 // the filter automatically without a frontend rebuild.
 const HARDCODED_STORES = ["Douglas.lv", "Notino.lv", "1a.lv", "Makeup.lv", "220.lv"];
-const types = ["EDP", "EDT", "Parfum", "Cologne"];
+const types = ["EDP", "EDT", "Parfum", "EDC"];
 const ROWS_PER_PAGE = 12;
 
 function storeTag(name: string): string {
@@ -187,6 +187,7 @@ export default function CatalogContent() {
     filters.brands.forEach(b => p.append("brands", b));
     filters.stores.forEach(s => p.append("stores", s));
     filters.volumes.forEach(v => p.append("volumes", v));
+    filters.types.forEach(t => p.append("types", t));
     return p;
   };
 
@@ -198,7 +199,7 @@ export default function CatalogContent() {
       .then(res => { if (!cancelled) setTotal(res.total); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), filters.types.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +219,7 @@ export default function CatalogContent() {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), filters.types.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
