@@ -188,6 +188,11 @@ export default function CatalogContent() {
     filters.stores.forEach(s => p.append("stores", s));
     filters.volumes.forEach(v => p.append("volumes", v));
     filters.types.forEach(t => p.append("types", t));
+    // Price slider: only send a bound when the user moved it off the default
+    // [0, 500] range, so the default doesn't clip products priced above 500.
+    if (filters.priceRange[0] > 0) p.append("price_min", String(filters.priceRange[0]));
+    if (filters.priceRange[1] < 500) p.append("price_max", String(filters.priceRange[1]));
+    if (filters.inStock !== null) p.append("in_stock", String(filters.inStock));
     return p;
   };
 
@@ -199,7 +204,7 @@ export default function CatalogContent() {
       .then(res => { if (!cancelled) setTotal(res.total); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), filters.types.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), filters.types.join(","), filters.priceRange.join(","), filters.inStock]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -219,7 +224,7 @@ export default function CatalogContent() {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), filters.types.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.brands.join(","), filters.stores.join(","), filters.volumes.join(","), filters.types.join(","), filters.priceRange.join(","), filters.inStock, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {

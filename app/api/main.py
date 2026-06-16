@@ -478,6 +478,9 @@ def _catalog_base_stmt(
     stores: Optional[List[str]],
     volumes: Optional[List[str]] = None,
     types: Optional[List[str]] = None,
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    in_stock: Optional[bool] = None,
 ):
     """Shared filter logic for catalog endpoints."""
     stmt = select(Product)
@@ -500,6 +503,12 @@ def _catalog_base_stmt(
         # Concentration match is case-insensitive so the UI labels (EDP/EDT/
         # Parfum/EDC) line up with however the value is cased in the DB.
         stmt = stmt.where(func.lower(Product.concentration).in_([t.lower() for t in types]))
+    if price_min is not None:
+        stmt = stmt.where(Product.last_price >= price_min)
+    if price_max is not None:
+        stmt = stmt.where(Product.last_price <= price_max)
+    if in_stock is not None:
+        stmt = stmt.where(Product.is_available.is_(in_stock))
     return stmt
 
 
@@ -510,10 +519,13 @@ async def get_catalog_count(
     stores: List[str] = Query(None),
     volumes: List[str] = Query(None),
     types: List[str] = Query(None),
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    in_stock: Optional[bool] = None,
     db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Total number of products matching the given filters."""
-    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores, volumes, types).subquery())
+    stmt = select(func.count()).select_from(_catalog_base_stmt(search, brands, stores, volumes, types, price_min, price_max, in_stock).subquery())
     total = await db.scalar(stmt)
     return {"total": int(total or 0)}
 
@@ -525,12 +537,15 @@ async def get_catalog(
     stores: List[str] = Query(None),
     volumes: List[str] = Query(None),
     types: List[str] = Query(None),
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    in_stock: Optional[bool] = None,
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
     """Full catalog with filtering and search."""
-    stmt = _catalog_base_stmt(search, brands, stores, volumes, types).offset(skip).limit(limit)
+    stmt = _catalog_base_stmt(search, brands, stores, volumes, types, price_min, price_max, in_stock).offset(skip).limit(limit)
     result = await db.execute(stmt)
     products = result.scalars().all()
     
