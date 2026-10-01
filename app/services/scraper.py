@@ -24,7 +24,7 @@ from app.core.constants import (
 @dataclass
 class ScrapedItem:
     title: str
-    price: Decimal
+    price: Optional[Decimal]  # None — price unknown (out of stock, no price shown)
     availability: str
     url: str
     image_url: Optional[str] = None
@@ -57,7 +57,9 @@ class ScraperService:
             return {"score": 0.0, "error": "No items found", "is_healthy": False}
 
         total = len(items)
-        zero_prices = sum(1 for i in items if i.price <= 0)
+        # An out-of-stock item legitimately has no price; only an in-stock item
+        # without one points at a broken selector.
+        zero_prices = sum(1 for i in items if i.availability != "No" and (i.price is None or i.price <= 0))
         short_titles = sum(1 for i in items if len(i.title) < 5)
         
         # Penalty points
@@ -227,254 +229,111 @@ class ScraperService:
         return []
     
     async def _scrape_network_variants(self, url: str) -> list[dict]:
-        """
-        Navigates to the page, clicks variants, and intercepts JSON payloads
-        to perfectly extract price and volume data.
-        """
-        import json
-        from playwright.async_api import async_playwright
+        """notino.lv product page: select every variant and read the shop's own
+        tracking request `/api/tracking/web/view/detail`. Notino sends it for the
+        variant shown on load and again for each variant the user selects; it
+        carries that variant's size, regular price, stock and — when a promo code
+        applies — attributes.VoucherDiscount (the price with the code, the code).
+
+        The consent overlay (Usercentrics) covers the page and swallows clicks,
+        so it is removed from the DOM first; no consent is given."""
         from app.core.browser import browser_manager
-        from app.core.constants import COOKIE_ACCEPT_BUTTONS, OUT_OF_STOCK_PHRASES, MEASUREMENT_UNITS
-        
+        from app.services.normalizer import volume_qualifier
+
         logger.info(f"🕷️ [Network Intercept] Deep dive: {url}")
-        variants = []
-        
+        details: dict[str, dict] = {}  # variant id → its detail payload
+        labels: dict[str, str] = {}    # variant id → text of its button ("150 ml Uzpilde", "… refill")
+
+        def handle_request(request):
+            if request.method != "POST" or "/api/tracking/web/view/detail" not in request.url:
+                return
+            try:
+                data = request.post_data_json
+            except Exception:
+                return
+            if isinstance(data, dict) and data.get("id"):
+                details[str(data["id"])] = data
+
         context = await browser_manager.get_context()
         page = await context.new_page()
-        
-        intercepted_requests = {"luigisbox": [], "detail": []}
-        
-        async def handle_request(request):
-            try:
-                req_url = request.url
-                if request.method in ["POST", "PUT"]:
-                    # СТРОГОЕ ПРАВИЛО ДЛЯ ЦЕНЫ: collector-lv.notino.luigisbox.com/events
-                    if "collector-lv.notino.luigisbox.com/events" in req_url:
-                        post_data = request.post_data_json
-                        if post_data:
-                            intercepted_requests["luigisbox"].append(post_data)
-                    # ПРАВИЛО ДЛЯ ОБЪЕМА И НАЛИЧИЯ: detail api
-                    elif "/api/tracking/web/view/detail" in req_url:
-                        post_data = request.post_data_json
-                        if post_data:
-                            intercepted_requests["detail"].append(post_data)
-            except Exception:
-                pass
-                
         page.on("request", handle_request)
-        
         try:
-            # Block images for speed
             await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            
-            # Auto-accept cookies so they don't block our clicks
-            cookie_selectors = COOKIE_ACCEPT_BUTTONS
-            
-            # Wait up to 3 seconds for cookie banner to load, Notino is slow with React
-            await asyncio.sleep(1.0)
-            
-            for btn_sel in cookie_selectors:
-                cookie_btn = page.locator(btn_sel).first
-                if await cookie_btn.is_visible(timeout=1000):
-                    await cookie_btn.click(force=True)
-                    await asyncio.sleep(0.5)
-                    break
-            
-            await asyncio.sleep(0.5) # Wait for initial trackers 
-            
-            # Find and click variants
-            # Expanded selectors to include visual image tiles (Scandal Elixir style)
-            variant_els = await page.locator("div[data-testid*='variant'], span[class*='variant'], .pd-variant-label, [data-testid='product-variants'] > div, div[class*='VariantContainer'] > div").all()
-            if not variant_els:
-                variant_els = await page.locator("div:has-text(' ml'), button:has-text(' ml')").all()
-                
-            # Phase 1: Click all variants to force network traffic
-            dom_variants_map = {}
-            import re
-            for i, el in enumerate(variant_els):
-                if await el.is_visible():
-                    try:
-                        text = await el.inner_text()
-                        vol = ""
-                        units_pattern = '|'.join(MEASUREMENT_UNITS)
-                        m_vol = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', text, re.IGNORECASE)
-                        if m_vol:
-                            vol = m_vol.group(1).lower().replace(' ', '')
-                            unit_match = m_vol.group(2).lower()
-                            vol = vol.replace(unit_match, f' {unit_match}')
-                            
-                            text_lower = text.lower()
-                            is_avail = not any(phrase in text_lower for phrase in OUT_OF_STOCK_PHRASES)
-                            
-                            if vol not in dom_variants_map or dom_variants_map[vol]["price"] == 0.0:
-                                dom_variants_map[vol] = {
-                                    "price": 0.0,
-                                    "available": is_avail
-                                }
-                            
-                        # Re-attempt if cookies block the very first click
-                        if i == 0:
-                            for btn_sel in cookie_selectors:
-                                btn = page.locator(btn_sel).first
-                                if await btn.is_visible(timeout=100):
-                                    await btn.click(force=True)
-                                    await asyncio.sleep(0.5)
-                        
-                        await el.click(timeout=1500, force=True)
-                        # 0.8s is a sweet spot: lets React update the screen price and bypasses strict analytics drop
-                        await asyncio.sleep(0.8)
-                        
-                        # Perfect Fallback: Read visually updated price directly from the screen
-                        if vol and dom_variants_map[vol]["price"] == 0.0 and dom_variants_map[vol]["available"]:
-                            try:
-                                main_price = await page.locator("[data-testid='price-component']").first.inner_text(timeout=500)
-                                p_val = self.parse_price(main_price) if hasattr(self, 'parse_price') else 0.0
-                                if not p_val:
-                                    m_pr = re.search(r'(\d+[,.]\d+)', main_price)
-                                    if m_pr: p_val = float(m_pr.group(1).replace(',', '.'))
-                                if p_val:
-                                    dom_variants_map[vol]["price"] = p_val
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                        
-            # Wait for any straggler network requests to land
-            await asyncio.sleep(1.0)
-            
-            variants_map = {}
-            
-            # Phase 2: Parse all /detail payloads for Volume and Availability
-            for req_data in intercepted_requests["detail"]:
-                code = req_data.get("code")
-                if code:
-                    size = req_data.get("size")
-                    sizeUnit = req_data.get("sizeUnit")
-                    is_available = req_data.get("stockQuantity") != "outOfStock"
-                    if size and sizeUnit:
-                        variants_map[code] = {
-                            "volume": f"{size} {sizeUnit}",
-                            "available": is_available
-                        }
-                        
-            # Phase 3: Parse all luigisbox payloads for Price
-            for req_data in intercepted_requests["luigisbox"]:
-                events = req_data.get("events", [])
-                for event in events:
-                    event_data = event.get("data", {})
-                    
-                    products = list(event_data.get("products", []))
-                    if "related_to" in event_data:
-                        products.extend(event_data["related_to"].get("products", []))
-                         
-                    for p in products:
-                        p_code = p.get("product_code")
-                        # Match prices ONLY to variants we saw in /detail
-                        if p_code and p_code in variants_map:
-                            p_discount = p.get("discount_price")
-                            p_full = p.get("full_price")
-                            
-                            # Strict Rule 1 and 3: Use discount_price, fallback to full_price
-                            found_price = p_discount if p_discount is not None else p_full
-                            if found_price is not None:
-                                variants_map[p_code]["price"] = found_price
-                                
-            # Phase 4: Assemble Final Deduplicated List
-            seen_volumes = set()
-            for code, data in variants_map.items():
-                if "price" in data and data["price"] != 0.0 and data["price"] is not None:
-                    vol = data["volume"].lower().replace(' ', '')
-                    vol = vol.replace('ml', ' ml').replace('g', ' g')
-                    if vol not in seen_volumes:
-                        seen_volumes.add(vol)
-                        variants.append({
-                            "title_suffix": vol,
-                            "price": Decimal(str(data["price"])).quantize(Decimal("0.01")),
-                            "is_available": data["available"]
-                        })
-                        
-            # Add missing DOM variants (e.g., out of stock ones that network ignored, or network failed prices)
-            for vol, dom_data in dom_variants_map.items():
-                if vol not in seen_volumes:
-                    seen_price = dom_data.get("price")
-                    if seen_price is None or seen_price == 0.0:
-                        continue # Skip completely invalid DOM prices
-                        
-                    seen_volumes.add(vol)
-                    variants.append({
-                        "title_suffix": vol,
-                        "price": Decimal(str(seen_price)).quantize(Decimal("0.01")),
-                        "is_available": dom_data.get("available", True)
-                    })
-                    
-            # Phase 5: Single Product Fallback (No buttons/variants)
-            # Notino Single Variant Logic: Handle special volume location and promo prices
-            if not variants:
+            if not await browser_manager.wait_for_notino_content(page):
+                return []
+            try:  # the consent overlay is injected late, after the page renders
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
+            remove_overlay = "() => document.querySelector('#usercentrics-cmp-ui')?.remove()"
+
+            links = page.locator(
+                "[data-testid='pd-variants-thumbnail'] a[data-testid^='pd-variant-'], "
+                "[data-testid='pd-variants-tile'] a[data-testid^='pd-variant-']"
+            )
+            for i in range(await links.count()):
+                link = links.nth(i)
+                vid = (await link.get_attribute("data-testid") or "").removeprefix("pd-variant-")
+                alt = ""
+                if await link.locator("img").count():
+                    alt = await link.locator("img").first.get_attribute("alt") or ""
+                labels[vid] = f"{await link.inner_text()} {alt}"
+                if vid in details:
+                    continue  # the variant shown on load is already reported
                 try:
-                    # 1. Price Extraction (Prioritize Promo Price with Code)
-                    price_val = 0.0
-                    
-                    # Direct JS check for promo block (e.g. "31,87 € ar kodu TOP")
-                    # We look for the lowest price shown in the BuyBox area
-                    price_val = await page.evaluate('''() => {
-                        // Priority 1: Red promo price text
-                        let promoEl = document.querySelector('div[class*="PromoPrice"], [data-testid*="promo-price"], span[class*="promo-price"]');
-                        if (promoEl && promoEl.innerText.includes('€')) {
-                             let m = promoEl.innerText.match(/(\d+[,.]\d+)/);
-                             if (m) return parseFloat(m[1].replace(',', '.'));
-                        }
-                        
-                        // Priority 2: Standard price component
-                        let stdEl = document.querySelector('[data-testid="price-component"]');
-                        if (stdEl) {
-                             let m = stdEl.innerText.match(/(\d+[,.]\d+)/);
-                             if (m) return parseFloat(m[1].replace(',', '.'));
-                        }
-                        return 0;
-                    }''')
-                        
-                    # 2. Volume Extraction (Prioritize #pdSelectedVariant with JS override)
-                    # Playwright inner_text() sometimes misses hidden-but-present text in React
-                    vol_text = await page.evaluate('''() => {
-                        let el = document.querySelector('#pdSelectedVariant');
-                        return el ? el.innerText : '';
-                    }''')
-                    
-                    vol = ""
-                    units_pattern = '|'.join(MEASUREMENT_UNITS)
-                    if vol_text:
-                        m_sv = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', vol_text, re.IGNORECASE)
-                        if m_sv:
-                            vol = m_sv.group(1).lower().replace(' ', '')
-                            unit_m = m_sv.group(2).lower()
-                            vol = vol.replace(unit_m, f' {unit_m}')
-                    
-                    if not vol:
-                        # Fallback: scan whole page
-                        full_text = await page.evaluate("document.body.innerText")
-                        m_vol = re.search(rf'(\d+(?:[.,]\d+)?\s*({units_pattern}))', full_text, re.IGNORECASE)
-                        if m_vol:
-                            vol = m_vol.group(1).lower().replace(' ', '')
-                            unit_match = m_vol.group(2).lower()
-                            vol = vol.replace(unit_match, f' {unit_match}')
-                        
-                    if price_val:
-                        variants.append({
-                            "title_suffix": vol,
-                            "price": Decimal(str(price_val)).quantize(Decimal("0.01")),
-                            "is_available": True
-                        })
+                    await page.evaluate(remove_overlay)
+                    await link.click(timeout=5000)
                 except Exception as e:
-                    logger.debug(f"Single product fallback failed: {e}")
+                    logger.debug(f"Notino variant {vid}: click failed: {e}")
+                    continue
+                for _ in range(25):  # up to 5 s for its detail request
+                    if vid in details:
+                        break
+                    await asyncio.sleep(0.2)
+            # A product without variant buttons reports its only variant on load.
+            for _ in range(25):
+                if details:
+                    break
+                await asyncio.sleep(0.2)
+            # Not every button names its pack ("125 ml Uzpilde"); the page's own
+            # state names every variant.
+            try:
+                import json
+                raw = await page.locator("script#__APOLLO_STATE__").first.text_content(timeout=2000)
+                for key, v in json.loads(raw or "{}").items():
+                    if key.startswith("CatalogVariant:") and isinstance(v, dict) and v.get("webId"):
+                        vid = str(v["webId"])
+                        names = (v.get("additionalInfo"), v.get("variantName"), v.get("variantType"))
+                        labels[vid] = " ".join(x for x in (labels.get(vid), *names) if x)
+            except Exception as e:
+                logger.debug(f"Notino variant names unavailable: {e}")
         except Exception as e:
             logger.error(f"Network intercept failed for {url}: {e}")
         finally:
             await page.close()
-            
+
+        variants = []
+        for vid, d in details.items():
+            size, unit, price = d.get("size"), d.get("sizeUnit"), d.get("price")
+            if not size or not unit or not price:
+                continue
+            suffix = f"{float(size):g} {unit}"
+            qualifier = volume_qualifier(labels.get(vid))
+            if qualifier:
+                suffix += f" {qualifier}"
+            voucher = (d.get("attributes") or {}).get("VoucherDiscount") or {}
+            promo = voucher.get("discountedPrice")
+            variants.append({
+                "title_suffix": suffix,
+                "price": Decimal(str(price)).quantize(Decimal("0.01")),
+                "is_available": d.get("stockQuantity") != "outOfStock",
+                "promo_price": Decimal(str(promo)).quantize(Decimal("0.01")) if promo else None,
+                "promo_code": voucher.get("code") if promo else None,
+            })
+        logger.info(f"  🔎 Notino variants: {[(v['title_suffix'], str(v['price']), v['is_available'], v['promo_code']) for v in variants]}")
         return variants
 
-    
     async def scrape_product_details(self, url: str, rule: ScrapingRule, session=None, browser_context=None) -> list[dict]:
         """
         Fetches the product page and extracts all available variants (volumes/prices).
@@ -680,7 +539,6 @@ class ScraperService:
         from parsel import Selector as ScrapySelector
         from app.core.browser import browser_manager
         from app.services.normalizer import perfume_normalizer
-        from playwright_stealth import stealth_async
 
         ctx = await browser_manager.get_context()
         final_scraped_items: list = []
@@ -689,12 +547,26 @@ class ScraperService:
         db = get_dashboard()
 
         page = await ctx.new_page()
+        # Pages 2+ are loaded by the "next" button through Notino's navigation
+        # API; its JSON answer holds the new page's product list.
+        nav_listings: list = []
+
+        async def _keep_listing(resp):
+            if "/api/navigation/navigation/" in resp.url:
+                try:
+                    nav_listings.append(await resp.json())
+                except Exception:
+                    pass
+
+        page.on("response", lambda resp: asyncio.ensure_future(_keep_listing(resp)))
         try:
             await page.route(
                 "**/*.{png,jpg,jpeg,gif,webp,svg,ico}",
                 lambda route: route.abort()
             )
-            await stealth_async(page)
+            # No playwright_stealth on this tab: its patches break Notino's
+            # "next page" button (the click does nothing). The context's own
+            # init script already covers the basics.
 
             logger.info(f"🕷️ Notino persistent-page: loading {start_url}")
             await page.goto(start_url, wait_until="domcontentloaded", timeout=60000)
@@ -726,6 +598,8 @@ class ScraperService:
                 logger.info(f"🔗 Extracted Notino pagination format: {notino_pagination_fmt}")
             else:
                 logger.warning("⚠️ Could not extract Notino pagination format. Fallback may fail.")
+            pages_match = re.search(r'"numberOfPages"\s*:\s*(\d+)', html_init)
+            total_pages = int(pages_match.group(1)) if pages_match else None
 
             NEXT_BTN_SEL = "div.nextPage[data-testid='page-button-wrapper']"
             page_number = 0
@@ -757,6 +631,13 @@ class ScraperService:
                     break
 
                 logger.info(f"🔮 [Page {page_number}] Cards: {len(cards)}")
+                # Page 1's list is embedded in the HTML; later pages come from the
+                # navigation API (the embedded JSON keeps page 1's data).
+                listing = {}
+                if page_number > 1 and nav_listings:
+                    listing = self._notino_listing_data(nav_listings[-1], current_url)
+                if not listing:
+                    listing = self._notino_listing(html, current_url)
 
                 # Loop detection
                 page_hrefs = frozenset(
@@ -830,6 +711,9 @@ class ScraperService:
 
                         link = card.css("a::attr(href)").get() or card.css("*::attr(href)").get()
                         product_url = urljoin(current_url, link) if link else current_url
+                        info = listing.get(product_url) or {}
+                        if "outofstock" in str(info.get("stockAvailability") or "").lower():
+                            is_available = False
 
                         perform_deep_dive = rule.use_detail_page
                         if rule.detail_variant_selector == "SKIP":
@@ -839,6 +723,13 @@ class ScraperService:
                             keywords = [k.strip().lower() for k in rule.detail_trigger_text.split(",")]
                             if not any(k in card_text for k in keywords):
                                 perform_deep_dive = False
+                        # The card says "sākot ar" only when variant prices differ; the
+                        # page's listing data knows every variant and promo code.
+                        if (not perform_deep_dive and rule.use_detail_page
+                                and rule.detail_variant_selector != "SKIP"
+                                and (len(info.get("variants") or []) > 1
+                                     or (info.get("promotionData") or {}).get("voucherCode"))):
+                            perform_deep_dive = True
 
                         if perform_deep_dive:
                             deep_dive_queue.append({
@@ -878,9 +769,15 @@ class ScraperService:
                     await _dismiss_cmp()
                     try:
                         target_page = str(page_number + 1)
-                        
-                        # Use precise dynamic URL extracted from React state
-                        if notino_pagination_fmt:
+                        moved = (None if total_pages and page_number >= total_pages
+                                 else await self._notino_next_page(page))
+                        if moved:
+                            has_next = True
+                            logger.info(f"✅ Notino: page {target_page} loaded in the same tab")
+                        elif moved is None:
+                            logger.info(f"⏹️ Notino: no next button after page {page_number} — last page.")
+                        # Fallback: open the page URL in a fresh context.
+                        elif notino_pagination_fmt:
                             # e.g. /viriesu-smarzas/?f={pageNumber}-{sortOption}-55544-55549
                             next_path = notino_pagination_fmt.replace("{pageNumber}", target_page).replace("{sortOption}", "1")
                             next_url = f"https://www.notino.lv{next_path}"
@@ -890,11 +787,19 @@ class ScraperService:
                             # Use get_page_content to launch a fresh stealth context for the next page,
                             # bypassing all SPA detection and context flag issues!
                             res = await browser_manager.get_page_content(
-                                next_url, 
-                                fast_mode=True, 
+                                next_url,
+                                fast_mode=True,
                                 verified_domain=False # Allow CF solver to trigger if needed
                             )
-                            
+                            if res and res.get("html") and not self._try_selectors(
+                                    ScrapySelector(text=res["html"]), rule.container_css)[0]:
+                                # A Cloudflare check that outlasted the wait: try once more.
+                                logger.warning(f"⚠️ Notino: page {target_page} came back without cards, retrying once")
+                                await asyncio.sleep(random.uniform(3.0, 6.0))
+                                res = await browser_manager.get_page_content(
+                                    next_url, fast_mode=True, verified_domain=False
+                                )
+
                             if res and res.get("html"):
                                 current_html_override = res["html"]
                                 current_url_override = res["url"]
@@ -933,9 +838,18 @@ class ScraperService:
                             details = await self.scrape_product_details(
                                 job["url"], rule, session=session, browser_context=None
                             )
+                            # A single-volume card already put its volume into the
+                            # title ("… vīriešiem 100 ml"); drop it, or every variant
+                            # would be read as that volume (normalizer takes the first).
+                            base = re.sub(
+                                r'\b(?:\d+\s*[x×]\s*)?\d+(?:[.,]\d+)?\s*(ml|l|oz|g)\b'
+                                r'(?:\s+(?:refill|uzpilde|without stand|bez statīva)\b)?',
+                                '', job["title"], flags=re.IGNORECASE,
+                            )
+                            base = re.sub(r"\s+", " ", base).strip()
                             out = []
                             for d in details:
-                                ft = f"{job['title']} {d['title_suffix']}".strip()
+                                ft = f"{base} {d['title_suffix']}".strip()
                                 out.append({
                                     "url": job["url"],
                                     "image_url": job["image_url"],
@@ -944,6 +858,8 @@ class ScraperService:
                                     "price": d["price"],
                                     "is_available": d["is_available"],
                                     "catalog_concentration": None,
+                                    "promo_price": d.get("promo_price"),
+                                    "promo_code": d.get("promo_code"),
                                 })
                             return out
 
@@ -954,7 +870,8 @@ class ScraperService:
                             norm = perfume_normalizer.extract_all(d["title"])
                             self._add_candidate(
                                 candidates, d["title"], d["price"], d["is_available"],
-                                d["url"], d["image_url"], d["brand"], norm
+                                d["url"], d["image_url"], d["brand"], norm,
+                                promo_price=d.get("promo_price"), promo_code=d.get("promo_code"),
                             )
 
                 # Flush page to DB
@@ -998,6 +915,7 @@ class ScraperService:
         group_id,
         intent,
         site_name_ui,
+        start_offset: int = 0,
     ) -> list:
         """Scrape makeup.lv via its REST API, bypassing SSR.
 
@@ -1009,7 +927,7 @@ class ScraperService:
         """
         import json
         from app.core.browser import browser_manager
-        from app.services.normalizer import perfume_normalizer
+        from app.services.normalizer import perfume_normalizer, detect_card_type, is_non_perfume_title
 
         cat_match = re.search(r'/categorys/(\d+)', start_url)
         if not cat_match:
@@ -1029,9 +947,9 @@ class ScraperService:
             finally:
                 await page.close()
 
-            offset = 0
+            offset = start_offset
             page_size = 36
-            page_number = 1
+            page_number = 1 + start_offset // page_size
             total_count: int | None = None
 
             from app.services.ui import get_dashboard
@@ -1091,6 +1009,14 @@ class ScraperService:
                         image_url = (sizes.get("lg") or {}).get("url") or media[0].get("url")
 
                     sub_title = (p.get("subTitle") or "").strip()
+                    is_set = bool(p.get("isGift")) or detect_card_type(base_title, sub_title) == "gift_set"
+                    # makeup.lv names the product type in the subtitle
+                    # ("Dezodorants-aerosols"); the title alone looks like a perfume.
+                    if not is_set and (
+                        any(b in sub_title.lower() for b in PRODUCT_BLACKLIST) or is_non_perfume_title(sub_title)
+                    ):
+                        continue
+
                     base_norm = perfume_normalizer.extract_all(base_title)
                     if sub_title and not base_norm.get("concentration"):
                         sub_conc = perfume_normalizer.extract_all(sub_title).get("concentration")
@@ -1099,8 +1025,24 @@ class ScraperService:
 
                     in_stock = bool(p.get("inStock"))
                     price_obj = p.get("price") or {}
-                    fallback_price = Decimal(str(price_obj.get("current") or 0)).quantize(Decimal("0.01"))
+                    current = price_obj.get("current")
+                    # None = the card shows no price (out of stock); never store it as 0 €
+                    fallback_price = Decimal(str(current)).quantize(Decimal("0.01")) if current else None
 
+                    # Gift sets: makeup.lv marks them in the subtitle
+                    # ("Komplekts (edp/100ml + edp/mini/10ml)"), not the title.
+                    # One entry per set; the composition stays in the title.
+                    if is_set:
+                        self._add_candidate(
+                            candidates, f"{base_title} {sub_title}".strip(), fallback_price, in_stock,
+                            full_link, image_url, brand, base_norm, card_type="gift_set",
+                        )
+                        continue
+
+                    not_available = {
+                        str(x.get("id")) if isinstance(x, dict) else str(x)
+                        for x in (p.get("notAvailableVariants") or [])
+                    }
                     variants_data = ((p.get("analytics") or {}).get("variantsData")) or {}
                     if isinstance(variants_data, dict) and variants_data:
                         for _vid, info in variants_data.items():
@@ -1110,7 +1052,20 @@ class ScraperService:
                             v_price = Decimal(str(info.get("price") or 0)).quantize(Decimal("0.01"))
                             full_title = f"{base_title} {vol}".strip()
                             self._add_candidate(
-                                candidates, full_title, v_price, v_price > 0,
+                                candidates, full_title, v_price if v_price > 0 else None,
+                                in_stock and v_price > 0 and str(_vid) not in not_available,
+                                full_link, image_url, brand, base_norm,
+                            )
+                    elif not in_stock:
+                        # Out-of-stock cards list no volumes and no price. Mark the
+                        # volumes already known for this product page unavailable
+                        # instead of inventing a volume-less row priced 0 €.
+                        known_volumes = set((await session.execute(
+                            select(Product.volume).where(Product.url == full_link)
+                        )).scalars().all()) or {None}
+                        for vol in known_volumes:
+                            self._add_candidate(
+                                candidates, f"{base_title} {vol}" if vol else base_title, None, False,
                                 full_link, image_url, brand, base_norm,
                             )
                     else:
@@ -1341,6 +1296,82 @@ class ScraperService:
         except Exception:
             return None
 
+    def _douglas_card_has_variants(self, card: Selector) -> bool:
+        """True when a Douglas catalog card's data-tealium-info says the product
+        comes in several variants (volumes)."""
+        import json
+        ti_raw = card.css('a::attr(data-tealium-info)').get('') or ''
+        try:
+            d = json.loads(ti_raw) if ti_raw else {}
+        except Exception:
+            return False
+        return ((d.get('primary_product_variants') or [''])[0] or '').lower() == 'yes'
+
+    @staticmethod
+    def _notino_listing_data(data, base_url: str) -> dict:
+        """The product list (variants, stock, promo code of every card) inside
+        notino.lv listing JSON. Returns {product url: product}."""
+        def find(o):
+            if isinstance(o, dict):
+                prods = o.get("products")
+                if isinstance(prods, list) and prods and isinstance(prods[0], dict) and "productCode" in prods[0]:
+                    return prods
+                o = list(o.values())
+            if isinstance(o, list):
+                for v in o:
+                    found = find(v)
+                    if found:
+                        return found
+            return None
+
+        found = find(data) or []
+        return {urljoin(base_url, p.get("url") or ""): p for p in found}
+
+    def _notino_listing(self, page_html: str, base_url: str) -> dict:
+        """notino.lv embeds the first catalog page's product list as JSON."""
+        import json
+        for raw in Selector(text=page_html).css("script[type='application/json']::text").getall():
+            if '"productCode"' not in raw or '"variants"' not in raw:
+                continue
+            try:
+                listing = self._notino_listing_data(json.loads(raw), base_url)
+            except Exception:
+                continue
+            if listing:
+                return listing
+        return {}
+
+    @staticmethod
+    async def _notino_next_page(page) -> bool | None:
+        """Go to the next catalog page inside the same tab, the way a visitor
+        does. The "next" button loads the list through Notino's navigation API
+        (POST /api/navigation/navigation/…) — no new page load, so Cloudflare
+        doesn't check it again. True when the next page is shown, None when
+        there is no next button (last page), False when the click changed nothing."""
+        cards = page.locator("[data-testid='product-container'] a")
+        first = await cards.first.get_attribute("href")
+        # The last visible pager button is "next" (the caller stops at the last
+        # page, where it would be "previous"); the .nextPage class is a fallback.
+        found = False
+        for selector in ("[data-testid='page-button-wrapper']:visible",
+                         "[data-testid='page-button-wrapper'].nextPage:visible"):
+            buttons = page.locator(selector)
+            if not await buttons.count():
+                continue
+            found = True
+            button = buttons.last
+            await button.scroll_into_view_if_needed(timeout=5000)
+            await button.click(timeout=5000)
+            for _ in range(30):  # up to 15 s for the new cards
+                await asyncio.sleep(0.5)
+                try:
+                    if await cards.first.get_attribute("href", timeout=1000) != first:
+                        await asyncio.sleep(1.0)  # let the rest of the grid render
+                        return True
+                except Exception:
+                    continue
+        return False if found else None
+
     async def scrape_catalog(self, session, start_url: str, initial_html: str = None, max_items: int = 100, group_id: Optional[int] = None, intent: dict = None, enable_price_filter: bool = True, site_name_ui: str = None):
         domain = urlparse(start_url).netloc.replace("www.", "")
         
@@ -1566,6 +1597,7 @@ class ScraperService:
                         # Text is in site-native language (e.g. "Tualetes ūdens"),
                         # CONC_MAP translates it to EDT/EDP/EDC inside the normalizer.
                         catalog_concentration = None
+                        conc_text = ""
                         if rule.concentration_css:
                             conc_el, _ = self._try_selectors(card, rule.concentration_css)
                             conc_text = self.extract_clean_text(conc_el)
@@ -1588,6 +1620,21 @@ class ScraperService:
                                 rule_updated = True
                         
                         if not title: continue
+
+                        # Douglas prints some line names in the type line instead of a
+                        # type ("BLEU DE CHANEL" + "L'EXCLUSIF"): the name belongs to
+                        # the title, otherwise the perfume joins the wrong group.
+                        from app.services.normalizer import line_name_concentration as _line_name_concentration
+                        line_conc = _line_name_concentration(conc_text)
+                        if line_conc:
+                            if conc_text.lower() not in title.lower():
+                                title = f"{title} {conc_text}"
+                            catalog_concentration = line_conc
+
+                        # Douglas names a set in the type line under the title
+                        # ("Uzpildes komplekts 3 × 20 ml – Parfimērijas ūdens").
+                        from app.services.normalizer import detect_card_type as _detect_card_type
+                        card_kind = "gift_set" if _detect_card_type(title, conc_text) == "gift_set" else None
 
                         # --- HARD FILTER (BLACKLIST) ---
                         # We drop non-perfume items entirely here so they never reach the DB or trigger Deep Dives
@@ -1654,6 +1701,15 @@ class ScraperService:
                                 perform_deep_dive = False
                                 logger.debug(f"⚡ Fast-track: No trigger '{rule.detail_trigger_text}' found. Skipping deep dive.")
 
+                        # Douglas often shows one price ("87,50 € · 30 ml") even when the
+                        # product has several volumes — the "no …" prefix appears only
+                        # sometimes. Its card data says whether there are variants.
+                        if (not perform_deep_dive and rule.use_detail_page
+                                and rule.detail_variant_selector != "SKIP"
+                                and "douglas.lv" in current_url.lower()
+                                and self._douglas_card_has_variants(card)):
+                            perform_deep_dive = True
+
                         # Douglas: single-variant products have empty variant_name on detail pages;
                         # pull volume from catalog card's data-tealium-info so we don't lose it.
                         catalog_volume = None
@@ -1671,6 +1727,7 @@ class ScraperService:
                                 "image_url": image_url,
                                 "catalog_volume": catalog_volume,
                                 "catalog_concentration": catalog_concentration,
+                                "card_type": card_kind,
                             })
                         else:
                             # Standard mode: process variants from card JSON if available
@@ -1683,9 +1740,9 @@ class ScraperService:
                             listing_variants = self._extract_variants(card, norm["clean_name"])
                             if listing_variants:
                                 for v in listing_variants:
-                                    self._add_candidate(candidates, v["title"], v["price"], v["price"]>0, product_url, image_url, brand, norm)
+                                    self._add_candidate(candidates, v["title"], v["price"], v["price"]>0, product_url, image_url, brand, norm, card_type=card_kind)
                             else:
-                                self._add_candidate(candidates, title, price_val, is_available, product_url, image_url, brand, norm)
+                                self._add_candidate(candidates, title, price_val, is_available, product_url, image_url, brand, norm, card_type=card_kind)
                         
                     except Exception as e:
                         logger.debug(f"Error parsing card: {e}")
@@ -1732,9 +1789,13 @@ class ScraperService:
                                     # and normalizer.extract_all picks the FIRST volume it sees, so
                                     # every variant would collapse to the same `volume` and dedup
                                     # by `(url, volume)` would merge them in `_flush_candidates`.
-                                    # Strip any leading volume token from base title first.
+                                    # Strip any leading volume token from base title first —
+                                    # with its pack count and pack label ("3x20 ml Refill"),
+                                    # otherwise the primary variant's "Refill" leaks into
+                                    # every other variant's title.
                                     base = re.sub(
-                                        r'\b\d+(?:[.,]\d+)?\s*(ml|l|oz)\b',
+                                        r'\b(?:\d+\s*[x×]\s*)?\d+(?:[.,]\d+)?\s*(ml|l|oz)\b'
+                                        r'(?:\s+(?:refill|uzpilde|without stand|bez statīva)\b)?',
                                         '', title, flags=re.IGNORECASE
                                     )
                                     base = re.sub(r'\s+', ' ', base).strip()
@@ -1753,6 +1814,7 @@ class ScraperService:
                                     "price": d["price"],
                                     "is_available": d["is_available"],
                                     "catalog_concentration": catalog_concentration,
+                                    "card_type": job.get("card_type"),
                                 })
                             return results
 
@@ -1777,6 +1839,7 @@ class ScraperService:
                             self._add_candidate(
                                 candidates, d["title"], d["price"], d["is_available"],
                                 d["url"], d["image_url"], d["brand"], base_norm,
+                                card_type=d.get("card_type"),
                             )
                         items_completed_overall += 1
                         if db and site_name_ui:
@@ -1988,8 +2051,13 @@ class ScraperService:
             )
             product = (await session.execute(stmt)).scalar_one_or_none()
 
+            card_type = item.get("card_type") or "perfume"
+            price = item["price"]
+            has_price = price is not None and price > 0
+            available = bool(item["is_available"])
             final_group_id = group_id
-            if not final_group_id:
+            # Gift sets never join a comparison chain.
+            if not final_group_id and card_type == "perfume":
                 if product and product.group_id:
                     final_group_id = product.group_id
                 else:
@@ -2027,13 +2095,20 @@ class ScraperService:
                     group_id=final_group_id,
                     brand=item.get("brand"),
                     volume=item.get("volume"),
-                    concentration=item.get("concentration")
+                    concentration=item.get("concentration"),
+                    card_type=card_type,
                 )
                 session.add(product)
                 await session.flush()
-                change_type = "initial"
+                change_type = "initial" if has_price else "no_change"
             else:
-                if not product.group_id: product.group_id = final_group_id
+                if card_type == "gift_set":
+                    # Earlier runs stored makeup.lv sets as plain perfumes inside
+                    # a chain — detach them.
+                    product.group_id = final_group_id
+                elif not product.group_id:
+                    product.group_id = final_group_id
+                product.card_type = card_type
                 if not product.brand: product.brand = item.get("brand")
                 if not product.volume: product.volume = item.get("volume")
                 if not product.concentration: product.concentration = item.get("concentration")
@@ -2042,21 +2117,33 @@ class ScraperService:
                 product.title = item["title"]
 
                 change_type = "no_change"
-                if product.last_price is not None:
-                    if item["price"] < product.last_price:
+                if has_price and product.last_price:  # 0 / None = price never known
+                    if price < product.last_price:
                         change_type = "price_down"
                         product.old_price = product.last_price
-                    elif item["price"] > product.last_price:
+                    elif price > product.last_price:
                         change_type = "price_up"
                         product.old_price = product.last_price
-                if not product.is_available and item["price"] > 0:
+                elif has_price:
+                    change_type = "initial"
+                if available and not product.is_available and has_price:
                     change_type = "back_in_stock"
+                elif not available and product.is_available:
+                    change_type = "out_of_stock"
                 session.add(product)
 
-            price_to_save = item["price"] if item["price"] is not None else Decimal("0.00")
             product.last_seen = _dt.utcnow()
-            product.last_price = price_to_save
-            product.is_available = item["is_available"]
+            # Keep the last known price while a product has none (out of stock);
+            # 0 marks a product that has never had a price.
+            if has_price:
+                product.last_price = price
+            elif product.last_price is None:
+                product.last_price = Decimal("0.00")
+            product.is_available = available
+            # Price with a promo code: taken fresh every time, so an ended
+            # promotion clears it.
+            product.promo_price = item.get("promo_price")
+            product.promo_code = item.get("promo_code")
             if item["image_url"]:
                 product.image_url = item["image_url"]
 
@@ -2067,22 +2154,24 @@ class ScraperService:
 
             session.add(product)
 
-            if change_type != "no_change":
+            history_price = price if has_price else product.last_price
+            if change_type != "no_change" and history_price and history_price > 0:
                 history = PriceHistory(
-                    price=item["price"],
-                    in_stock=item["is_available"],
+                    price=history_price,
+                    in_stock=available,
                     product_id=product.id,
                     change_type=change_type
                 )
                 session.add(history)
                 notification_service.report_change(product, history, rule.site_name)
-                pct = self._compute_percent_change(item["price"], product.old_price)
-                pending_alerts.append((product, history, pct))
+                if change_type in ("price_down", "price_up", "back_in_stock"):
+                    pct = self._compute_percent_change(history_price, product.old_price)
+                    pending_alerts.append((product, history, pct))
 
             saved_items.append(ScrapedItem(
                 title=product.title,
-                price=item["price"],
-                availability="Yes",
+                price=price if has_price else None,
+                availability="Yes" if available else "No",
                 url=product.url,
                 image_url=item["image_url"]
             ))
@@ -2109,7 +2198,8 @@ class ScraperService:
         except Exception:
             return 0.0
 
-    def _add_candidate(self, candidates, title, price, is_available, url, image_url, brand, norm):
+    def _add_candidate(self, candidates, title, price, is_available, url, image_url, brand, norm, card_type=None,
+                       promo_price=None, promo_code=None):
         """Standardizes and adds a product to the candidates list.
 
         Builds a clean display title: "{brand} {clean_name} {volume}".
@@ -2120,10 +2210,20 @@ class ScraperService:
         shower gels) are rejected here on the RAW title — once normalization
         strips the 'dezodorants'/'deo' marker, the product becomes
         indistinguishable from a real perfume and pollutes the DB.
-        """
-        from app.services.normalizer import perfume_normalizer, is_non_perfume_title
 
-        if is_non_perfume_title(title):
+        `card_type` is "perfume" or "gift_set"; detected from the title when the
+        caller doesn't know it. A set that includes e.g. a shower gel is still
+        a set, so set detection runs before the non-perfume filter.
+        """
+        from app.services.normalizer import (
+            perfume_normalizer, is_non_perfume_title, detect_card_type, is_non_perfume_set, volume_qualifier,
+        )
+
+        card_type = card_type or detect_card_type(title)
+        if card_type == "gift_set" and is_non_perfume_set(title):
+            logger.debug(f"🚫 Rejected set without perfume: {title}")
+            return
+        if card_type != "gift_set" and is_non_perfume_title(title):
             logger.debug(f"🚫 Rejected non-perfume: {title}")
             return
 
@@ -2132,6 +2232,44 @@ class ScraperService:
         final_brand = brand or v_norm["brand"] or norm["brand"]
         final_volume = v_norm["volume"] or norm["volume"]
         final_concentration = v_norm["concentration"] or norm["concentration"]
+
+        if card_type == "gift_set":
+            # A set holds several items: no single volume or concentration, and
+            # the raw title (with its composition) is the honest description.
+            display_title = re.sub(r"\s+", " ", title).strip()
+            # Compare letters only: shops spell brands with ` vs ' ("Tesori d`Oriente").
+            if final_brand and not re.sub(r"\W+", "", display_title.lower()).startswith(re.sub(r"\W+", "", final_brand.lower())):
+                display_title = f"{final_brand} {display_title}"
+            # A set sold in several packs ("3x20 ml" and "3x20 ml Refill") needs a
+            # label per pack, or the packs would share one (url, volume) record.
+            # A composition in brackets ("(edp/mini/3x15ml)") is not a pack label.
+            pack = re.search(r"(\d+)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(ml|g)\b",
+                             re.sub(r"\([^)]*\)", "", title), re.IGNORECASE)
+            set_volume = None
+            if pack:
+                set_volume = f"{pack.group(1)}x{pack.group(2).replace(',', '.')}{pack.group(3).lower()}"
+                if volume_qualifier(title):
+                    set_volume += f" {volume_qualifier(title)}"
+            candidates.append({
+                "url": url,
+                "image_url": image_url,
+                "brand": final_brand,
+                "volume": set_volume,
+                "concentration": None,
+                "title": display_title,
+                "price": price,
+                "is_available": is_available,
+                "card_type": "gift_set",
+                "promo_price": promo_price,
+                "promo_code": promo_code,
+            })
+            return
+
+        # "100 ml Refill" is a different product than the 100 ml bottle: keep
+        # the pack in the volume label so the two never share a record.
+        qualifier = volume_qualifier(title)
+        if final_volume and qualifier:
+            final_volume = f"{final_volume} {qualifier}"
         clean_name = v_norm.get("clean_name") or ""
 
         # Strip stray punctuation from each part BEFORE concatenation —
@@ -2174,7 +2312,10 @@ class ScraperService:
             "concentration": final_concentration,
             "title": display_title,
             "price": price,
-            "is_available": is_available
+            "is_available": is_available,
+            "card_type": card_type,
+            "promo_price": promo_price,
+            "promo_code": promo_code,
         })
 
     async def scrape_page(self, url: str, rule: ScrapingRule | None = None, browser_context=None, click_selector: str | None = None) -> dict | None:
