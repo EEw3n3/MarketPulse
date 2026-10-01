@@ -51,6 +51,8 @@ class CatalogItem(BaseModel):
     storeColor: str    # e.g., "bg-blue-500"
     in_stock: bool
     lastUpdated: str   # formatted date
+    promoPrice: Optional[float] = None  # price with a shop promo code
+    promoCode: Optional[str] = None
 
 class StoreOfferVariant(BaseModel):
     """One product within a store (used for popover when a store has duplicates by volume)."""
@@ -78,6 +80,8 @@ class StoreOffer(BaseModel):
     image_url: Optional[str] = None
     concentration: Optional[str] = None   # EDT / EDP / Parfum of the BEST listing
     variants: List[StoreOfferVariant] = []
+    promoPrice: Optional[float] = None    # price with a shop promo code
+    promoCode: Optional[str] = None
 
 
 class ProductCardDetail(BaseModel):
@@ -94,6 +98,8 @@ class ProductCardDetail(BaseModel):
     old_price: Optional[float]
     store_name: str
     is_available: bool
+    promo_price: Optional[float] = None   # price with a shop promo code
+    promo_code: Optional[str] = None
 
     # Nested data
     history: List[PriceHistoryRead] = []

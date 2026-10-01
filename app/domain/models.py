@@ -70,14 +70,21 @@ class Product(SQLModel, table=True):
     # --- Normalization (for Perfume Chains) ---
     brand: Optional[str] = Field(default=None, index=True)
     volume: Optional[str] = Field(default=None, index=True) 
-    concentration: Optional[str] = Field(default=None, index=True) 
+    concentration: Optional[str] = Field(default=None, index=True)
+    # "perfume" (regular bottle, single or multi-volume card) or "gift_set".
+    # Gift sets get no ProductGroup, so they never enter price comparisons.
+    card_type: str = Field(default="perfume", index=True)
     is_available: bool = Field(default=True)
     last_seen: datetime = Field(default_factory=datetime.utcnow)
     
     # Denormalization for fast access
     last_price: Optional[Decimal] = Field(default=None)
     old_price: Optional[Decimal] = Field(default=None) # For discount tracking
-    
+    # Price with a shop promo code (notino.lv "ar kodu …"), shown next to the
+    # regular price. last_price stays the price without a code.
+    promo_price: Optional[Decimal] = Field(default=None)
+    promo_code: Optional[str] = Field(default=None)
+
     # Relationship with group (price comparison)
     group_id: Optional[int] = Field(default=None, foreign_key="productgroup.id")
     group: Optional[ProductGroup] = Relationship(back_populates="products")

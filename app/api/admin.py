@@ -217,6 +217,9 @@ class IngestProductIn(BaseModel):
     image_url: Optional[str] = None
     last_price: Optional[float] = None
     is_available: bool = True
+    card_type: str = "perfume"  # "perfume" | "gift_set"
+    promo_price: Optional[float] = None  # price with a shop promo code
+    promo_code: Optional[str] = None
 
 
 class IngestBatchIn(BaseModel):
@@ -259,14 +262,19 @@ async def scrape_ingest(
         )
         product = (await db.execute(stmt)).scalar_one_or_none()
         price_dec = Decimal(str(item.last_price)) if item.last_price is not None else None
+        promo_dec = Decimal(str(item.promo_price)) if item.promo_price is not None else None
 
         if product is None:
-            # Resolve group_id via matcher
-            match = await matcher_service.find_best_match(
-                db,
-                {"title": item.title, "brand": item.brand, "volume": item.volume, "concentration": item.concentration},
-            )
-            if match:
+            # Resolve group_id via matcher (gift sets never join a chain)
+            match = None
+            if item.card_type == "perfume":
+                match = await matcher_service.find_best_match(
+                    db,
+                    {"title": item.title, "brand": item.brand, "volume": item.volume, "concentration": item.concentration},
+                )
+            if item.card_type != "perfume":
+                group_id = None
+            elif match:
                 group_id = match.id
             else:
                 canonical = matcher_service.get_canonical_name(
@@ -292,6 +300,9 @@ async def scrape_ingest(
                 is_available=item.is_available,
                 last_seen=datetime.utcnow(),
                 group_id=group_id,
+                card_type=item.card_type,
+                promo_price=promo_dec,
+                promo_code=item.promo_code,
             )
             db.add(product)
             await db.flush()
@@ -311,6 +322,11 @@ async def scrape_ingest(
                 product.image_url = item.image_url
             product.is_available = item.is_available
             product.last_seen = datetime.utcnow()
+            product.card_type = item.card_type
+            if item.card_type != "perfume":
+                product.group_id = None
+            product.promo_price = promo_dec
+            product.promo_code = item.promo_code
 
             if price_dec is not None and price_dec > 0:
                 old = product.last_price

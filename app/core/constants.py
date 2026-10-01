@@ -76,7 +76,8 @@ PRODUCT_BLACKLIST: list[str] = [
     "after shave",
     "body lotion",
     "shower gel",
-    "komplekts",
+    # "komplekts" intentionally absent: gift sets are kept and typed as
+    # card_type="gift_set" (see normalizer.detect_card_type).
 ]
 
 # --- FALLBACK CSS SELECTORS ---
