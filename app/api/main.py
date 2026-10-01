@@ -567,7 +567,9 @@ async def get_catalog(
             store=p.search_term.capitalize(),
             storeColor=get_store_color(p.search_term),
             in_stock=p.is_available,
-            lastUpdated=p.last_seen.strftime("%Y-%m-%d")
+            lastUpdated=p.last_seen.strftime("%Y-%m-%d"),
+            promoPrice=float(p.promo_price) if p.promo_price else None,
+            promoCode=p.promo_code,
         ))
     return catalog_items
 
@@ -651,6 +653,8 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
                 )
                 for e in extras
             ],
+            promoPrice=float(main.promo_price) if main.promo_price else None,
+            promoCode=main.promo_code,
         ))
 
     # Sort stores by their cheapest price ASC, cap at 5 unique stores
@@ -714,6 +718,8 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         old_price=float(product.old_price) if product.old_price else None,
         store_name=product.search_term.capitalize(),
         is_available=product.is_available,
+        promo_price=float(product.promo_price) if product.promo_price else None,
+        promo_code=product.promo_code,
         history=history_items,
         offers=offers,
     )
