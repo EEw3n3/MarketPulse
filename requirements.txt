@@ -1,31 +1,35 @@
 # openai
-google-genai
+# Versions pinned to a known-working set: newer sqlmodel (0.0.47+) rejects
+# the naive datetimes the models use (datetime.utcnow).
+google-genai==1.65.0
 curl_cffi==0.7.0b4
-parsel
-pydantic
-loguru
-sqlmodel
-aiosqlite
-greenlet
-python-dotenv
-thefuzz
-fastapi
-uvicorn
-playwright
+parsel==1.11.0
+pydantic==2.12.5
+loguru==0.7.3
+sqlmodel==0.0.37
+sqlalchemy==2.0.47
+aiosqlite==0.22.1
+greenlet==3.3.2
+python-dotenv==1.2.1
+thefuzz==0.22.1
+fastapi==0.133.1
+starlette==0.52.1
+uvicorn==0.41.0
+playwright==1.58.0
 asyncpg==0.30.0
-psycopg2-binary
+psycopg2-binary==2.9.11
 redis==5.0.1
-alembic
+alembic==1.18.4
 playwright-stealth==1.0.6
 beautifulsoup4==4.12.3
-rich
-apscheduler
+rich==14.3.3
+apscheduler==3.11.2
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 python-jose[cryptography]==3.3.0
 email-validator==2.2.0
 aiosmtplib==3.0.2
-httpx>=0.28.1
+httpx==0.28.1
 jinja2==3.1.4
 # Export engine (Session 19)
 openpyxl==3.1.5
