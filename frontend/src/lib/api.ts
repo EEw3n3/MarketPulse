@@ -114,6 +114,8 @@ export interface CatalogItem {
   storeColor: string;
   in_stock: boolean;      // snake_case — matches FastAPI response
   lastUpdated: string;
+  promoPrice?: number | null;  // price with a shop promo code
+  promoCode?: string | null;
 }
 
 export interface PriceHistoryRead {
@@ -148,6 +150,8 @@ export interface StoreOffer {
   image_url: string | null;
   concentration?: string | null;
   variants: StoreOfferVariant[];
+  promoPrice?: number | null;  // price with a shop promo code
+  promoCode?: string | null;
 }
 
 export interface ProductCardDetail {
@@ -163,6 +167,8 @@ export interface ProductCardDetail {
   old_price: number | null;
   store_name: string;
   is_available: boolean;
+  promo_price?: number | null;  // price with a shop promo code
+  promo_code?: string | null;
   history: PriceHistoryRead[];
   offers: StoreOffer[];
 }

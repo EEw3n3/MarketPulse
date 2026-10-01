@@ -5,6 +5,7 @@ import { ProductCardDetail } from "@/lib/api";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { PromoCodePrice } from "@/components/PromoCodePrice";
 
 interface Props {
   product: ProductCardDetail;
@@ -150,6 +151,7 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
               </>
             )}
           </div>
+          <PromoCodePrice price={product.promo_price} code={product.promo_code} className="text-[12px]" />
         </div>
 
         {/* Cross-site comparison */}
@@ -199,12 +201,15 @@ export default function ProductInfoColumn({ product, onExport }: Props) {
                         </span>
                       )}
                     </span>
-                    <span
-                      className={`font-mono tabular-nums font-semibold text-[13px] ${
-                        isBest ? "text-[hsl(var(--success))]" : "text-foreground"
-                      }`}
-                    >
-                      {o.price.toFixed(2)} €
+                    <span className="flex flex-col items-end">
+                      <span
+                        className={`font-mono tabular-nums font-semibold text-[13px] ${
+                          isBest ? "text-[hsl(var(--success))]" : "text-foreground"
+                        }`}
+                      >
+                        {o.price.toFixed(2)} €
+                      </span>
+                      <PromoCodePrice price={o.promoPrice} code={o.promoCode} />
                     </span>
                     {isBest && !hasVariants && (
                       <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[hsl(var(--success))] font-semibold">

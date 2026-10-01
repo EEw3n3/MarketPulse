@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { LoadingState, ErrorState, EmptyState } from "@/components/ui/state-views";
 import { cn } from "@/lib/utils";
+import { PromoCodePrice } from "@/components/PromoCodePrice";
 import CatalogFilterPanel, { FilterState, defaultFilters } from "./CatalogFilterPanel";
 import ExportModal from "@/components/product/ExportModal";
 
@@ -422,6 +423,7 @@ export default function CatalogContent() {
                       </td>
                       <td className="px-3 py-3 text-right font-mono tabular-nums font-semibold text-foreground">
                         {p.price.toFixed(2)} €
+                        <PromoCodePrice price={p.promoPrice} code={p.promoCode} className="block" />
                       </td>
                       <td className="px-3 py-3 text-right">
                         <ChangePill
@@ -489,8 +491,11 @@ export default function CatalogContent() {
                     {p.volume && p.volume !== "N/A" ? `${p.volume} · ` : ""}{p.type}
                   </p>
                   <div className="flex items-end justify-between">
-                    <span className="font-mono font-semibold tabular-nums tracking-tight text-[16px] text-foreground">
-                      {p.price.toFixed(2)} €
+                    <span className="flex flex-col">
+                      <span className="font-mono font-semibold tabular-nums tracking-tight text-[16px] text-foreground">
+                        {p.price.toFixed(2)} €
+                      </span>
+                      <PromoCodePrice price={p.promoPrice} code={p.promoCode} />
                     </span>
                     <ChangePill
                       direction={(p.changeDirection as "up" | "down" | "none") ?? "none"}
