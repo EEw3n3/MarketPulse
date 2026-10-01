@@ -306,8 +306,26 @@ class BrowserManager:
         except Exception:
             return False
 
+    # Present on every real notino.lv catalog / product page, never on the
+    # Cloudflare interstitial.
+    NOTINO_CONTENT = ("[data-testid='product-container'], [data-testid='pd-price-wrapper'], "
+                      "[data-testid='price-component'], #pdVariantsTile, #pdVariantsThumbnail")
+
+    async def wait_for_notino_content(self, page: Page, timeout_ms: int = 25000) -> bool:
+        """Wait for the real notino.lv page. Notino sometimes answers with a
+        Cloudflare interstitial ("Mazliet uzgaidiet…") that passes by itself
+        after a few seconds; this only waits for it and never answers a check.
+        False means the page did not load — the caller must not treat the
+        interstitial as data."""
+        try:
+            await page.wait_for_selector(self.NOTINO_CONTENT, state="attached", timeout=timeout_ms)
+            return True
+        except Exception:
+            logger.warning(f"⚠️ notino.lv page did not load (Cloudflare check did not pass by itself): {page.url}")
+            return False
+
     async def get_page_content(
-        self, 
+        self,
         url: str, 
         fast_mode: bool = False, 
         disable_images: bool = True, 
@@ -474,6 +492,8 @@ class BrowserManager:
                     await page.wait_for_selector("div.c-product-card[widget-data]", timeout=25000)
                 except Exception:
                     pass  # No cards (empty category or still blocked — caller handles)
+            elif "notino.lv" in url:
+                await self.wait_for_notino_content(page)
 
             final_url = page.url
             content = await page.content()
