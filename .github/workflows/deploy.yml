@@ -1,18 +1,32 @@
 name: Deploy MarketPulse
 
+# Manual only. There is no production server at the moment (the DigitalOcean
+# droplet was destroyed), so a push to main must not try to deploy anywhere.
+#
+# To deploy again: create a server, add the repository secrets SSH_HOST and
+# SSH_PRIVATE_KEY (plus SSH_PASSPHRASE if the key has one, and SSH_USER if the
+# login is not "deploy"), then run this workflow from the Actions tab.
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to DigitalOcean
-        uses: appleboy/ssh-action@master
+      - name: Deploy over SSH
+        # Third-party action: pinned to a commit (v1.2.5), not to a branch that
+        # its author can change.
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
         with:
           host: ${{ secrets.SSH_HOST }}
-          username: root
+          username: ${{ secrets.SSH_USER || 'deploy' }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
