@@ -63,6 +63,27 @@ class PerfumeNormalizer:
         "eau de parfum": "EDP",
         "eau de parfum intense": "EDP",
         "parfimērijas ūdens": "EDP",
+        "parfimēts ūdens": "EDP",
+        "parfimets udens": "EDP",
+        "aromatizēts ūdens": "EDP",  # makeup.lv's label for Eau de Parfum
+        "aromatizets udens": "EDP",
+        "parfīms": "EDP",  # douglas.lv; Ervin's call (Douglas's own data mostly says EDP)
+        "parfims": "EDP",
+        "parfimēts eliksīrs": "EDP",  # douglas.lv
+        "parfimets eliksirs": "EDP",
+        "aromāta ekstrakts": "Parfum",  # douglas.lv: Extrait
+        "aromata ekstrakts": "Parfum",
+        "aromatizēts ekstrakts": "Parfum",  # notino.lv: Extrait (Ervin: same as Aromāta ekstrakts)
+        "aromatizets ekstrakts": "Parfum",
+        "smaržu ekstrakts": "Parfum",  # douglas.lv: Extrait
+        "smarzu ekstrakts": "Parfum",
+        "smaržu eliksīrs": "Parfum",  # douglas.lv; Ervin: same as Smaržas
+        "smarzu eliksirs": "Parfum",
+        "eliksīrs": "Parfum",  # douglas.lv (Dior Sauvage Elixir); Ervin's call
+        "eliksirs": "Parfum",
+        "parfimērijas ekstrakts": "EDP",  # douglas.lv (Ramon Monegal); other shops say EDP
+        "parfimerijas ekstrakts": "EDP",
+        "parfimerijas ūdens": "EDP",  # douglas.lv spelling without ē
         "smaržūdens": "EDP",
         "edt": "EDT",
         "eau de toilette": "EDT",
@@ -73,7 +94,8 @@ class PerfumeNormalizer:
         "smaržas": "Parfum",
         "edc": "EDC",
         "eau de cologne": "EDC",
-        "odekolons": "EDC"
+        "odekolons": "EDC",
+        "odekalons": "EDC",  # makeup.lv misspelling
     }
 
     # 3. Noise to ignore
@@ -108,6 +130,10 @@ class PerfumeNormalizer:
         r"\bsievietes\b", r"\bsievietēm\b",
         r"\baerosols\b",  # explicitly add (was accidentally losing word boundary in some cases)
         r"\(\s*\)",       # orphan empty brackets left after stripping (EDT)/(EDP)
+        # Pack variants: the perfume is the same, the pack goes into the volume
+        # label instead (see volume_qualifier); "refillable" is a normal bottle.
+        r"\brefill\b", r"\brefillable\b", r"\buzpilde\b", r"\bwithout stand\b", r"\bbez statīva\b",
+        r"\blimited edition\b", r"\+\s*case\b", r"\bwith case\b",
         # Session 5 additions
         r"\bparfimēts\b", r"\bparfimets\b",
         r"\bsmaržu\b",
@@ -136,7 +162,8 @@ class PerfumeNormalizer:
         (re.compile(r'\bpudeles\s+pildits\b', re.IGNORECASE), 'Bottled'),
     ]
 
-    REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|мл|л)', re.IGNORECASE)
+    # The unit must end the word: "STR8 Live" is not "8 L", "5 gab." is not "5 g".
+    REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|g|мл|л|г)\b', re.IGNORECASE)
 
     @staticmethod
     def extract_all(title: str, explicit_brand: Optional[str] = None) -> Dict[str, Optional[str]]:
@@ -360,9 +387,10 @@ class PerfumeNormalizer:
                 if unit in ['l', 'л']: amount *= 1000; unit = 'ml'
                 elif unit in ['ml', 'мл']: unit = 'ml'
                 elif unit == 'oz': amount *= 29.57; unit = 'ml'
-                
-                if amount.is_integer(): return f"{int(amount)}ml"
-                return f"{round(amount, 1)}ml"
+                elif unit in ['g', 'г']: unit = 'g'  # solid perfume
+
+                if amount.is_integer(): return f"{int(amount)}{unit}"
+                return f"{round(amount, 1)}{unit}"
             except: return None
         return None
 
@@ -399,11 +427,89 @@ _NON_PERFUME_PATTERNS = [
     r"\btalcum\b", r"\btalk[\s\-]?puderis\b", r"\bbody[\s\-]?talc\b",
     r"\bbar[\s\-]?soap\b", r"\bziepes\b", r"\bмыло\b",
     r"\bbody[\s\-]?cream\b", r"\bķermeņa[\s\-]?krēms\b",
-    # Sets and gifts (price/identity ambiguous — better to skip)
-    r"\bgift[\s\-]?set\b", r"\bdāvanu[\s\-]?komplekts\b",
-    r"\bподарочный[\s\-]набор\b",
+    # Gift sets are NOT rejected here — they are kept as card_type="gift_set".
 ]
 _NON_PERFUME_RE = re.compile("|".join(_NON_PERFUME_PATTERNS), re.IGNORECASE)
+
+# Markers of a gift set / multi-item package. Matched against the raw title
+# (and the shop's subtitle, where it has one — makeup.lv puts
+# "Komplekts (edp/100ml + edp/mini/10ml)" there).
+_GIFT_SET_PATTERNS = [
+    r"\bgift[\s\-]?set\b", r"\bvalue[\s\-]?set\b", r"\bset\b",
+    r"\bkomplekt\w*\b", r"\bdāvanu[\s\-]?(komplekt\w*|kast\w*)\b",
+    r"\brinkinys\b", r"\bcoffret\b",
+    r"\bподарочн\w*\s+набор\w*\b", r"\bнабор\w*\b",
+    # Composition listings: "edp/100ml + edp/10ml", "75 ml + 12.5 ml" — but
+    # "30 ml + Case" is one bottle with a travel case, not a set.
+    r"\d+(?:[.,]\d+)?\s*ml\s*\+(?!\s*case\b)",
+]
+_GIFT_SET_RE = re.compile("|".join(_GIFT_SET_PATTERNS), re.IGNORECASE)
+
+
+# A pack that differs from the plain bottle of the same size ("100 ml Refill",
+# "100 ml Without Stand"). It must not share a (url, volume) record with the
+# bottle, so it becomes part of the volume label: "100ml refill".
+# "Refillable" is the ordinary bottle and is not a qualifier.
+# (pattern, label, only after the volume). The last two tell apart variants of
+# one product ("125 ml (ierobežota daudzuma prece)", "30 ml … + Case"), so they
+# count only after the volume: a perfume whose NAME says "Limited Edition"
+# keeps its plain volume.
+_VOLUME_QUALIFIERS = [
+    (re.compile(r"\brefill\b|\buzpilde\b", re.IGNORECASE), "refill", False),
+    (re.compile(r"\bwithout stand\b|\bbez statīva\b", re.IGNORECASE), "without stand", False),
+    # notino.lv: "Smaržas (ierobežota daudzuma prece)" = limited edition bottle
+    (re.compile(r"\bierobežota daudzuma\b|\blimited edition\b", re.IGNORECASE), "limited edition", True),
+    # notino.lv: "Tualetes ūdens (EDT) + Case" = the bottle with a travel case
+    (re.compile(r"\+\s*case\b|\bwith case\b", re.IGNORECASE), "with case", True),
+]
+
+
+def volume_qualifier(text: str | None) -> str | None:
+    if not text:
+        return None
+    volume = PerfumeNormalizer.REGEX_VOLUME.search(text)
+    after_volume = text[volume.end():] if volume else ""
+    for pattern, label, only_after in _VOLUME_QUALIFIERS:
+        if pattern.search(after_volume if only_after else text):
+            return label
+    return None
+
+
+# Type lines that name the perfume's line instead of its type: douglas.lv sells
+# "BLEU DE CHANEL" with the type line "L'EXCLUSIF". Such a label must join the
+# title (it is a different perfume) and cannot go into CONC_MAP, because
+# CONC_MAP labels are stripped from the name.
+_LINE_NAME_CONCENTRATION = {
+    "l'exclusif": "Parfum",  # Ervin: духи
+}
+
+
+def line_name_concentration(text: str | None) -> str | None:
+    """Concentration for a type line that is a known line name, else None."""
+    key = re.sub(r"\s+", " ", (text or "").replace("’", "'")).strip().lower()
+    return _LINE_NAME_CONCENTRATION.get(key)
+
+
+def detect_card_type(*texts: str | None) -> str:
+    """Classify a listing from its raw title (+ optional subtitle):
+    "gift_set" or "perfume"."""
+    joined = " ".join(t for t in texts if t)
+    return "gift_set" if joined and _GIFT_SET_RE.search(joined) else "perfume"
+
+
+# A fragrance item inside a set's composition ("edp/100ml", "perf/75ml", "parfum").
+_SET_PERFUME_ITEM_RE = re.compile(
+    r"\b(edp|edt|edc|perf|parfum|perfume|eau|mini|cologne)\b|smarž|ūdens|kvepal|духи|туалетн|парфюм",
+    re.IGNORECASE,
+)
+
+
+def is_non_perfume_set(*texts: str | None) -> bool:
+    """True for a gift set whose composition is spelled out and names no
+    fragrance item — aftershave lotion + shower gel, a home diffuser. A set
+    with an unlisted composition ("Komplekts, 7 preces") is kept."""
+    joined = " ".join(t for t in texts if t)
+    return bool(re.search(r"[/+]", joined)) and not _SET_PERFUME_ITEM_RE.search(joined)
 
 
 def is_non_perfume_title(title: str) -> bool:
