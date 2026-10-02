@@ -134,6 +134,9 @@ async def fetch_fresh_products(domain: str, since_ts: float) -> list[dict]:
             "image_url": p.image_url,
             "last_price": float(p.last_price) if p.last_price is not None else None,
             "is_available": bool(p.is_available),
+            "card_type": p.card_type,
+            "promo_price": float(p.promo_price) if p.promo_price is not None else None,
+            "promo_code": p.promo_code,
         })
     return products
 
