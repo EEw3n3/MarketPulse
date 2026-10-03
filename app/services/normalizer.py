@@ -85,6 +85,42 @@ class PerfumeNormalizer:
         "parfimerijas ekstrakts": "EDP",
         "parfimerijas ūdens": "EDP",  # douglas.lv spelling without ē
         "smaržūdens": "EDP",
+        # 220.lv sellers' spellings (Ervin, 2026-10-03)
+        "parfimētais ūdens": "EDP",
+        "parfimetais udens": "EDP",
+        "parfīmētais ūdens": "EDP",
+        "parfīmétais ūdens": "EDP",
+        "parfumētais ūdens": "EDP",
+        "parfumēts ūdens": "EDP",
+        "parfumetais udens": "EDP",
+        "parfumets udens": "EDP",
+        "parfūmēts ūdens": "EDP",
+        "parfūmētais ūdens": "EDP",
+        "parfīma ūdens": "EDP",
+        "parfima udens": "EDP",
+        "parfīmūdens": "EDP",
+        "parfūmjūdens": "EDP",
+        "parfīmierūdens": "EDP",
+        "parfumūdens": "EDP",
+        "smaržu ūdens": "EDP",
+        "smaržīgs ūdens": "EDP",
+        "aromatizētais ūdens": "EDP",
+        "parfumuotas vanduo": "EDP",  # Lithuanian
+        "parfüms": "EDP",  # same as "parfīms"
+        "tualetinis ūdens": "EDT",
+        "tualetinis vanduo": "EDT",  # Lithuanian
+        "tualtais ūdens": "EDT",
+        "toilet water": "EDT",
+        "toilette": "EDT",
+        "e dt": "EDT",
+        "odikolons": "EDC",
+        "kolonijas ūdens": "EDC",
+        "kolēnija": "EDC",
+        "kelnūdens": "EDC",
+        "kolo toniks": "EDC",
+        "cologne": "EDC",
+        "kvepalai": "Parfum",  # Lithuanian "perfume", like "smaržas"
+        "ekstrakts": "Parfum",
         "edt": "EDT",
         "eau de toilette": "EDT",
         "tualetes ūdens": "EDT",
@@ -171,6 +207,14 @@ class PerfumeNormalizer:
 
     # The unit must end the word: "STR8 Live" is not "8 L", "5 gab." is not "5 g".
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|g|мл|л|г)\b', re.IGNORECASE)
+
+    # Labels that can also be part of a perfume's name ("Creed Viking Cologne EDP",
+    # "Eternity for Men Cologne EDT"): they count only when no other EDT/EDP/EDC
+    # marker is in the title.
+    WEAK_CONC_KEYS = {"cologne", "toilette"}
+    # ...and "Cologne" stays in the name ("Dior Homme Cologne", "Fierce Cologne"),
+    # as in the groups created before it became a label.
+    CONC_KEYS_KEPT_IN_NAME = {"cologne"}
 
     # "mini" marks a miniature only on a small bottle ("Vetiver Musc mini 10 ml",
     # "Dear Barber mini 30 ml"); in "Immortal Mini 150 ml" or "Pride Collection
@@ -265,10 +309,14 @@ class PerfumeNormalizer:
         concentration = None
         sorted_conc_keys = sorted(
             PerfumeNormalizer.CONC_MAP.keys(),
-            key=lambda k: (PerfumeNormalizer.CONC_MAP[k] == "Parfum", -len(k))
+            key=lambda k: (PerfumeNormalizer.CONC_MAP[k] == "Parfum",
+                           k in PerfumeNormalizer.WEAK_CONC_KEYS, -len(k))
         )
         for key in sorted_conc_keys:
             pattern = rf'\b{re.escape(key)}\b'
+            # A weak label inside the brand ("Atelier Cologne") is not a label.
+            if key in PerfumeNormalizer.WEAK_CONC_KEYS and brand and re.search(pattern, brand.lower()):
+                continue
             if re.search(pattern, title_lower):
                 concentration = PerfumeNormalizer.CONC_MAP[key]
                 break
@@ -302,7 +350,7 @@ class PerfumeNormalizer:
 
         if concentration:
             for key, val in PerfumeNormalizer.CONC_MAP.items():
-                if val == concentration:
+                if val == concentration and key not in PerfumeNormalizer.CONC_KEYS_KEPT_IN_NAME:
                     clean_name = re.sub(rf'\b{re.escape(key)}\b', "", clean_name, flags=re.IGNORECASE)
 
         # Brand-segment word cleanup — only when brand was detected FROM THE TITLE
@@ -360,7 +408,7 @@ class PerfumeNormalizer:
             # Remove concentration
             if concentration:
                 for key, val in PerfumeNormalizer.CONC_MAP.items():
-                    if val == concentration:
+                    if val == concentration and key not in PerfumeNormalizer.CONC_KEYS_KEPT_IN_NAME:
                         _fallback = re.sub(rf'\b{re.escape(key)}\b', "", _fallback, flags=re.IGNORECASE)
             # Re-apply the full NOISE list — fallback must not let Latvian noise
             # (Smaržas / vīriešiem / aerosols / uzpildīšānas …) slip back in
@@ -450,6 +498,11 @@ _NON_PERFUME_PATTERNS = [
     r"\btalcum\b", r"\btalk[\s\-]?puderis\b", r"\bbody[\s\-]?talc\b",
     r"\bbar[\s\-]?soap\b", r"\bziepes\b", r"\bмыло\b",
     r"\bbody[\s\-]?cream\b", r"\bķermeņa[\s\-]?krēms\b",
+    # Found in 220.lv's men's perfume category (2026-10-03): body spray, scrub,
+    # bath oil, deodorant stick, incense burner, a costume mask
+    r"\bķermeņa[\s\-]?sprej\w*", r"\bskrubis\b", r"\bbody[\s\-]?scrub\b",
+    r"\bvannas[\s\-]?eļļ\w*", r"\bbath[\s\-]?oil\b", r"\bstiks\b", r"\+\s*deo\b",
+    r"\bdedzinātāj\w*", r"\bmaska\b",
     # Gift sets are NOT rejected here — they are kept as card_type="gift_set".
 ]
 _NON_PERFUME_RE = re.compile("|".join(_NON_PERFUME_PATTERNS), re.IGNORECASE)
