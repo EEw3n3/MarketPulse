@@ -112,7 +112,12 @@ class PerfumeNormalizer:
         r"\bset\b", r"\bkomplekts\b",
         r"\bafter shave\b", r"\baftershave\b", r"\btester\b", r"\btestieris\b",
         r"\bparfums\b", r"\bman\b", r"\bwomen\b", r"\bwoman\b", r"\bmen\b",
-        r"\bdezodorants\b", r"\bminiatūra\b", r"\bantiperspirants\b", r"\bantiseptiķis\b", 
+        r"\bdezodorants\b", r"\bantiperspirants\b", r"\bantiseptiķis\b",
+        # A miniature is the same perfume in a small bottle: drop the marker so
+        # it joins the full-size group ("10 ml *miniatūra", "EDT Miniature, 5 ml").
+        # A bare "mini" is dropped only for small volumes (see MINI_MAX_ML).
+        r"\*?\s*\bminiatūra\b", r"\*?\s*\bminiatūras\b", r"\*?\s*\bminiatura\b",
+        r"\*?\s*\bminiature\b", r"\*?\s*\bminiatures\b",
         r"\baroma difuzors\b", r"\bdezodorants-zīmulis\b", r"\bdušas želeja\b",
         # Added based on stress test results
         r"\btilpums\b", r"\bvolume\b", r"\bgab\b", r"\baerosols\b", r"\baerosol\b",
@@ -134,6 +139,8 @@ class PerfumeNormalizer:
         # label instead (see volume_qualifier); "refillable" is a normal bottle.
         r"\brefill\b", r"\brefillable\b", r"\buzpilde\b", r"\bwithout stand\b", r"\bbez statīva\b",
         r"\blimited edition\b", r"\+\s*case\b", r"\bwith case\b",
+        # 220.lv: "mini 10 ml ar melnu ceļojuma futlāri" = with a (black) travel case
+        r"\bar\s+(?:\w+\s+)?ceļojuma\s+futlār\w*",
         # Session 5 additions
         r"\bparfimēts\b", r"\bparfimets\b",
         r"\bsmaržu\b",
@@ -164,6 +171,12 @@ class PerfumeNormalizer:
 
     # The unit must end the word: "STR8 Live" is not "8 L", "5 gab." is not "5 g".
     REGEX_VOLUME = re.compile(r'(\d+[.,]?\d*)\s*(ml|l|oz|g|мл|л|г)\b', re.IGNORECASE)
+
+    # "mini" marks a miniature only on a small bottle ("Vetiver Musc mini 10 ml",
+    # "Dear Barber mini 30 ml"); in "Immortal Mini 150 ml" or "Pride Collection
+    # Mini 01" it is the name.
+    MINI_MAX_ML = 30
+    REGEX_MINI = re.compile(r'\bmini\b', re.IGNORECASE)
 
     @staticmethod
     def extract_all(title: str, explicit_brand: Optional[str] = None) -> Dict[str, Optional[str]]:
@@ -267,6 +280,8 @@ class PerfumeNormalizer:
         _before_noise = re.sub(r'\s+', ' ', clean_name).strip()
         for noise_pat in PerfumeNormalizer.NOISE:
             clean_name = re.sub(noise_pat, "", clean_name, flags=re.IGNORECASE)
+        if PerfumeNormalizer.is_mini_volume(volume):
+            clean_name = PerfumeNormalizer.REGEX_MINI.sub("", clean_name)
 
         # Strip the brand text that actually appears in the title.
         # We use brand_in_title (raw detected form) for removal, NOT the explicit_brand,
@@ -352,10 +367,12 @@ class PerfumeNormalizer:
             # just because _before_noise preserved it.
             for _noise_pat in PerfumeNormalizer.NOISE:
                 _fallback = re.sub(_noise_pat, " ", _fallback, flags=re.IGNORECASE)
+            if PerfumeNormalizer.is_mini_volume(volume):
+                _fallback = PerfumeNormalizer.REGEX_MINI.sub(" ", _fallback)
             # Only strip truly useless words — keep 'pour homme', 'man', 'intense', etc.
             _min_filter = {"eau", "parfum", "edt", "edp", "de", "set"}
             _fallback = " ".join(w for w in _fallback.split() if w.lower().strip("-,.") not in _min_filter)
-            _fallback = _fallback.strip("-,. |/")
+            _fallback = _fallback.strip("-–—,. |/")
             if len(_fallback) > 2:
                 clean_name = _fallback
 
@@ -363,10 +380,10 @@ class PerfumeNormalizer:
         if len(clean_name) <= 2:
             clean_name = ""
 
-        # Remove orphan hyphens/commas/pipes
-        clean_name = re.sub(r'^[,\-\|\s]+|[,\-\|\s]+$', '', clean_name)
+        # Remove orphan hyphens/dashes/commas/pipes ("Dear Barber – Eau de Toilette – …")
+        clean_name = re.sub(r'^[,\-–—\|\s]+|[,\-–—\|\s]+$', '', clean_name)
         # Final cleanup for punctuation artifacts (e.g. "Name - ")
-        clean_name = clean_name.strip("-,. |/")
+        clean_name = clean_name.strip("-–—,. |/")
 
         return {
             "brand": brand,
@@ -374,6 +391,12 @@ class PerfumeNormalizer:
             "concentration": concentration,
             "clean_name": clean_name
         }
+
+    @staticmethod
+    def is_mini_volume(volume: Optional[str]) -> bool:
+        """True for a miniature-size volume as extract_volume() writes it ("10ml")."""
+        m = re.fullmatch(r'(\d+(?:\.\d+)?)ml', volume or "")
+        return bool(m) and float(m.group(1)) <= PerfumeNormalizer.MINI_MAX_ML
 
     @staticmethod
     def extract_volume(text: str) -> Optional[str]:
@@ -435,7 +458,7 @@ _NON_PERFUME_RE = re.compile("|".join(_NON_PERFUME_PATTERNS), re.IGNORECASE)
 # (and the shop's subtitle, where it has one — makeup.lv puts
 # "Komplekts (edp/100ml + edp/mini/10ml)" there).
 _GIFT_SET_PATTERNS = [
-    r"\bgift[\s\-]?set\b", r"\bvalue[\s\-]?set\b", r"\bset\b",
+    r"\bgift[\s\-]?set\b", r"\bvalue[\s\-]?set\b", r"\bset\b", r"\bminisets?\b",
     r"\bkomplekt\w*\b", r"\bdāvanu[\s\-]?(komplekt\w*|kast\w*)\b",
     r"\brinkinys\b", r"\bcoffret\b",
     r"\bподарочн\w*\s+набор\w*\b", r"\bнабор\w*\b",
@@ -460,7 +483,7 @@ _VOLUME_QUALIFIERS = [
     # notino.lv: "Smaržas (ierobežota daudzuma prece)" = limited edition bottle
     (re.compile(r"\bierobežota daudzuma\b|\blimited edition\b", re.IGNORECASE), "limited edition", True),
     # notino.lv: "Tualetes ūdens (EDT) + Case" = the bottle with a travel case
-    (re.compile(r"\+\s*case\b|\bwith case\b", re.IGNORECASE), "with case", True),
+    (re.compile(r"\+\s*case\b|\bwith case\b|\bceļojuma\s+futlār\w*", re.IGNORECASE), "with case", True),
 ]
 
 

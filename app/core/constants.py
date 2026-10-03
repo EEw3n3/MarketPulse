@@ -64,7 +64,8 @@ DOMAIN_DEEP_DIVE_CONFIG: dict[str, dict] = {
 # Items whose title contains ANY of these (case-insensitive) are skipped before DB save.
 PRODUCT_BLACKLIST: list[str] = [
     "dezodorant",
-    "miniatūra",
+    # "miniatūra" intentionally absent (Ervin, 2026-10-03): a miniature is a
+    # perfume; the normalizer drops the word so it joins the full-size group.
     "antiperspirant",
     "antiseptiķis",
     "difuzors",
