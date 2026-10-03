@@ -12,6 +12,9 @@ the scraper extracted, and records the shop's own data for the same pages:
     stock and name of every variant). The scraper reads product pages through
     network traffic, so their HTML is taken from its own browser page just
     before it closes; pages it did not open are fetched by this script.
+  - 220.lv: the catalog page HTML: every card's widget-data JSON (title, brand,
+    stock) and its visible prices: the public price and the "220.lv PLUS"
+    loyalty price (members only). One card = one volume (in the title).
 Every card of a site page — including the ones the scraper dropped and the promo
 tiles — appears in the report at its position, next to the shop's data for an
 automatic cross-check. After the run it reads back what was stored in the
@@ -27,7 +30,7 @@ Modes:
         (gift sets, out of stock, multi-volume, refill, mini, ...), scrapes
         those pages and groups the examples by card kind
 
-Sites: makeup, douglas, notino (notino: first pages only).
+Sites: makeup, douglas, notino, 220 (notino: first pages only).
 
 Output:
     reports/scrape_review_<domain>_<YYYY-MM-DD_HHMM>.html
@@ -61,17 +64,20 @@ from app.core.database import async_session_maker
 from app.domain.models import Product, ProductGroup, ScrapingRule
 from app.main import get_hybrid_html
 from app.services.ai_generator import ai_generator
-from app.services.normalizer import detect_card_type, is_non_perfume_set, is_non_perfume_title, volume_qualifier
+from app.services.normalizer import (
+    detect_card_type, is_non_perfume_set, is_non_perfume_title, perfume_normalizer, volume_qualifier,
+)
 from app.services.scraper import scraper_service
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REPORTS_DIR = os.path.join(ROOT, "reports")
-SUPPORTED_SITES = {"makeup", "douglas", "notino"}
-DEFAULT_STEP = {"makeup": 10, "douglas": 1}  # sample every N-th catalog page
+SUPPORTED_SITES = {"makeup", "douglas", "notino", "220"}
+DEFAULT_STEP = {"makeup": 10, "douglas": 1, "220": 3}  # sample every N-th catalog page
 MAKEUP_PAGE_SIZE = 36
-# "miniatūra" is on the scraper's blacklist, but a miniature is still a perfume:
-# it must not count as an expected (correct) drop.
-NON_PERFUME_WORDS = [b for b in PRODUCT_BLACKLIST if b != "miniatūra"]
+NON_PERFUME_WORDS = list(PRODUCT_BLACKLIST)
+# A miniature joins the full-size perfume's comparison group; a group named
+# after the marker means the normalizer kept it in the name.
+MINI_GROUP_RE = re.compile(r"\bmini\b|miniat", re.IGNORECASE)
 
 
 class _StopReview(BaseException):
@@ -322,8 +328,9 @@ async def run_makeup_pages(target: dict, cap: ReviewCapture, page_numbers: list[
         await browser_manager.stop()
 
 
-async def run_douglas_pages(target: dict, cap: ReviewCapture, page_numbers: list[int]) -> None:
-    """Scrape single douglas.lv catalog pages with the real (generic) scraper."""
+async def run_douglas_pages(target: dict, cap: ReviewCapture, page_numbers: list[int], page_url=None) -> None:
+    """Scrape single catalog pages with the real (generic) scraper (douglas.lv, 220.lv)."""
+    page_url = page_url or douglas_page_url
     url = target["url"]
     restore = install_hooks(cap)
     await stealth_client.init_session()
@@ -337,12 +344,13 @@ async def run_douglas_pages(target: dict, cap: ReviewCapture, page_numbers: list
                 logger.info(f"[REVIEW] scraping page {page_no}")
                 try:
                     await scraper_service.scrape_catalog(
-                        session, douglas_page_url(url, page_no), None, max_items=10**6, group_id=None,
+                        session, page_url(url, page_no), None, max_items=10**6, group_id=None,
                         intent=None, enable_price_filter=True, site_name_ui=target.get("site"),
                     )
                 except _StopReview:
                     pass
-        await fetch_missing_douglas_products(cap)
+        if page_url is douglas_page_url:
+            await fetch_missing_douglas_products(cap)
         await reset_checkpoint(domain_of(url))
     finally:
         restore()
@@ -456,6 +464,31 @@ async def sample_douglas_catalog(category_url: str, step: int) -> tuple[list[dic
     return sampled, total_pages or 0
 
 
+async def sample_220_catalog(category_url: str, step: int) -> tuple[list[dict], int]:
+    """Read every `step`-th catalog page (fresh browser context per page, as the
+    scraper does) until a page has no cards or the shop sends back to page 1."""
+    sampled: list[dict] = []
+    page_no, last_page = 1, 0
+    try:
+        while page_no <= 200:
+            url = s220_page_url(category_url, page_no)
+            resp = await browser_manager.get_page_content(url, fast_mode=True, context=None, solve_cf=False)
+            page_html = (resp or {}).get("html") or ""
+            if page_no > 1 and resp and s220_page_no(resp.get("url") or "") != page_no:
+                break
+            cards = s220_site_cards(url, page_html, page_no)
+            if not cards:
+                break
+            last_page = page_no
+            for card in cards:
+                sampled.append({"page": page_no, "pos": card["pos"], "kinds": card["kinds"]})
+            page_no += step
+            await asyncio.sleep(random.uniform(1.0, 2.0))
+    finally:
+        await browser_manager.stop()
+    return sampled, last_page
+
+
 # ── Card kinds ───────────────────────────────────────────────────────────────
 
 VARIATION_KINDS = [
@@ -473,7 +506,7 @@ VARIATION_KINDS = [
     ("refill", "Refill / Refillable",
      "Refill-вариант не склеивается с обычным флаконом того же объёма."),
     ("mini", "Миниатюры (mini)",
-     "Сохраняется как отдельный маленький объём (10–15 ml)."),
+     "Сохраняется как отдельный маленький объём (до 30 ml) в той же группе сравнения, что и полноразмерный флакон."),
     ("discount", "Скидка (зачёркнутая цена)",
      "Сохраняется текущая цена. Старую цену со скидкой парсер пока не хранит."),
     ("grams", "Объём в граммах (твёрдые духи, стики)",
@@ -665,6 +698,64 @@ def douglas_site_cards(page_url: str, page_html: str, page_no: int,
             "site_brand": brand, "site_title": name, "site_sub": type_text,
             "site_vars": site_vars, "kinds": kinds, "in_stock": in_stock, "badges": badges,
             "card_text": " · ".join(x for x in (price_text, volume_text) if x), "variants_note": note,
+        })
+    return cards
+
+
+# ── 220.lv adapter ───────────────────────────────────────────────────────────
+
+S220_PLUS = "220.lv PLUS"
+
+
+def s220_page_url(category_url: str, page_no: int) -> str:
+    return category_url if page_no <= 1 else f"{category_url}?page={page_no}"
+
+
+def s220_page_no(url: str) -> int:
+    m = re.search(r"[?&]page=(\d+)", url or "")
+    return int(m.group(1)) if m else 1
+
+
+def _price_label(label: str | None) -> Decimal | None:
+    """aria-label "44,24 €" → Decimal("44.24")."""
+    m = re.search(r"\d+(?:[.,]\d+)?", re.sub(r"\s+", "", label or ""))
+    return _money(m.group(0).replace(",", ".")) if m else None
+
+
+def s220_site_cards(page_url: str, page_html: str, page_no: int) -> list[dict]:
+    """The prices visible on the card (not the widget JSON the scraper reads)
+    are the site side of the price check."""
+    cards = []
+    for pos, card in enumerate(Selector(text=page_html).css("div.c-product-card"), start=1):
+        data = _json(card.attrib.get("widget-data"))
+        dl = data.get("dataLayerItem") or {}
+        title = html.unescape(data.get("title") or " ".join(card.css(".c-product-card__title ::text").getall())).strip()
+        url = data.get("url") or urljoin(page_url, card.css("a::attr(href)").get() or "")
+        prices = card.css(".c-product-card__prices")
+        loyalty = _price_label(prices.css(".h-price--loyalty::attr(aria-label)").get())
+        public = _price_label(prices.css(".c-price:not(.h-price--loyalty):not(.c-price--leasing)::attr(aria-label)").get())
+        in_stock = str(dl.get("item_status") or "active") == "active" and bool(public or loyalty)
+        is_set = detect_card_type(title) == "gift_set"
+        volume = re.search(r"\d+(?:[.,]\d+)?\s*(?:ml|l|g)\b", title, re.IGNORECASE)
+        site_vars = [] if is_set else [{
+            "value": " ".join(x for x in (volume.group(0), volume_qualifier(title)) if x) if volume else "",
+            "price": public, "old": None,
+            "available": in_stock, "promo_price": loyalty, "promo_code": S220_PLUS if loyalty else None,
+        }]
+        kinds = ["gift_set"] if is_set else ["single_volume"]
+        kinds += _stock_kinds(in_stock, site_vars)
+        kinds += _common_kinds(title, "", site_vars, is_set)
+        badges = [f"цена {S220_PLUS}: {loyalty} €"] if loyalty else []
+        card_text = " · ".join(x for x in (
+            f"{public} €" if public else "", f"{S220_PLUS} {loyalty} €" if loyalty else "") if x)
+        cards.append({
+            "kind": "product", "pos": pos, "page": page_no, "page_url": page_url, "url": url,
+            "image": re.sub(r"_(?:xsmall|small|medium|large|big)\.(jpe?g|png|webp)$", r"_reference.\1",
+                            card.css("img.main-image::attr(src)").get() or data.get("photoUrl") or ""),
+            "site_brand": dl.get("item_brand") or "", "site_title": title,
+            "site_sub": "", "site_vars": site_vars, "kinds": kinds, "in_stock": in_stock, "badges": badges,
+            "card_text": card_text, "variants_note": "объём: из названия карточки",
+            "sets_not_stored": True,
         })
     return cards
 
@@ -880,7 +971,9 @@ def evaluate_card(card: dict, cand_by_url: dict, db_by_url: dict) -> dict:
     if not cands:
         bl = [b for b in PRODUCT_BLACKLIST if b in title.lower()]
         sub_bl = [b for b in PRODUCT_BLACKLIST if b in sub.lower()]
-        if is_set and is_non_perfume_set(title, sub):
+        if is_set and card.get("sets_not_stored"):
+            drop_reason = "подарочный набор: наборы из этого магазина не сохраняются"
+        elif is_set and is_non_perfume_set(title, sub):
             drop_reason = f"набор без парфюма: «{sub}»"
         elif bl:
             drop_reason = f"чёрный список: «{bl[0]}»"
@@ -891,7 +984,7 @@ def evaluate_card(card: dict, cand_by_url: dict, db_by_url: dict) -> dict:
         else:
             drop_reason = "не сохранён (причина не определена)"
     # Non-perfumes are supposed to be dropped: that outcome is correct.
-    expected_drop = "non_perfume" in kinds
+    expected_drop = "non_perfume" in kinds or (is_set and bool(card.get("sets_not_stored")))
 
     tags = []
     if is_set:
@@ -911,6 +1004,8 @@ def evaluate_card(card: dict, cand_by_url: dict, db_by_url: dict) -> dict:
             issues.append(f"в наборе нет парфюма («{sub}»), но он сохранён")
         else:
             issues.append(f"на сайте это «{sub or title}», а парсер сохранил его как духи")
+    if cands and is_set and card.get("sets_not_stored"):
+        issues.append("набор сохранён, хотя наборы из этого магазина не сохраняются")
     if cands and is_set:
         if any(c.get("card_type") != "gift_set" for c in cands):
             issues.append("набор сохранён не как набор")
@@ -957,6 +1052,10 @@ def evaluate_card(card: dict, cand_by_url: dict, db_by_url: dict) -> dict:
         groups = sorted({r["group"] for r in db_rows if r["group"]})
         if len(groups) > 1:
             issues.append("объёмы одной карточки попали в разные группы сравнения: " + "; ".join(groups))
+        mini_groups = [g for g in groups if MINI_GROUP_RE.search(g)]
+        if "mini" in kinds and mini_groups and any(
+                perfume_normalizer.is_mini_volume(_vol_key(c.get("volume"))) for c in cands):
+            issues.append(f"миниатюра попала в отдельную группу «{'; '.join(mini_groups)}», а не к полноразмерному флакону")
         if sub and not any(c.get("concentration") for c in cands) and "non_perfume" not in kinds:
             issues.append(f"концентрация не распознана (на сайте: «{sub}»)")
     if cands and not card["in_stock"] and any(c.get("is_available") for c in cands):
@@ -1008,6 +1107,10 @@ def site_pages(site: str, cap: ReviewCapture, category_url: str) -> list[dict]:
             page_no = makeup_page_no(api_url)
             cards = [makeup_site_card(p, pos, page_no, category_url) for pos, p in enumerate(data.get("products") or [], start=1)]
             pages.append({"page": page_no, "page_url": makeup_page_url(category_url, page_no), "cards": cards})
+    elif site == "220":
+        for page_url, page_html in cap.catalog_pages:
+            page_no = s220_page_no(page_url)
+            pages.append({"page": page_no, "page_url": page_url, "cards": s220_site_cards(page_url, page_html, page_no)})
     elif site == "notino":
         for page_url, page_html in cap.catalog_pages:
             page_no = notino_page_no(page_url)
@@ -1060,11 +1163,12 @@ table { width:100%; border-collapse:collapse; }
 th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--line); background:var(--card); }
 td { padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
 .c-pos { width:70px; font-weight:700; color:var(--muted); }
-.c-img { width:78px; }
-.c-img img { width:64px; height:64px; object-fit:contain; background:#fff; border-radius:6px; }
+.c-img { width:110px; }
+.c-img img { width:96px; height:96px; object-fit:contain; background:#fff; border-radius:6px; }
 .brand { font-weight:700; }
 .link { color:var(--accent); font-size:13px; }
-.vol { display:grid; grid-template-columns:90px 80px auto; gap:6px; white-space:nowrap; }
+.vol { display:grid; grid-template-columns:90px 80px auto; gap:2px 6px; white-space:nowrap; margin-bottom:4px; }
+.vol-note { grid-column:1 / -1; white-space:normal; font-size:13px; }
 .yes { color:var(--ok); } .no { color:var(--bad); } .ok { color:var(--ok); }
 .tag { display:inline-block; font-size:12px; border-radius:20px; padding:1px 8px; margin:0 4px 4px 0; border:1px solid var(--line); }
 .t-gift { background:var(--badbg); color:var(--bad); } .t-warn { background:var(--warnbg); color:var(--warn); }
@@ -1090,7 +1194,7 @@ function apply(){ const s=q.value.trim().toLowerCase();
 [q,only,promo].filter(Boolean).forEach(el=>el.addEventListener('input',apply));
 """
 
-TABLE_HEAD = ('<table><thead><tr><th class="c-pos">{pos}</th><th class="c-img">Фото</th><th>На сайте</th>'
+TABLE_HEAD = ('<table><thead><tr><th class="c-pos">{pos}</th><th class="c-img">Фото (парсер)</th><th>На сайте</th>'
               '<th>Результат парсера</th><th>Объёмы и цены (парсер)</th><th>Тип карточки</th><th>Автопроверка</th></tr></thead><tbody>')
 
 SITE_NOTES = {
@@ -1098,6 +1202,10 @@ SITE_NOTES = {
     "douglas": ("Колонка «На сайте» — карточка каталога (что на ней написано) и данные магазина Tealium: объёмы, цены и наличие "
                 "со страницы товара, а у товаров с одним объёмом — с карточки. Если парсер сам не открывал страницу товара, "
                 "её открыл отчёт — это подписано под названием."),
+    "220": ("Колонка «На сайте» — карточка каталога: название, бренд и наличие из данных карточки (widget-data), "
+            "цены — те, что видны на карточке. Основная цена — публичная; цена «220.lv PLUS» только для участников "
+            "программы лояльности, парсер хранит её как цену с кодом «220.lv PLUS». Объём берётся из названия. "
+            "Подарочные наборы из 220.lv не сохраняются (решение от 02.10.2026)."),
     "notino": ("Колонка «На сайте» — карточка каталога (что на ней написано) и данные самого Notino, встроенные в страницы: "
                "у товаров с одним объёмом — из каталога, у товаров с несколькими — цена, наличие и название каждого варианта "
                "со страницы товара (refill Notino помечает в названии варианта). Если парсер сам не открывал страницу товара, "
@@ -1115,7 +1223,10 @@ def render_row(r: dict, show_page: bool) -> str:
                 f'<td colspan="5" class="muted">Не товар — {e(r["label"])}{": " + e(r["title"]) if r["title"] else ""}</td></tr>')
     search = f'{r["site_brand"]} {r["site_title"]} ' + " ".join(c["title"] for c in r["cands"])
     status = r["status"]
-    img = f'<img src="{e(r["image"])}" loading="lazy" alt="">' if r["image"] else ""
+    # The photo the parser saved (what the site shows), else the site's own.
+    image = next((c.get("image_url") for c in r["cands"] if c.get("image_url")), None) or r["image"]
+    img = (f'<a href="{e(image)}" target="_blank" rel="noopener"><img src="{e(image)}" loading="lazy" alt=""></a>'
+           if image else "")
     site_cell = (
         f'<div class="brand">{e(r["site_brand"])}</div><div>{e(r["site_title"])}</div>'
         f'<div class="muted">{e(r["site_sub"])}</div>'
@@ -1138,17 +1249,23 @@ def render_row(r: dict, show_page: bool) -> str:
         last_by_vol = {db["volume"]: db["last_price"] for db in r["db_rows"]}
 
         def price_cell(c: dict) -> str:
-            if c["price"]:
-                promo = (f'<br><span class="muted">с кодом «{e(c.get("promo_code"))}»: {e(_money(c["promo_price"]))} €</span>'
-                         if c.get("promo_price") else "")
-                return f'<b>{e(_money(c["price"]))} €</b>{promo}'
-            last = last_by_vol.get(c.get("volume"))
-            kept = f"<br>в базе осталась {e(_money(last))} €" if last else ""
-            return f'<span class="muted">цены нет{kept}</span>'
+            return f'<b>{e(_money(c["price"]))} €</b>' if c["price"] else '<span class="muted">цены нет</span>'
+
+        def price_note(c: dict) -> str:
+            """A second line under the volume row (a full-width grid row, so it
+            never runs into the stock column)."""
+            if c["price"] and c.get("promo_price"):
+                text = f'с кодом «{e(c.get("promo_code"))}»: {e(_money(c["promo_price"]))} €'
+            elif not c["price"] and last_by_vol.get(c.get("volume")):
+                text = f'в базе осталась {e(_money(last_by_vol[c.get("volume")]))} €'
+            else:
+                return ""
+            return f'<span class="vol-note muted">{text}</span>'
 
         vol_lines = "".join(
             f'<div class="vol"><span>{e(c.get("volume") or "без объёма")}</span>{price_cell(c)}'
-            f'<span class="{"yes" if c.get("is_available") else "no"}">{"в наличии" if c.get("is_available") else "нет в наличии"}</span></div>'
+            f'<span class="{"yes" if c.get("is_available") else "no"}">{"в наличии" if c.get("is_available") else "нет в наличии"}</span>'
+            f'{price_note(c)}</div>'
             for c in r["cands"]
         )
     else:
@@ -1269,6 +1386,8 @@ async def mode_selected_pages(site: str, target: dict, page_numbers: list[int], 
     cap = ReviewCapture()
     if site == "makeup":
         await run_makeup_pages(target, cap, page_numbers)
+    elif site == "220":
+        await run_douglas_pages(target, cap, page_numbers, s220_page_url)
     else:
         await run_douglas_pages(target, cap, page_numbers)
     model = await evaluate_pages(site_pages(site, cap, target["url"]), cap)
@@ -1304,6 +1423,8 @@ async def mode_variations(site: str, target: dict, step: int, per_kind: int, max
     logger.info(f"[REVIEW] sampling the catalog (every {step} page(s))")
     if site == "makeup":
         sampled, total_pages = await sample_makeup_catalog(target["url"], step)
+    elif site == "220":
+        sampled, total_pages = await sample_220_catalog(target["url"], step)
     else:
         sampled, total_pages = await sample_douglas_catalog(target["url"], step)
     found = {k: sum(1 for s in sampled if k in s["kinds"]) for k, _, _ in VARIATION_KINDS}
@@ -1313,6 +1434,8 @@ async def mode_variations(site: str, target: dict, step: int, per_kind: int, max
     cap = ReviewCapture()
     if site == "makeup":
         await run_makeup_pages(target, cap, pages)
+    elif site == "220":
+        await run_douglas_pages(target, cap, pages, s220_page_url)
     else:
         await run_douglas_pages(target, cap, pages)
     model = await evaluate_pages(site_pages(site, cap, target["url"]), cap)
