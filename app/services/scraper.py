@@ -1224,8 +1224,11 @@ class ScraperService:
         220.lv is a SPA (Pigu platform). Each product card has a `widget-data`
         attribute containing a full JSON object with clean decimal prices.
 
-        We use `regular_price` (publicly accessible non-loyalty price) rather
-        than `price` (loyalty/PLUS members only) for fair cross-site comparison.
+        A card shows either one public price, or a "220.lv PLUS" loyalty price
+        (span.h-price--loyalty, members only) next to the public price. With a
+        loyalty price, widget `price` is the loyalty price and `regular_price`
+        the public one. The public price is the product's price; the loyalty
+        price is kept as promo_price / promo_code "220.lv PLUS".
         """
         import json
         from parsel import Selector
@@ -1240,7 +1243,10 @@ class ScraperService:
 
                 title     = data.get('title', '').strip()
                 url       = data.get('url', '')
-                image_url = data.get('photoUrl', '')
+                # photoUrl is the 21×46 px "_xsmall" thumbnail; "_reference" is the
+                # size the shop's own product page shows (about 480×1024).
+                image_url = re.sub(r'_(?:xsmall|small|medium|large|big)\.(jpe?g|png|webp)$', r'_reference.\1',
+                                   data.get('photoUrl', ''))
                 brand     = dl.get('item_brand', '')
                 status    = dl.get('item_status', 'active')
 
@@ -1248,21 +1254,36 @@ class ScraperService:
                 # price         = loyalty/PLUS member price (requires subscription)
                 # 220.lv widget-data is inconsistent across deploys: sometimes int cents (4499),
                 # sometimes float cents (2389.00), rarely float euros (44.99). Type-based detection
-                # fails on float-cents. Use value-based heuristic: anything > 500 is cents (a single
-                # perfume bottle at retail never exceeds 500€ in the Latvian market).
+                # fails on float-cents. The prices shown on the card (aria-label "742,20 €") decide
+                # the scale; without them, anything > 500 is taken as cents.
+                shown = []
+                for lbl in card.css('.c-product-card__prices .c-price::attr(aria-label)').getall():
+                    m = re.search(r'\d+(?:[.,]\d+)?', re.sub(r'\s+', '', lbl))
+                    if m:
+                        shown.append(Decimal(m.group(0).replace(',', '.')))
+
                 def _norm_220_price(raw) -> Decimal:
                     if raw is None:
                         return Decimal('0.00')
                     v = Decimal(str(raw))
-                    if v > Decimal('500'):
+                    if shown:
+                        if not any(abs(v - s) < Decimal('0.02') for s in shown) and \
+                                any(abs(v / 100 - s) < Decimal('0.02') for s in shown):
+                            v = v / 100
+                    elif v > Decimal('500'):
                         v = v / 100
                     return v.quantize(Decimal('0.01'))
 
                 regular_price = _norm_220_price(dl.get('regular_price'))
                 sell_price    = _norm_220_price(dl.get('price'))
 
-                # Use regular_price as the reference; fall back to sell_price if missing
-                final_price = regular_price if regular_price > 0 else sell_price
+                promo_price = None
+                if card.css('.h-price--loyalty') and regular_price > 0:
+                    final_price = regular_price
+                    if 0 < sell_price < regular_price:
+                        promo_price = sell_price
+                else:
+                    final_price = sell_price if sell_price > 0 else regular_price
                 is_available = status == 'active' and final_price > 0
 
                 if title and final_price > 0:
@@ -1274,6 +1295,8 @@ class ScraperService:
                         'image_url':  image_url,
                         'brand':      brand,
                         'volume':     '',   # volume embedded in title for this site
+                        'promo_price': promo_price,
+                        'promo_code':  '220.lv PLUS' if promo_price else None,
                     })
             except Exception as e:
                 logger.debug(f'220.lv widget-data parse error: {e}')
@@ -1475,15 +1498,18 @@ class ScraperService:
                 items_220 = self._extract_220_from_widget_data(html)
                 if items_220:
                     logger.success(f"🏪 220.lv widget-data yielded {len(items_220)} products!")
-                    from app.services.normalizer import perfume_normalizer
+                    from app.services.normalizer import perfume_normalizer, detect_card_type
                     unique_products_220 = set()
                     for mi in items_220:
                         lower_title = mi['base_title'].lower()
                         if any(b in lower_title for b in PRODUCT_BLACKLIST): continue
+                        # Ervin (2026-10-02): gift sets from 220.lv are not stored.
+                        if detect_card_type(mi['base_title']) == "gift_set": continue
                         unique_products_220.add(mi['url'])
                         base_norm = perfume_normalizer.extract_all(mi['base_title'])
                         full_title = f"{mi['base_title']} {mi['volume']}".strip()
-                        self._add_candidate(candidates, full_title, mi['price'], mi['is_available'], mi['url'], mi['image_url'], mi['brand'], base_norm)
+                        self._add_candidate(candidates, full_title, mi['price'], mi['is_available'], mi['url'], mi['image_url'], mi['brand'], base_norm,
+                                            promo_price=mi['promo_price'], promo_code=mi['promo_code'])
                     processed_cards += len(unique_products_220)
                     cards = []  # Skip standard DOM loop
                     injection_ok = True
@@ -2275,7 +2301,7 @@ class ScraperService:
         # Strip stray punctuation from each part BEFORE concatenation —
         # otherwise ":" / "?" / "'s" gets sandwiched between clean_name and volume
         # and the final .strip() at the end never sees it.
-        _PUNCT = " ,.:;?!'\"|-"
+        _PUNCT = " ,.:;?!'\"|-–—"
         clean_name = clean_name.strip(_PUNCT)
         if final_brand:
             final_brand = final_brand.strip(_PUNCT)
@@ -2297,7 +2323,7 @@ class ScraperService:
             display_title = re.sub(r'\s+', ' ', display_title).strip()
 
         # Trim trailing punctuation artifacts ("Name :", "Name ?", "brand's")
-        display_title = display_title.strip(" ,.:;?!'\"|-")
+        display_title = display_title.strip(" ,.:;?!'\"|-–—")
 
         # Fallback: if normalization produced garbage (empty / too short),
         # keep the raw title so we never lose the product identity.
