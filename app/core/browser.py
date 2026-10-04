@@ -1,7 +1,6 @@
 import asyncio
 import random
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
-from playwright_stealth import stealth_async  # <-- IMPORTANT: Stealth patch
 from loguru import logger
 from app.core.proxy import proxy_manager
 from app.core.humanizer import Humanizer # <-- Our new module
@@ -15,7 +14,6 @@ class NetworkInterceptor:
         try:
             if "application/json" in response.headers.get("content-type", "").lower():
                 url = response.url
-                # убрали фильтр на слова tracking, events, чтобы ловить те самые Payload, о которых ты говорил
                 junk = ['google', 'facebook', 'hotjar', 'metrics', 'clarity', 'trustpilot', 'doubleclick', 'ads']
                 if any(j in url.lower() for j in junk):
                     return
@@ -70,11 +68,13 @@ class BrowserManager:
             self.playwright = await async_playwright().start()
 
             base_args = [
-                "--disable-blink-features=AutomationControlled",  # hide "controlled by automation"
+                "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+                "--force-webrtc-ip-handling-policy",
             ]
 
             # Try real Chrome non-headless first (best stealth posture)
@@ -98,12 +98,11 @@ class BrowserManager:
             raise RuntimeError(f"All browser launch attempts failed. Last error: {last_err}")
 
     async def get_context(self) -> BrowserContext:
-        """Creates and returns a new browser context with stealth and human-like settings."""
         if not self.browser:
             await self.start()
-            
+
         assert self.browser is not None, "Browser Engine failed to start."
-            
+
         proxy_str = proxy_manager.get_proxy()
         proxy_config = None
         if proxy_str:
@@ -119,77 +118,42 @@ class BrowserManager:
             except Exception:
                 proxy_config = {"server": proxy_str}
 
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        # Matched profiles: UA + Platform + Screen resolution
+        profiles = [
+            {
+                "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "platform": "Win32",
+                "viewport": {"width": 1920, "height": 1080},
+                "screen": {"width": 1920, "height": 1080}
+            },
+            {
+                "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "platform": "Win32",
+                "viewport": {"width": 1536, "height": 864},
+                "screen": {"width": 1536, "height": 864}
+            }
         ]
-        
-        viewports = [
-            {"width": 1920, "height": 1080},
-            {"width": 1366, "height": 768},
-            {"width": 1536, "height": 864},
-            {"width": 1440, "height": 900}
-        ]
+        profile = random.choice(profiles)
 
         context = await self.browser.new_context(
-            user_agent=random.choice(user_agents),
-            viewport=random.choice(viewports),
+            user_agent=profile["ua"],
+            viewport=profile["viewport"],
+            screen=profile["screen"],
             proxy=proxy_config,
-            locale="lv-LV",            # Latvian locale matches our target sites
-            timezone_id="Europe/Riga",  # matches LV-LV
+            locale="lv-LV",
+            timezone_id="Europe/Riga",
+            permissions=["geolocation"],
+            color_scheme="light",
+            device_scale_factor=1,
         )
 
-        # ── Stealth init script ──────────────────────────────────────────────
-        # Runs in every page BEFORE site JS executes. We patch the most common
-        # bot tells that Cloudflare/DataDome/PerimeterX use to fingerprint
-        # automation:
-        #   - navigator.webdriver         → undefined (was true)
-        #   - navigator.plugins           → fake 3-plugin list (was empty)
-        #   - navigator.languages         → ["lv-LV", "lv", "en-US", "en"]
-        #   - window.chrome               → fake runtime object (missing in HL)
-        #   - WebGL UNMASKED_VENDOR/RENDERER → Intel/Iris instead of SwiftShader
-        await context.add_init_script("""
-            // Hide webdriver
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-            // Fake plugin list — empty plugins is a huge red flag
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [
-                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-                    { name: 'Native Client', filename: 'internal-nacl-plugin' },
-                ],
-            });
-
-            // Languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['lv-LV', 'lv', 'en-US', 'en'],
-            });
-
-            // window.chrome runtime
-            if (!window.chrome) {
-                window.chrome = { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} };
-            }
-
-            // Permissions API: notifications should be 'default', not 'denied'
-            const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
-            if (originalQuery) {
-                window.navigator.permissions.query = (parameters) =>
-                    parameters.name === 'notifications'
-                        ? Promise.resolve({ state: Notification.permission })
-                        : originalQuery(parameters);
-            }
-
-            // WebGL vendor/renderer spoof — bundled chromium returns
-            // 'Google Inc. (Google)' / 'ANGLE (Google, SwiftShader, ...)' which is a tell.
-            const getParameterProxy = WebGLRenderingContext.prototype.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(param) {
-                if (param === 37445) return 'Intel Inc.';                            // UNMASKED_VENDOR_WEBGL
-                if (param === 37446) return 'Intel(R) Iris(TM) Plus Graphics 640';   // UNMASKED_RENDERER_WEBGL
-                return getParameterProxy.apply(this, [param]);
-            };
+        # Safe context masking without targeted playwright-stealth calls
+        await context.add_init_script(f"""
+            delete Object.getPrototypeOf(navigator).webdriver;
+            Object.defineProperty(navigator, 'platform', {{ get: () => '{profile["platform"]}' }});
+            Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => 8 }});
+            Object.defineProperty(navigator, 'deviceMemory', {{ get: () => 8 }});
+            Object.defineProperty(navigator, 'plugins', {{ get: () => [1, 2, 3, 4, 5] }});
         """)
 
         return context
@@ -363,7 +327,6 @@ class BrowserManager:
                 page.on("response", interceptor.handle_response)
                 page.on("request", interceptor.handle_request)
 
-            await stealth_async(page)
             
             if fast_mode and not verified_domain: 
                 await asyncio.sleep(random.uniform(0.5, 2.0))
@@ -537,5 +500,30 @@ class BrowserManager:
             if self.playwright:
                 await self.playwright.stop()
                 self.playwright = None
+
+    async def bypass_and_get_session_data(self, url: str) -> dict | None:
+        """It bypasses Cloudflare using Playwright and returns the `cf_clearance` cookie."""
+        context = await self.get_context()
+        page = await context.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            solved = await self._solve_cloudflare(page)
+            if not solved:
+                return None
+
+            cookies = await context.cookies()
+            user_agent = await page.evaluate("navigator.userAgent")
+            cookie_dict = {c["name"]: c["value"] for c in cookies}
+
+            return {
+                "cookies": cookie_dict,
+                "user_agent": user_agent
+            }
+        except Exception as e:
+            logger.error(f"Error during session extraction: {e}")
+            return None
+        finally:
+            await page.close()
+            await context.close()
 
 browser_manager = BrowserManager()

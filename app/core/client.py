@@ -18,27 +18,26 @@ class StealthClient:
         self.current_browser: str | None = None
         self.current_proxy: str | None = None
 
-    async def init_session(self):
-        """
-        Initializes a long-lived HTTP session with Keep-Alive support.
-        Configures TLS spoofing (impersonation) and rotates proxies to bypass bot detection.
-        """
+    async def init_session(self, cookies: dict | None = None, custom_ua: str | None = None):
         if self.session:
             await self.close()
-            
+
         self.current_browser = random.choice(self.IMPERSONATE_TARGETS)
-        # Get new proxy from manager
         self.current_proxy = proxy_manager.get_proxy()
         proxies = {"http": self.current_proxy, "https": self.current_proxy} if self.current_proxy else None
-        
+
+        headers = {
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+        }
+        if custom_ua:
+            headers["User-Agent"] = custom_ua
+
         self.session = AsyncSession(
-            impersonate=self.current_browser,
+            impersonate=self.current_browser if not custom_ua else None,
             proxies=proxies,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Cache-Control": "no-cache",
-            },
+            headers=headers,
+            cookies=cookies,
             timeout=30
         )
         proxy_log = "Direct" if self.current_proxy is None else f"Proxy {self.current_proxy.split('@')[-1]}"
