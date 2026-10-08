@@ -20,9 +20,15 @@ correct current price), re-points its PriceHistory and Favorites onto the
 keeper, then deletes the stale duplicates.
 
 Because normalization only removes the numeric "/p-<id>/" suffix (the slug,
-which is unique per product, is preserved) it cannot merge two genuinely
-different products. Rows whose URLs are already identical are also collapsed
-(those are pure race-condition leftovers).
+which is unique per product, is preserved) it cannot merge two different
+listings. Rows whose URLs are already identical are also collapsed (those are
+pure race-condition leftovers).
+
+One listing can still hold different variants of the same size: old rows
+stored a refill without the "refill" volume label. A pair is SKIPPED (listed,
+left untouched) when it looks like two variants: only one title names a
+refill, the prices differ by more than 40 %, the concentrations differ, or
+the URLs carry two different "/p-<id>/" numbers.
 
 Safety
 ------
@@ -52,6 +58,23 @@ from app.domain.models import Product, PriceHistory, Favorite
 
 
 _P_SUFFIX = re.compile(r"/p-\d+/?$")
+_P_ID = re.compile(r"/p-(\d+)/?$")
+_REFILL = re.compile(r"uzpild|refill|rezerv", re.IGNORECASE)
+
+
+def variant_doubts(rows: list[Product]) -> list[str]:
+    """Why the rows may be different variants rather than duplicates."""
+    doubts = []
+    if len({bool(_REFILL.search(p.title or "")) for p in rows}) > 1:
+        doubts.append("only one title names a refill")
+    prices = [float(p.last_price) for p in rows if p.last_price]
+    if prices and max(prices) > 1.4 * min(prices):
+        doubts.append("prices differ by more than 40%")
+    if len({p.concentration for p in rows}) > 1:
+        doubts.append("different concentrations")
+    if len({m.group(1) for p in rows if (m := _P_ID.search(p.url or ""))}) > 1:
+        doubts.append("different /p-<id>/ numbers")
+    return doubts
 
 
 def normalize_url(url: str | None) -> str:
@@ -73,9 +96,17 @@ async def main(apply: bool) -> None:
             groups[key].append(p)
 
         dupe_groups = {k: v for k, v in groups.items() if len(v) > 1}
+        doubtful = {k: v for k, v in dupe_groups.items() if variant_doubts(v)}
+        dupe_groups = {k: v for k, v in dupe_groups.items() if k not in doubtful}
         rows_to_remove = sum(len(v) - 1 for v in dupe_groups.values())
         print(f"Duplicate groups (same canonical-url + volume): {len(dupe_groups)}")
         print(f"Duplicate rows that would be removed:           {rows_to_remove}")
+        print(f"Skipped, may be different variants:            {len(doubtful)}")
+        print("-" * 78)
+        for key, rows in sorted(doubtful.items()):
+            print(f"SKIP vol={key[1]!r} ({'; '.join(variant_doubts(rows))})  url={key[0]}")
+            for p in rows:
+                print(f"   id={p.id} price={p.last_price} seen={p.last_seen:%Y-%m-%d}  {p.title}  {p.url}")
         print("-" * 78)
 
         removed = 0
