@@ -90,16 +90,21 @@ class AIGenerator:
                 "image_css": "img.c-product-card__image",
                 "next_page_css": "[class*=pagination] a:last-child",
             },
-            # Verified 2026-03-15 by HTML reverse-engineering (analyze_1a.py)
-            # Container: 48/48 cards confirmed, BEM class naming pattern
+            # Verified 2026-10-08 on the live page (Ervin, DevTools). Cards are
+            # rendered client-side by LupaSearch; parsed by _extract_1a_cards()
+            # in scraper.py, these selectors are the DOM fallback. The old
+            # catalog-taxons-product markup (2026-03) no longer exists.
+            # price_css = regular price; the SMART NET loyalty price is
+            # .special-price .catalog-taxons-product-price__price-number.
+            # Pagination: ?page=N (URL-pattern fallback in scraper.py).
             "1a.lv": {
                 "site_name": "1a.lv",
                 "emoji": "🛒",
-                "container_css": "div.catalog-taxons-product",
-                "title_css": "a.catalog-taxons-product__name",
-                "price_css": "span.catalog-taxons-product-price__price-number",
-                "image_css": "img.catalog-taxons-product__image",
-                "next_page_css": "a.paginator__next",
+                "container_css": "div.lupa-search-result-product-card",
+                "title_css": "a.lupa-title-link",
+                "price_css": ".catalog-taxons-product__price .catalog-taxons-product-price__item-price",
+                "image_css": "img.lupa-search-results-image",
+                "next_page_css": None,
             }
         }
 
