@@ -80,7 +80,6 @@ lab/
 
 # One-off maintenance scripts (kept locally, run manually when needed)
 scripts/fix_search_term.py
-scripts/regroup_products.py
 scripts/renormalize_titles.py
 scripts/reupload_to_server.py
 
