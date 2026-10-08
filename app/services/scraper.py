@@ -1303,6 +1303,78 @@ class ScraperService:
 
         return results
 
+    def _extract_1a_cards(self, html: str, base_url: str) -> list[dict]:
+        """1a.lv catalog cards, rendered by LupaSearch (selectors verified on the
+        live page by Ervin, 2026-10-08).
+
+        A card shows the regular price and, for most products, a lower
+        "SMART NET" loyalty-card price. The regular price is the product's
+        price; the SMART NET price is kept as promo_price / promo_code
+        "SMART NET". Brand, concentration and volume come from the card's
+        attribute list (Zīmols / Koncentrācija / Tilpums).
+        """
+        from urllib.parse import urljoin, urlsplit, urlunsplit
+
+        def _price(text: str | None) -> Decimal | None:
+            if not text:
+                return None
+            m = re.search(r'\d[\d\s ]*(?:[.,]\d+)?', text)
+            if not m:
+                return None
+            value = self.parse_price(m.group(0))
+            return value if value > 0 else None
+
+        results = []
+        sel = Selector(text=html)
+        for card in sel.css('div.lupa-search-result-product-card'):
+            try:
+                link = card.css('a.lupa-title-link')
+                title = " ".join(link.xpath('string(.)').get(default="").split()) \
+                    or (card.css('.lupa-search-results-product-title::attr(title)').get() or "").strip()
+                href = link.attrib.get('href') if link else \
+                    card.css('a.lupa-search-result-product-image-section::attr(href)').get()
+                if not title or not href:
+                    continue
+                # Drop the LupaSearch tracking query (?mtd=search-popup&...&src=lupasearch)
+                parts = urlsplit(urljoin(base_url, href))
+                url = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+                attrs = {}
+                for li in card.css('li.catalog-taxons-product-key-attribute-list__item'):
+                    value = " ".join(li.css('.catalog-taxons-product-key-attribute-list__item-value').xpath('string(.)').get(default="").split())
+                    label = " ".join(" ".join(li.xpath('./text()').getall()).split()).rstrip(':').strip().lower()
+                    if label and value:
+                        attrs[label] = value
+
+                regular = _price(card.css('.catalog-taxons-product__price .catalog-taxons-product-price__item-price').xpath('string(.)').get())
+                smart = _price(card.css('.special-price .catalog-taxons-product-price__price-number').xpath('string(.)').get())
+                price = regular or smart
+                if not price:
+                    continue
+                promo_price = smart if regular and smart and smart < regular else None
+
+                # Every card element carries instock="true|false"; a sold-out
+                # card also fills .lupa-element-group-soldout ("Izpārdots").
+                in_stock_flags = card.css('[instock]::attr(instock)').getall()
+                sold_out = bool(card.css('.lupa-element-group-soldout').xpath('normalize-space(string(.))').get())
+                is_available = (not in_stock_flags or "true" in in_stock_flags) and not sold_out
+
+                results.append({
+                    'base_title': title,
+                    'price': price,
+                    'is_available': is_available,
+                    'url': url,
+                    'image_url': card.css('img.lupa-search-results-image::attr(src)').get() or "",
+                    'brand': attrs.get('zīmols', ''),
+                    'concentration': attrs.get('koncentrācija', ''),
+                    'volume': attrs.get('tilpums', ''),
+                    'promo_price': promo_price,
+                    'promo_code': 'SMART NET' if promo_price else None,
+                })
+            except Exception as e:
+                logger.debug(f'1a.lv card parse error: {e}')
+        return results
+
     def _extract_douglas_catalog_volume(self, card: Selector) -> str | None:
         """Read single-variant volume (e.g. '50ml') from a Douglas catalog card's
         data-tealium-info attribute. Needed because the product detail page
@@ -1516,6 +1588,38 @@ class ScraperService:
                     injection_signature = frozenset(unique_products_220)
                 else:
                     logger.warning("⚠️ 220.lv widget-data yielded 0 items — falling back to DOM selectors")
+                    cards, winner = self._try_selectors(sel, rule.container_css)
+
+            # --- 1A.LV LUPASEARCH CARDS ---
+            elif "1a.lv" in domain:
+                items_1a = self._extract_1a_cards(html, current_url)
+                if items_1a:
+                    logger.success(f"🛒 1a.lv cards yielded {len(items_1a)} products!")
+                    from app.services.normalizer import perfume_normalizer
+                    unique_products_1a = set()
+                    for mi in items_1a:
+                        if any(b in mi['base_title'].lower() for b in PRODUCT_BLACKLIST): continue
+                        unique_products_1a.add(mi['url'])
+                        base_norm = perfume_normalizer.extract_all(mi['base_title'], explicit_brand=mi['brand'])
+                        # The card's attribute list ("Koncentrācija", "Tilpums") is
+                        # more reliable than the title.
+                        if mi['concentration']:
+                            attr_conc = perfume_normalizer.extract_all(mi['concentration']).get("concentration")
+                            if attr_conc:
+                                base_norm["concentration"] = attr_conc
+                        if mi['volume']:
+                            base_norm["volume"] = perfume_normalizer.extract_volume(mi['volume']) or base_norm.get("volume")
+                        full_title = mi['base_title']
+                        if mi['volume'] and not perfume_normalizer.extract_volume(full_title):
+                            full_title = f"{full_title} {mi['volume']}"
+                        self._add_candidate(candidates, full_title, mi['price'], mi['is_available'], mi['url'], mi['image_url'], mi['brand'], base_norm,
+                                            promo_price=mi['promo_price'], promo_code=mi['promo_code'])
+                    processed_cards += len(unique_products_1a)
+                    cards = []  # Skip standard DOM loop
+                    injection_ok = True
+                    injection_signature = frozenset(unique_products_1a)
+                else:
+                    logger.warning("⚠️ 1a.lv: no LupaSearch cards found — falling back to DOM selectors")
                     cards, winner = self._try_selectors(sel, rule.container_css)
 
             # --- MAKEUP.LV JSON DATA INJECTION ---
@@ -2375,6 +2479,11 @@ class ScraperService:
         if "notino.lv" in url:
             from app.core.browser import browser_manager
             return await browser_manager.get_page_content(url, fast_mode=fast_mode, context=browser_context)
+        # 1a.lv: the HTML has no products (LupaSearch renders them in the browser).
+        # Its catalog is behind a Cloudflare check: only wait, never answer it.
+        if "1a.lv" in url:
+            from app.core.browser import browser_manager
+            return await browser_manager.get_page_content(url, fast_mode=fast_mode, context=browser_context, solve_cf=False)
 
         # Otherwise try stealth client (fast) first, but return dict format
         html = await stealth_client.get_page(url)
