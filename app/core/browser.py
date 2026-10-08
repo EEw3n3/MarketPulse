@@ -457,6 +457,12 @@ class BrowserManager:
                     pass  # No cards (empty category or still blocked — caller handles)
             elif "notino.lv" in url:
                 await self.wait_for_notino_content(page)
+            elif "1a.lv" in url:
+                # 1a.lv cards are rendered client-side by LupaSearch after load.
+                try:
+                    await page.wait_for_selector("div.lupa-search-result-product-card", state="attached", timeout=25000)
+                except Exception:
+                    logger.warning(f"⚠️ 1a.lv product cards did not appear: {page.url}")
 
             final_url = page.url
             content = await page.content()
