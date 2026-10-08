@@ -15,6 +15,10 @@ the scraper extracted, and records the shop's own data for the same pages:
   - 220.lv: the catalog page HTML: every card's widget-data JSON (title, brand,
     stock) and its visible prices: the public price and the "220.lv PLUS"
     loyalty price (members only). One card = one volume (in the title).
+  - 1a.lv: the rendered catalog page HTML (cards drawn by LupaSearch): title,
+    link, the visible regular and "SMART NET" loyalty prices, the attribute
+    list (Zīmols / Koncentrācija / Tilpums) and the stock markers. One card =
+    one volume.
 Every card of a site page — including the ones the scraper dropped and the promo
 tiles — appears in the report at its position, next to the shop's data for an
 automatic cross-check. After the run it reads back what was stored in the
@@ -30,7 +34,7 @@ Modes:
         (gift sets, out of stock, multi-volume, refill, mini, ...), scrapes
         those pages and groups the examples by card kind
 
-Sites: makeup, douglas, notino, 220 (notino: first pages only).
+Sites: makeup, douglas, notino, 220, 1a (notino: first pages only).
 
 Output:
     reports/scrape_review_<domain>_<YYYY-MM-DD_HHMM>.html
@@ -71,8 +75,8 @@ from app.services.scraper import scraper_service
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REPORTS_DIR = os.path.join(ROOT, "reports")
-SUPPORTED_SITES = {"makeup", "douglas", "notino", "220"}
-DEFAULT_STEP = {"makeup": 10, "douglas": 1, "220": 3}  # sample every N-th catalog page
+SUPPORTED_SITES = {"makeup", "douglas", "notino", "220", "1a"}
+DEFAULT_STEP = {"makeup": 10, "douglas": 1, "220": 3, "1a": 3}  # sample every N-th catalog page
 MAKEUP_PAGE_SIZE = 36
 NON_PERFUME_WORDS = list(PRODUCT_BLACKLIST)
 # A miniature joins the full-size perfume's comparison group; a group named
@@ -489,6 +493,29 @@ async def sample_220_catalog(category_url: str, step: int) -> tuple[list[dict], 
     return sampled, last_page
 
 
+async def sample_1a_catalog(category_url: str, step: int) -> tuple[list[dict], int]:
+    """Read every `step`-th 1a.lv catalog page until a page has no cards or
+    repeats the previous page (past the last page). Never answers a check."""
+    sampled: list[dict] = []
+    page_no, last_page, last_urls = 1, 0, None
+    try:
+        while page_no <= 200:
+            url = s1a_page_url(category_url, page_no)
+            resp = await browser_manager.get_page_content(url, fast_mode=True, context=None, solve_cf=False)
+            cards = s1a_site_cards(url, (resp or {}).get("html") or "", page_no)
+            urls = {c["url"] for c in cards}
+            if not cards or urls == last_urls:
+                break
+            last_page, last_urls = page_no, urls
+            for card in cards:
+                sampled.append({"page": page_no, "pos": card["pos"], "kinds": card["kinds"]})
+            page_no += step
+            await asyncio.sleep(random.uniform(1.0, 2.0))
+    finally:
+        await browser_manager.stop()
+    return sampled, last_page
+
+
 # ── Card kinds ───────────────────────────────────────────────────────────────
 
 VARIATION_KINDS = [
@@ -756,6 +783,82 @@ def s220_site_cards(page_url: str, page_html: str, page_no: int) -> list[dict]:
             "site_sub": "", "site_vars": site_vars, "kinds": kinds, "in_stock": in_stock, "badges": badges,
             "card_text": card_text, "variants_note": "объём: из названия карточки",
             "sets_not_stored": True,
+        })
+    return cards
+
+
+# ── 1a.lv adapter ────────────────────────────────────────────────────────────
+
+S1A_SMART = "SMART NET"
+
+
+def s1a_page_url(category_url: str, page_no: int) -> str:
+    return s220_page_url(category_url, page_no)
+
+
+def s1a_page_no(url: str) -> int:
+    return s220_page_no(url)
+
+
+def _visible_price(text: str | None) -> Decimal | None:
+    """"27,39 € / gab." → Decimal("27.39")."""
+    m = re.search(r"\d+(?:[.,]\d+)?", re.sub(r"[\s\u00a0]+", "", text or ""))
+    return _money(m.group(0).replace(",", ".")) if m else None
+
+
+def s1a_site_cards(page_url: str, page_html: str, page_no: int) -> list[dict]:
+    """Cards as the visitor sees them (rendered by LupaSearch): the regular
+    price and the "SMART NET" loyalty-card price, the attribute list and the
+    stock markers."""
+    cards = []
+    for pos, card in enumerate(Selector(text=page_html).css("div.lupa-search-result-product-card"), start=1):
+        link = card.css("a.lupa-title-link")
+        title = " ".join(link.xpath("string(.)").get(default="").split()) \
+            or (card.css(".lupa-search-results-product-title::attr(title)").get() or "").strip()
+        href = link.attrib.get("href") if link else card.css("a.lupa-search-result-product-image-section::attr(href)").get()
+        url = urljoin(page_url, href or "").split("?")[0]
+        attrs = {}
+        for li in card.css("li.catalog-taxons-product-key-attribute-list__item"):
+            label = " ".join(" ".join(li.xpath("./text()").getall()).split()).rstrip(":").strip().lower()
+            value = " ".join(li.css("strong").xpath("string(.)").get(default="").split())
+            if label and value:
+                attrs[label] = value
+        regular = _visible_price(card.css(".catalog-taxons-product__price .catalog-taxons-product-price__item-price")
+                                 .xpath("string(.)").get())
+        smart = _visible_price(card.css(".special-price .catalog-taxons-product-price__price-number").xpath("string(.)").get())
+        if regular is None:
+            regular, smart = smart, None
+        if smart is not None and regular is not None and smart >= regular:
+            smart = None
+        flags = card.css("[instock]::attr(instock)").getall()
+        sold_out = (card.css(".lupa-element-group-soldout").xpath("normalize-space(string(.))").get() or "").strip()
+        in_stock = (not flags or "true" in flags) and not sold_out and regular is not None
+        conc = attrs.get("koncentrācija", "")
+        volume_text = attrs.get("tilpums", "")
+        if not volume_text:
+            m = re.search(r"\d+(?:[.,]\d+)?\s*(?:ml|l|g)\b", title, re.IGNORECASE)
+            volume_text = m.group(0) if m else ""
+        is_set = detect_card_type(title, conc) == "gift_set"
+        site_vars = [] if is_set or not volume_text else [{
+            "value": " ".join(x for x in (volume_text, volume_qualifier(title)) if x),
+            "price": regular, "old": None, "available": in_stock,
+            "promo_price": smart, "promo_code": S1A_SMART if smart else None,
+        }]
+        kinds = ["gift_set"] if is_set else ["single_volume"]
+        kinds += _stock_kinds(in_stock, site_vars)
+        kinds += _common_kinds(title, conc, site_vars, is_set)
+        badges = [f"цена {S1A_SMART}: {smart} €"] if smart else []
+        if sold_out:
+            badges.append(sold_out)
+        card_text = " · ".join(x for x in (
+            f"{regular} €" if regular else "", f"{S1A_SMART} {smart} €" if smart else "",
+            f"Zīmols: {attrs['zīmols']}" if attrs.get("zīmols") else "") if x)
+        cards.append({
+            "kind": "product", "pos": pos, "page": page_no, "page_url": page_url, "url": url,
+            "image": card.css("img.lupa-search-results-image::attr(src)").get() or "",
+            "site_brand": attrs.get("zīmols", ""), "site_title": title,
+            "site_sub": conc, "site_vars": site_vars, "kinds": kinds, "in_stock": in_stock, "badges": badges,
+            "card_text": card_text, "variants_note": "объём: из характеристики «Tilpums»",
         })
     return cards
 
@@ -1111,6 +1214,10 @@ def site_pages(site: str, cap: ReviewCapture, category_url: str) -> list[dict]:
         for page_url, page_html in cap.catalog_pages:
             page_no = s220_page_no(page_url)
             pages.append({"page": page_no, "page_url": page_url, "cards": s220_site_cards(page_url, page_html, page_no)})
+    elif site == "1a":
+        for page_url, page_html in cap.catalog_pages:
+            page_no = s1a_page_no(page_url)
+            pages.append({"page": page_no, "page_url": page_url, "cards": s1a_site_cards(page_url, page_html, page_no)})
     elif site == "notino":
         for page_url, page_html in cap.catalog_pages:
             page_no = notino_page_no(page_url)
@@ -1206,6 +1313,10 @@ SITE_NOTES = {
             "цены — те, что видны на карточке. Основная цена — публичная; цена «220.lv PLUS» только для участников "
             "программы лояльности, парсер хранит её как цену с кодом «220.lv PLUS». Объём берётся из названия. "
             "Подарочные наборы из 220.lv не сохраняются (решение от 02.10.2026)."),
+    "1a": ("Колонка «На сайте» — карточка каталога так, как её видит посетитель (карточки рисует LupaSearch): "
+           "название, видимые цены, характеристики Zīmols / Koncentrācija / Tilpums и отметки наличия. Основная цена — "
+           "обычная; цена «SMART NET» только по карте лояльности, парсер хранит её как цену с кодом «SMART NET». "
+           "Объём — из характеристики «Tilpums»."),
     "notino": ("Колонка «На сайте» — карточка каталога (что на ней написано) и данные самого Notino, встроенные в страницы: "
                "у товаров с одним объёмом — из каталога, у товаров с несколькими — цена, наличие и название каждого варианта "
                "со страницы товара (refill Notino помечает в названии варианта). Если парсер сам не открывал страницу товара, "
@@ -1388,6 +1499,8 @@ async def mode_selected_pages(site: str, target: dict, page_numbers: list[int], 
         await run_makeup_pages(target, cap, page_numbers)
     elif site == "220":
         await run_douglas_pages(target, cap, page_numbers, s220_page_url)
+    elif site == "1a":
+        await run_douglas_pages(target, cap, page_numbers, s1a_page_url)
     else:
         await run_douglas_pages(target, cap, page_numbers)
     model = await evaluate_pages(site_pages(site, cap, target["url"]), cap)
@@ -1425,6 +1538,8 @@ async def mode_variations(site: str, target: dict, step: int, per_kind: int, max
         sampled, total_pages = await sample_makeup_catalog(target["url"], step)
     elif site == "220":
         sampled, total_pages = await sample_220_catalog(target["url"], step)
+    elif site == "1a":
+        sampled, total_pages = await sample_1a_catalog(target["url"], step)
     else:
         sampled, total_pages = await sample_douglas_catalog(target["url"], step)
     found = {k: sum(1 for s in sampled if k in s["kinds"]) for k, _, _ in VARIATION_KINDS}
@@ -1436,6 +1551,8 @@ async def mode_variations(site: str, target: dict, step: int, per_kind: int, max
         await run_makeup_pages(target, cap, pages)
     elif site == "220":
         await run_douglas_pages(target, cap, pages, s220_page_url)
+    elif site == "1a":
+        await run_douglas_pages(target, cap, pages, s1a_page_url)
     else:
         await run_douglas_pages(target, cap, pages)
     model = await evaluate_pages(site_pages(site, cap, target["url"]), cap)
