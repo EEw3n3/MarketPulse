@@ -2188,7 +2188,9 @@ class ScraperService:
             final_group_id = group_id
             # Gift sets never join a comparison chain.
             if not final_group_id and card_type == "perfume":
-                if product and product.group_id:
+                # A new title (normalizer fix, the shop renamed the product)
+                # gets matched again; an unchanged one keeps its group.
+                if product and product.group_id and product.title == item["title"]:
                     final_group_id = product.group_id
                 else:
                     match = await matcher_service.find_best_match(session, item)
@@ -2232,9 +2234,9 @@ class ScraperService:
                 await session.flush()
                 change_type = "initial" if has_price else "no_change"
             else:
-                if card_type == "gift_set":
+                if card_type == "gift_set" or not group_id:
                     # Earlier runs stored makeup.lv sets as plain perfumes inside
-                    # a chain — detach them.
+                    # a chain — detach them. A perfume takes the group matched above.
                     product.group_id = final_group_id
                 elif not product.group_id:
                     product.group_id = final_group_id
@@ -2359,7 +2361,8 @@ class ScraperService:
 
         v_norm = perfume_normalizer.extract_all(title, explicit_brand=brand)
 
-        final_brand = brand or v_norm["brand"] or norm["brand"]
+        # v_norm["brand"] is the shop's brand in its one display spelling
+        final_brand = v_norm["brand"] or norm["brand"]
         final_volume = v_norm["volume"] or norm["volume"]
         final_concentration = v_norm["concentration"] or norm["concentration"]
 
