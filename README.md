@@ -89,7 +89,7 @@ Projekts ir pilnībā konteinerizēts ar Docker, tāpēc lokālai palaišanai na
    ```bash
    cp .env.example .env
    ```
-   Atver `.env` un norādi vismaz `GOOGLE_API_KEY` un `JWT_SECRET` (pārējie nepieciešami konkrētām funkcijām — Telegram, e-pasts, worker). Skaidrojumi par katru mainīgo ir `.env.example` failā.
+   Atver `.env` un norādi vismaz `POSTGRES_PASSWORD`, `GOOGLE_API_KEY` un `JWT_SECRET` (pārējie nepieciešami konkrētām funkcijām — Telegram, e-pasts, worker). Skaidrojumi par katru mainīgo ir `.env.example` failā.
 
 3. **Palaist sistēmu:**
    ```bash
