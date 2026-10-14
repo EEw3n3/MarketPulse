@@ -4,7 +4,8 @@ services:
     restart: always
     environment:
       POSTGRES_USER: market_user
-      POSTGRES_PASSWORD: market_password
+      # Set POSTGRES_PASSWORD in .env (see .env.example)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: market_pulse_db
     ports:
       - "5432:5432"
@@ -26,7 +27,7 @@ services:
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://market_user:market_password@db:5432/market_pulse_db
+      - DATABASE_URL=postgresql+asyncpg://market_user:${POSTGRES_PASSWORD}@db:5432/market_pulse_db
       - REDIS_URL=redis://redis:6379/0
       # Distributed scrape worker (S19.5)
       - WORKER_TOKEN=${WORKER_TOKEN}
