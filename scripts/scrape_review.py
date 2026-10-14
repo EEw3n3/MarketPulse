@@ -29,6 +29,11 @@ Modes:
         first N pages, in site order
     python scripts/scrape_review.py <site> --only 5,8
         the listed catalog pages only
+    python scripts/scrape_review.py <site> --pages 999 --no-report
+        full catalog run: saves to the database like the review modes, but
+        writes no report and opens no extra product pages (with a report,
+        the product pages the scraper skipped are opened one by one, which
+        takes hours on a whole catalog)
     python scripts/scrape_review.py <site> --variations
         samples the catalog, picks pages holding every kind of card
         (gift sets, out of stock, multi-volume, refill, mini, ...), scrapes
@@ -74,6 +79,8 @@ from app.services.normalizer import (
 from app.services.scraper import scraper_service
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# --no-report: scrape and save only (no extra product pages, no HTML report).
+NO_REPORT = False
 REPORTS_DIR = os.path.join(ROOT, "reports")
 SUPPORTED_SITES = {"makeup", "douglas", "notino", "220", "1a"}
 DEFAULT_STEP = {"makeup": 10, "douglas": 1, "220": 3, "1a": 3}  # sample every N-th catalog page
@@ -363,6 +370,8 @@ async def run_douglas_pages(target: dict, cap: ReviewCapture, page_numbers: list
 
 
 async def fetch_missing_douglas_products(cap: ReviewCapture) -> None:
+    if NO_REPORT:
+        return
     """Open product pages the scraper did not visit, for cards that have more
     than one volume, so the report knows every volume the shop sells."""
     todo = []
@@ -387,6 +396,8 @@ async def fetch_missing_douglas_products(cap: ReviewCapture) -> None:
 async def fetch_missing_notino_products(cap: ReviewCapture, pages: int) -> None:
     """Open product pages the scraper did not visit, for cards with more than
     one variant, so the report knows the price and stock of every volume."""
+    if NO_REPORT:
+        return
     todo = []
     for page_url, page_html in cap.catalog_pages[:pages]:
         for p in notino_page_listing(cap, notino_page_no(page_url), page_html).get("products") or []:
@@ -1489,6 +1500,8 @@ def render_variations_report(site: str, site_name: str, category_url: str, secti
 async def mode_first_pages(site: str, target: dict, pages: int, started: datetime) -> str:
     cap = ReviewCapture()
     await run_first_pages(site, target, cap, pages)
+    if NO_REPORT:
+        return ""
     model = await evaluate_pages(site_pages(site, cap, target["url"])[:pages], cap)
     return render_pages_report(site, target.get("site", ""), target["url"], model, started)
 
@@ -1503,6 +1516,8 @@ async def mode_selected_pages(site: str, target: dict, page_numbers: list[int], 
         await run_douglas_pages(target, cap, page_numbers, s1a_page_url)
     else:
         await run_douglas_pages(target, cap, page_numbers)
+    if NO_REPORT:
+        return ""
     model = await evaluate_pages(site_pages(site, cap, target["url"]), cap)
     return render_pages_report(site, target.get("site", ""), target["url"], model, started)
 
@@ -1579,12 +1594,18 @@ async def main() -> None:
     ap.add_argument("--step", type=int, default=None, help="variations: sample every N-th catalog page")
     ap.add_argument("--per-kind", type=int, default=4, help="variations: examples shown per card kind")
     ap.add_argument("--max-pages", type=int, default=8, help="variations: max pages to scrape for examples")
+    ap.add_argument("--no-report", action="store_true",
+                    help="--pages/--only: scrape and save only, no report and no extra product pages")
     args = ap.parse_args()
     site = args.site.lower()
     if site not in SUPPORTED_SITES:
         raise SystemExit(f"Review report is implemented for: {', '.join(sorted(SUPPORTED_SITES))}")
     if site == "notino" and (args.variations or args.only):
         raise SystemExit("notino: only the first-pages mode (--pages N) is implemented so far")
+    if args.no_report and args.variations:
+        raise SystemExit("--no-report works with --pages or --only, not with --variations")
+    global NO_REPORT
+    NO_REPORT = args.no_report
 
     target = find_target(site)
     started = datetime.now()
@@ -1600,6 +1621,9 @@ async def main() -> None:
     else:
         html_text = await mode_first_pages(site, target, args.pages, started)
         name = f"scrape_review_{domain}_{started:%Y-%m-%d_%H%M}.html"
+    if NO_REPORT:
+        logger.success("[REVIEW] scraping done (--no-report: no report written)")
+        return
     os.makedirs(REPORTS_DIR, exist_ok=True)
     out = os.path.join(REPORTS_DIR, name)
     with open(out, "w", encoding="utf-8") as f:
