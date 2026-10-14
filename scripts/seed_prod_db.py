@@ -17,7 +17,7 @@ Usage:
   python scripts/seed_prod_db.py --limit 50
 
 DATABASE_URL must point at the target DB before running. To write into prod:
-  DATABASE_URL=postgresql+asyncpg://market_user:market_password@46.101.174.12:5432/market_pulse_db
+  DATABASE_URL=postgresql+asyncpg://market_user:<password>@<server-host>:5432/market_pulse_db
 """
 import argparse
 import asyncio

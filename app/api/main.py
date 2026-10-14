@@ -37,7 +37,7 @@ app = FastAPI(
     description="Backend API for MarketPulse Price Monitoring System",
     version="1.0.0",
     servers=[
-        {"url": "http://46.101.174.12:8000", "description": "Production Server"},
+        {"url": "https://marketpulse1.me", "description": "Production Server"},
         {"url": "http://localhost:8000", "description": "Local Development"}
     ]
 )

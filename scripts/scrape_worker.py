@@ -14,7 +14,7 @@ Flow:
 
 Required env:
   WORKER_TOKEN     Shared secret (same value on server's .env)
-  SERVER_URL       Base URL of the production API, e.g. http://46.101.174.12:8000
+  SERVER_URL       Base URL of the production API, e.g. https://marketpulse1.me
 
 Optional:
   POLL_TIMEOUT     Long-poll seconds (default 25)
@@ -48,7 +48,7 @@ from app.domain.models import Product
 from app.main import process_target_worker
 
 
-SERVER_URL = os.getenv("SERVER_URL", "http://46.101.174.12:8000").rstrip("/")
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN")
 POLL_TIMEOUT = int(os.getenv("POLL_TIMEOUT", "25"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))

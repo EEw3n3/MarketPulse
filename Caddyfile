@@ -1,6 +1,6 @@
 {
-    # Email used by Let's Encrypt for cert expiry notifications.
-    email ervinubinin1@gmail.com
+    # Email used by Let's Encrypt for cert expiry notifications (set your own).
+    email admin@example.com
 }
 
 marketpulse1.me, www.marketpulse1.me {
