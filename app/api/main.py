@@ -20,7 +20,7 @@ class _EndpointFilter(logging.Filter):
 
 
 logging.getLogger("uvicorn.access").addFilter(_EndpointFilter())
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
 from app.api import schemas
 from app.api.auth import router as auth_router
 from app.api.favorites import router as favorites_router
@@ -52,13 +52,17 @@ app.add_middleware(
 )
 
 # --- Routers ---
+# Catalog, analytics and export data are for signed-in users only;
+# /api/auth/register and /api/auth/login stay public.
+_LOGIN_REQUIRED = [Depends(get_current_user)]
+
 app.include_router(auth_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")
-app.include_router(analytics_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api", dependencies=_LOGIN_REQUIRED)
 app.include_router(admin_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
-app.include_router(exports_router, prefix="/api")
+app.include_router(exports_router, prefix="/api", dependencies=_LOGIN_REQUIRED)
 
 # --- Startup ---
 
@@ -216,7 +220,7 @@ def _price_delta(last_price, old_price) -> tuple[int, str]:
 async def root():
     return {"message": "Welcome to MarketPulse API", "status": "online"}
 
-@app.get("/api/products/feed", response_model=List[schemas.ProductFeedItem])
+@app.get("/api/products/feed", response_model=List[schemas.ProductFeedItem], dependencies=_LOGIN_REQUIRED)
 async def get_product_feed(
     limit: int = 20,
     brands: List[str] = Query(None),
@@ -300,7 +304,7 @@ async def get_product_feed(
             break
     return feed_items
 
-@app.get("/api/products/brands")
+@app.get("/api/products/brands", dependencies=_LOGIN_REQUIRED)
 async def get_all_brands(db: AsyncSession = Depends(get_db)) -> List[dict]:
     """All distinct brands with product counts, sorted by count DESC.
     Used by the catalog filter panel to populate the full brand list."""
@@ -336,7 +340,7 @@ def _canonical_store_key(search_term: str) -> str:
     return s
 
 
-@app.get("/api/products/volumes")
+@app.get("/api/products/volumes", dependencies=_LOGIN_REQUIRED)
 async def get_all_volumes(db: AsyncSession = Depends(get_db)) -> List[dict]:
     """All distinct volumes with product counts, sorted by canonical ml ASC.
 
@@ -362,7 +366,7 @@ async def get_all_volumes(db: AsyncSession = Depends(get_db)) -> List[dict]:
     return payload
 
 
-@app.get("/api/products/stores")
+@app.get("/api/products/stores", dependencies=_LOGIN_REQUIRED)
 async def get_all_stores(db: AsyncSession = Depends(get_db)) -> List[dict]:
     """All stores currently present in the catalog, with product counts.
 
@@ -512,7 +516,7 @@ def _catalog_base_stmt(
     return stmt
 
 
-@app.get("/api/products/catalog/count")
+@app.get("/api/products/catalog/count", dependencies=_LOGIN_REQUIRED)
 async def get_catalog_count(
     search: Optional[str] = None,
     brands: List[str] = Query(None),
@@ -530,7 +534,7 @@ async def get_catalog_count(
     return {"total": int(total or 0)}
 
 
-@app.get("/api/products/catalog", response_model=List[schemas.CatalogItem])
+@app.get("/api/products/catalog", response_model=List[schemas.CatalogItem], dependencies=_LOGIN_REQUIRED)
 async def get_catalog(
     search: Optional[str] = None,
     brands: List[str] = Query(None),
@@ -581,7 +585,7 @@ def _norm_store(s: Optional[str]) -> str:
     return (s or "").lower().replace(".lv", "").replace(" latvia", "").strip()
 
 
-@app.get("/api/products/{product_id}", response_model=schemas.ProductCardDetail)
+@app.get("/api/products/{product_id}", response_model=schemas.ProductCardDetail, dependencies=_LOGIN_REQUIRED)
 async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)):
     """Detail view for a single product with history and per-store offers.
 
@@ -724,7 +728,7 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         offers=offers,
     )
 
-@app.get("/api/analytics/stats", response_model=schemas.DashboardStats)
+@app.get("/api/analytics/stats", response_model=schemas.DashboardStats, dependencies=_LOGIN_REQUIRED)
 async def get_analytics_stats(db: AsyncSession = Depends(get_db)):
     """KPIs for the analytics page."""
     total_products = await db.scalar(select(func.count(Product.id)))
