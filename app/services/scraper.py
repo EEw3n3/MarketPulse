@@ -714,6 +714,12 @@ class ScraperService:
                         info = listing.get(product_url) or {}
                         if "outofstock" in str(info.get("stockAvailability") or "").lower():
                             is_available = False
+                        # An out-of-stock card shows no price, but the listing data still
+                        # has the shop's price: keep it instead of saving the product at 0 €.
+                        if not price_val or price_val <= 0:
+                            listed = (info.get("priceInformation") or {}).get("price")
+                            if listed:
+                                price_val = self.parse_price(str(listed))
 
                         perform_deep_dive = rule.use_detail_page
                         if rule.detail_variant_selector == "SKIP":
@@ -1708,6 +1714,12 @@ class ScraperService:
                 page_hrefs = injection_signature
             if page_hrefs and page_hrefs in seen_page_signatures:
                 logger.info(f"🔁 Loop detected on page {page_number} — same card set already scraped. Stopping pagination.")
+                # Douglas repeats its last page instead of ending: that is the end of
+                # the catalog, so the next run must start from page 1, not resume here.
+                rule.last_page_url = None
+                rule.items_scraped_current_run = 0
+                session.add(rule)
+                await session.commit()
                 break
             if page_hrefs:
                 seen_page_signatures.add(page_hrefs)
