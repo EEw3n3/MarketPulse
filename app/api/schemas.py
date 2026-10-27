@@ -105,6 +105,211 @@ class ProductCardDetail(BaseModel):
     history: List[PriceHistoryRead] = []
     offers: List[StoreOffer] = []  # Per-store cheapest offers (max 5), with variants for duplicates
 
+    # Redesign: name without brand/volume, the same bottle in other sizes and a
+    # forward-filled daily price per shop for the chart.
+    display_name: Optional[str] = None
+    sizes: List["SizeOption"] = []
+    series: Optional["PriceSeries"] = None
+
+
+class SizeOption(BaseModel):
+    product_id: int
+    volume: str
+    min_price: float
+    shops: int
+
+
+class PriceSeries(BaseModel):
+    """Daily lowest price per shop. `days` are ISO dates, oldest first; every
+    list in `shops` has one value per day (null = not listed / out of stock)."""
+    days: List[str]
+    shops: dict[str, List[Optional[float]]]
+    cheapest: List[Optional[str]] = []
+
+ProductCardDetail.model_rebuild()
+
+
+# --- Catalogue cards (redesign) ---
+
+class CardOffer(BaseModel):
+    product_id: int
+    store: str              # canonical key: notino, makeup, 220, douglas, 1a
+    store_name: str
+    title: str
+    price: float
+    old_price: Optional[float] = None
+    promo_price: Optional[float] = None
+    promo_code: Optional[str] = None
+    url: str
+    in_stock: bool
+    checked_at: Optional[datetime] = None
+    change_30d: Optional[float] = None
+
+
+class CatalogCard(BaseModel):
+    """One perfume in one size, with every shop that sells it."""
+    key: str
+    product_id: int          # cheapest offer; the product page link
+    brand: str
+    name: str
+    concentration: Optional[str] = None
+    volume: Optional[str] = None
+    image_url: Optional[str] = None
+    min_price: float
+    max_price: float
+    cheapest_store: str
+    shops: int
+    change_30d: Optional[float] = None
+    has_promo: bool = False
+    offers: List[CardOffer] = []
+
+
+class CardsPage(BaseModel):
+    total: int
+    listings: int
+    items: List[CatalogCard]
+
+
+class ListingRow(BaseModel):
+    product_id: int
+    brand: str
+    name: str
+    title: str
+    volume: Optional[str] = None
+    concentration: Optional[str] = None
+    image_url: Optional[str] = None
+    price: float
+    old_price: Optional[float] = None
+    promo_price: Optional[float] = None
+    promo_code: Optional[str] = None
+    change_30d: Optional[float] = None
+    store: str
+    store_name: str
+    in_stock: bool
+    url: str
+    checked_at: Optional[datetime] = None
+
+
+class ListingsPage(BaseModel):
+    total: int
+    items: List[ListingRow]
+
+
+class FacetValue(BaseModel):
+    value: str
+    label: str
+    count: int
+
+
+class CatalogFacets(BaseModel):
+    stores: List[FacetValue]
+    concentrations: List[FacetValue]
+    volumes: List[FacetValue]
+    brands: List[FacetValue]
+    price_min: float
+    price_max: float
+    as_of: Optional[datetime] = None
+
+
+# --- Market snapshot (landing teaser + Pro analytics overview) ---
+
+class ShopSnapshot(BaseModel):
+    store: str
+    store_name: str
+    products: int            # every priced listing ever seen
+    current: int             # in stock on the latest scan
+    changes_7d: int          # real price changes, synthetic gap-fill excluded
+    changes_30d: int
+    cheapest_share: float    # % of comparable bottles where this shop is cheapest
+    cheapest_count: int
+    promo_listings: int
+
+
+class MarketSnapshot(BaseModel):
+    as_of: Optional[datetime]
+    total_products: int
+    current_products: int
+    comparable: int          # bottles in stock in 2+ shops
+    changes_7d: int
+    changes_30d: int
+    history_rows: int
+    history_since: Optional[datetime]
+    spread_median: float     # % the dearest shop asks over the cheapest
+    spread_mean: float
+    shops: List[ShopSnapshot]
+
+
+class MoveItem(BaseModel):
+    product_id: int
+    store: str
+    store_name: str
+    brand: str
+    name: str
+    concentration: Optional[str] = None
+    volume: Optional[str] = None
+    image_url: Optional[str] = None
+    old_price: float
+    new_price: float
+    change_percent: float
+    since: Optional[datetime] = None
+
+
+class ActivityPoint(BaseModel):
+    date: str
+    store: str
+    up: int
+    down: int
+
+
+class PriceIndex(BaseModel):
+    days: List[str]
+    shops: dict[str, List[Optional[float]]]
+    basket: dict[str, int]          # listings in each shop's basket
+    estimated_from: Optional[str] = None
+    estimated_to: Optional[str] = None
+
+
+class BrandShopCell(BaseModel):
+    brand: str
+    store: str
+    premium: float                  # % over the cheapest shop, mean
+    bottles: int
+
+
+class BrandShopMatrix(BaseModel):
+    brands: List[str]
+    stores: List[str]
+    cells: List[BrandShopCell]
+
+
+class DistributionBin(BaseModel):
+    lower: float
+    upper: float
+    count: int
+
+
+class PriceBandRow(BaseModel):
+    store: str
+    band: int
+    label: str
+    count: int
+
+
+class GapRow(BaseModel):
+    card: CatalogCard
+    gap_percent: float
+    gap_eur: float
+    dearest_store: str
+
+
+class LandingData(BaseModel):
+    market: MarketSnapshot
+    hero: Optional[CatalogCard] = None
+    shelf: List[CatalogCard] = []
+    gaps: List[CatalogCard] = []
+    drops: List[MoveItem] = []
+
+
 class DashboardStats(BaseModel):
     """General KPIs for Analytics page"""
     total_products: str
@@ -267,6 +472,8 @@ class UserRead(BaseModel):
     full_name: Optional[str]
     is_active: bool
     is_admin: bool
+    # "free" or "pro". Admins get every Pro feature regardless of this value.
+    plan: str = "free"
     created_at: datetime
     preferences: Optional[UserPreferencesRead] = None
 
@@ -298,7 +505,29 @@ class FavoriteItem(BaseModel):
     store_name: str
     is_available: bool
     alert_enabled: bool
+    # Personal drop threshold for this bottle; None = general setting.
+    alert_threshold_percent: Optional[float] = None
     created_at: datetime
+    # Redesign: the same bottle in every shop (cheapest listing per shop, this
+    # one included), 30 days of daily prices per shop and the cheapest line's
+    # change over that window.
+    display_name: Optional[str] = None
+    offers: List["FavoriteOffer"] = []
+    series: Optional[PriceSeries] = None
+    change_30d: Optional[float] = None
+
+
+class FavoriteOffer(BaseModel):
+    product_id: int
+    store: str
+    store_name: str
+    price: float
+    old_price: Optional[float] = None
+    url: Optional[str] = None
+    is_available: bool = True
+
+
+FavoriteItem.model_rebuild()
 
 
 class FavoriteCreate(BaseModel):
@@ -308,6 +537,8 @@ class FavoriteCreate(BaseModel):
 
 class FavoriteUpdate(BaseModel):
     alert_enabled: Optional[bool] = None
+    # Send 0 to clear the personal threshold and fall back to the general one.
+    alert_threshold_percent: Optional[float] = Field(default=None, ge=0, le=90)
 
 
 # --- Chat ---
@@ -319,6 +550,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: List[ChatMessage] = []
+    # Short description of the page the chat was opened on (product, filters).
+    page_context: Optional[str] = Field(default=None, max_length=300)
 
 class ChatResponse(BaseModel):
     reply: str

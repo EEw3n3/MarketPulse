@@ -20,7 +20,7 @@ class _EndpointFilter(logging.Filter):
 
 
 logging.getLogger("uvicorn.access").addFilter(_EndpointFilter())
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_user, get_pro_user
 from app.api import schemas
 from app.api.auth import router as auth_router
 from app.api.favorites import router as favorites_router
@@ -29,8 +29,24 @@ from app.api.admin import router as admin_router
 from app.api.telegram import router as telegram_router
 from app.api.chat import router as chat_router
 from app.api.exports import router as exports_router
+from app.api.cards import router as cards_router
+from app.api.public import router as public_router
+from app.api.catalog_filters import (
+    _brand_filter_clause,
+    _expand_search_term_with_aliases,
+    apply_product_filters,
+    _store_filter_clause,
+)
 from app.domain.models import Product, PriceHistory
 from app.core.config import settings
+from app.services.price_series import (
+    by_store as series_by_store,
+    cheapest_shop_by_day,
+    day_range,
+    display_name,
+    product_series,
+)
+from collections import defaultdict
 
 app = FastAPI(
     title="MarketPulse API",
@@ -55,14 +71,19 @@ app.add_middleware(
 # Catalog, analytics and export data are for signed-in users only;
 # /api/auth/register and /api/auth/login stay public.
 _LOGIN_REQUIRED = [Depends(get_current_user)]
+_PRO_REQUIRED = [Depends(get_pro_user)]
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")
-app.include_router(analytics_router, prefix="/api", dependencies=_LOGIN_REQUIRED)
+# The analytics cabinet and data exports are Pro features (admins included).
+app.include_router(analytics_router, prefix="/api", dependencies=_PRO_REQUIRED)
 app.include_router(admin_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
-app.include_router(exports_router, prefix="/api", dependencies=_LOGIN_REQUIRED)
+app.include_router(exports_router, prefix="/api", dependencies=_PRO_REQUIRED)
+# Before the /api/products/{product_id} route below, so /cards etc. win.
+app.include_router(cards_router, prefix="/api")
+app.include_router(public_router, prefix="/api")
 
 # --- Startup ---
 
@@ -406,76 +427,6 @@ async def get_all_stores(db: AsyncSession = Depends(get_db)) -> List[dict]:
     return payload
 
 
-def _store_filter_clause(stores: List[str]):
-    """Case-insensitive substring match for stores. Frontend sends canonical keys
-    ("notino", "douglas", "220", "makeup", "1a") — DB has mixed forms like
-    "Notino", "notino.lv", "Douglas Latvia", "Makeup latvija", "1A.LV". A LOWER()
-    LIKE %key% matches all variants reliably."""
-    return or_(*(func.lower(Product.search_term).like(f"%{s.lower()}%") for s in stores))
-
-
-def _expand_search_term_with_aliases(search: str) -> list[str]:
-    """For a catalog search query, return the query plus every brand-alias
-    equivalent so 'JPG' matches Jean Paul Gaultier products, 'YSL' matches
-    Yves Saint Laurent, 'D&G' matches Dolce & Gabbana, etc.
-
-    Without this, the search box appears broken for users who use industry
-    shorthand brand names ("jpg le male") — perfume titles get stored in the
-    long canonical form by the normalizer, so a literal LIKE '%jpg%' against
-    titles/brands finds nothing.
-
-    Match is case-insensitive and EITHER the full search query OR any token
-    in it can match an alias key/value.
-    """
-    from app.services.normalizer import perfume_normalizer
-
-    if not search:
-        return []
-    out: list[str] = [search]
-    seen = {search.lower()}
-    aliases = perfume_normalizer.BRAND_ALIASES
-    search_lower = search.lower().strip()
-    # Tokens in the search query — handles "jpg le male" (token 'jpg' matches alias)
-    tokens = [t for t in search_lower.split() if t]
-    candidates = {search_lower, *tokens}
-    for cand in candidates:
-        for short, long_form in aliases.items():
-            if cand == short.lower():
-                # Add the long canonical form too
-                if long_form.lower() not in seen:
-                    out.append(long_form)
-                    seen.add(long_form.lower())
-            elif cand == long_form.lower():
-                # Add the short alias too
-                if short.lower() not in seen:
-                    out.append(short)
-                    seen.add(short.lower())
-    return out
-
-
-def _brand_filter_clause(brands: List[str]):
-    """Case-insensitive + alias-aware brand match for catalog/feed filters.
-
-    The brand chips on the frontend send a canonical display name ("Dior",
-    "YSL", "Dolce & Gabbana"), but `Product.brand` is stored inconsistently
-    across stores:
-      - Douglas: "DIOR" (uppercase)
-      - Notino/Makeup/1a/220: "Dior"
-      - 220.lv even has "Christian Dior"
-      - "YSL" chip vs DB "Yves Saint Laurent"
-    A plain `Product.brand.in_(brands)` is exact + case-sensitive, so e.g.
-    filtering Douglas by "Dior" returned zero rows. We expand each requested
-    brand through the same alias map used by search, lowercase everything,
-    and substring-match — which also catches "Christian Dior" via "%dior%".
-    """
-    variants: set[str] = set()
-    for b in brands:
-        variants.add(b.lower())
-        for v in _expand_search_term_with_aliases(b):
-            variants.add(v.lower())
-    return or_(*(func.lower(Product.brand).like(f"%{v}%") for v in variants))
-
-
 def _catalog_base_stmt(
     search: Optional[str],
     brands: Optional[List[str]],
@@ -489,32 +440,10 @@ def _catalog_base_stmt(
     """Shared filter logic for catalog endpoints."""
     # A product that never had a price (last_price 0) would show as "0 €".
     stmt = select(Product).where(Product.last_price > 0)
-    if search:
-        # Expand short brand aliases (JPG → Jean Paul Gaultier, etc.) so the
-        # search box works for industry-standard short names.
-        search_variants = _expand_search_term_with_aliases(search)
-        ors = []
-        for s in search_variants:
-            ors.append(Product.title.ilike(f"%{s}%"))
-            ors.append(Product.brand.ilike(f"%{s}%"))
-        stmt = stmt.where(or_(*ors))
-    if brands:
-        stmt = stmt.where(_brand_filter_clause(brands))
-    if stores:
-        stmt = stmt.where(_store_filter_clause(stores))
-    if volumes:
-        stmt = stmt.where(Product.volume.in_(volumes))
-    if types:
-        # Concentration match is case-insensitive so the UI labels (EDP/EDT/
-        # Parfum/EDC) line up with however the value is cased in the DB.
-        stmt = stmt.where(func.lower(Product.concentration).in_([t.lower() for t in types]))
-    if price_min is not None:
-        stmt = stmt.where(Product.last_price >= price_min)
-    if price_max is not None:
-        stmt = stmt.where(Product.last_price <= price_max)
-    if in_stock is not None:
-        stmt = stmt.where(Product.is_available.is_(in_stock))
-    return stmt
+    return apply_product_filters(
+        stmt, search=search, brands=brands, stores=stores, volumes=volumes,
+        types=types, price_min=price_min, price_max=price_max, in_stock=in_stock,
+    )
 
 
 @app.get("/api/products/catalog/count", dependencies=_LOGIN_REQUIRED)
@@ -578,6 +507,12 @@ async def get_catalog(
         ))
     return catalog_items
 
+def _ml(v: Optional[str]) -> float:
+    import re
+    m = re.search(r"(\d+(?:[.,]\d+)?)", v or "")
+    return float(m.group(1).replace(",", ".")) if m else 0.0
+
+
 def _norm_volume(v: Optional[str]) -> str:
     return (v or "").lower().replace(" ", "").strip()
 
@@ -593,8 +528,6 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
     Offers are deduplicated: one row per unique store (cheapest), filtered to the
     same `volume` as the requested product. If a store carries multiple listings
     at the same volume, the extras are surfaced via `variants` for popover."""
-    from collections import defaultdict
-
     stmt = (
         select(Product)
         .options(selectinload(Product.history))
@@ -710,7 +643,49 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
             for h in product.history
         ]
 
+    # Redesign extras: other sizes of the same perfume and a daily series per
+    # shop. The series uses every listing of this size, in stock or not, so a
+    # shop's line stops where it ran out instead of vanishing.
+    sizes: list[schemas.SizeOption] = []
+    by_volume: dict[str, list[Product]] = defaultdict(list)
+    for p in group_products:
+        if p.volume:
+            by_volume[_norm_volume(p.volume)].append(p)
+    for items in by_volume.values():
+        items.sort(key=lambda p: float(p.last_price))
+        sizes.append(schemas.SizeOption(
+            product_id=items[0].id,
+            volume=items[0].volume,
+            min_price=float(items[0].last_price),
+            shops=len({_norm_store(p.search_term) for p in items}),
+        ))
+    sizes.sort(key=lambda o: _ml(o.volume))
+
+    if product.group_id:
+        same_size = (await db.execute(select(Product).where(
+            Product.group_id == product.group_id,
+            Product.last_price > 0,
+        ))).scalars().all()
+        same_size = [p for p in same_size if not target_volume or _norm_volume(p.volume) == target_volume]
+    else:
+        same_size = [product]
+    if product not in same_size:
+        same_size.append(product)
+    first_day = min((h.parsed_at for h in history_items), default=None)
+    span = (datetime.utcnow().date() - first_day.date()).days + 1 if first_day else 30
+    days = day_range(max(30, min(span, 365)))
+    per_product = await product_series(db, same_size, days)
+    shop_lines = series_by_store(same_size, per_product)
+    series = schemas.PriceSeries(
+        days=[d.isoformat() for d in days],
+        shops=shop_lines,
+        cheapest=cheapest_shop_by_day(shop_lines),
+    )
+
     return schemas.ProductCardDetail(
+        display_name=display_name(same_size),
+        sizes=sizes,
+        series=series,
         id=product.id,
         url=product.url,
         title=product.title,

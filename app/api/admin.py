@@ -2,7 +2,7 @@
 import re
 import time
 from datetime import datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -71,11 +71,13 @@ class AdminUserRead(BaseModel):
     full_name: Optional[str]
     is_active: bool
     is_admin: bool
+    plan: str = "free"
     created_at: datetime
     favorites_count: int = 0
 
 class AdminUserPatch(BaseModel):
     is_active: Optional[bool] = None
+    plan: Optional[Literal["free", "pro"]] = None
 
 class LogsResponse(BaseModel):
     lines: List[str]
@@ -499,6 +501,7 @@ async def list_users(
             full_name=u.full_name,
             is_active=u.is_active,
             is_admin=u.is_admin,
+            plan=u.plan,
             created_at=u.created_at,
             favorites_count=fav_count,
         ))
@@ -512,15 +515,25 @@ async def patch_user(
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """Toggle is_active on a user. Admins cannot deactivate themselves."""
+    """Toggle is_active or switch the plan of a user.
+
+    Admins cannot deactivate themselves; changing their own plan is harmless
+    (admins see Pro features anyway).
+    """
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user_id == current_admin.id:
+    if patch.is_active is not None and user_id == current_admin.id:
         raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
 
+    changed = False
     if patch.is_active is not None:
         user.is_active = patch.is_active
+        changed = True
+    if patch.plan is not None:
+        user.plan = patch.plan
+        changed = True
+    if changed:
         db.add(user)
         await db.commit()
         await db.refresh(user)
@@ -535,6 +548,7 @@ async def patch_user(
         full_name=user.full_name,
         is_active=user.is_active,
         is_admin=user.is_admin,
+        plan=user.plan,
         created_at=user.created_at,
         favorites_count=fav_count,
     )

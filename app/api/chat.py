@@ -432,12 +432,17 @@ async def chat(
         history_block = "\n".join(history_lines)
 
         today = datetime.utcnow().strftime("%Y-%m-%d")
+        # What the user is looking at (product page, catalogue filters), so
+        # "is this a good price?" needs no restating. Plain text from the UI.
+        page = (payload.page_context or "").strip()[:300]
+        page_block = f"The user is currently viewing: {page}\n" if page else ""
         full_prompt = (
             f"You are MarketPulse AI — a price intelligence assistant for the "
             f"Latvian perfume market.\n"
             f"You track prices across 5 stores: Notino, Douglas, Makeup.lv, "
             f"220.lv, 1a.lv.\n"
-            f"Today's date: {today}\n\n"
+            f"Today's date: {today}\n"
+            f"{page_block}\n"
             f"RULES — follow strictly:\n"
             f"1. Match the user's language (Latvian, English, or Russian).\n"
             f"2. Answer concisely. Do NOT proactively list all market data "

@@ -1,8 +1,10 @@
-"""Export endpoints — server-side Excel and PDF generation.
+"""Export endpoints — Excel, PDF, CSV and JSON, generated on the server.
 
-CSV and JSON are generated client-side (see frontend/src/lib/exporters.ts) for
-zero-latency download. Excel and PDF need real layout/styling/charts so they
-live here.
+Exports are a Pro feature (see app/api/main.py). The catalogue export takes the
+same filters as the catalogue plus an explicit selection (`keys` for perfume
+cards, `ids` for shop listings); the analytics export writes every section of
+the cabinet. All four formats come from one list of tables, so the columns
+match whichever format the user picks.
 
 Streaming responses with proper Content-Type and Content-Disposition so
 browsers trigger a download dialog.
@@ -17,7 +19,10 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timedelta
-from typing import List, Optional
+import csv
+import json
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 # matplotlib MUST use Agg backend before pyplot import — Docker has no display.
 import matplotlib
@@ -45,15 +50,19 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
-from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.api.cards import cards_for_keys, query_cards, query_listings
 from app.api.deps import get_db
 from app.domain.models import Product
+from app.services import market
+from app.services.price_series import STORE_LABELS, store_key, store_label
 
 router = APIRouter(prefix="/exports", tags=["exports"])
+
+_FORMATS = "^(xlsx|pdf|csv|json)$"
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -81,10 +90,12 @@ CHANGE_FILL = {
 }
 
 # Brand palette
-TEAL = "1F4E5F"
-TEAL_DARK = "143841"
-GREEN = "1F8E5F"
-RED = "B91C1C"
+# Ink, accent and the down/up colours of the site (see frontend/src/index.css).
+TEAL = "111315"
+TEAL_DARK = "111315"
+ACCENT = "D0106F"
+GREEN = "1D7A3E"
+RED = "B3262F"
 GRAY = "6B7280"
 LIGHT = "F4F6F8"
 
@@ -103,10 +114,6 @@ def _safe_filename(s: str, max_len: int = 60) -> str:
     keep = "-_.() "
     out = "".join(c if c.isalnum() or c in keep else "_" for c in s).strip()
     return (out[:max_len] or "export").rstrip(".")
-
-
-def _store_filter_clause(stores: List[str]):
-    return or_(*(func.lower(Product.search_term).like(f"%{s.lower()}%") for s in stores))
 
 
 def _stream(buf: io.BytesIO, filename: str, media_type: str) -> StreamingResponse:
@@ -535,66 +542,6 @@ def _build_product_xlsx(product: Product, history_rows: list, offer_rows: list, 
 # ── Excel — catalog ──────────────────────────────────────────────────────────
 
 
-def _build_catalog_xlsx(catalog_rows: list[Product], filters_desc: str) -> io.BytesIO:
-    """Single sheet with title row + filter description + bordered table."""
-    import openpyxl
-    wb = openpyxl.Workbook()
-    s = wb.active
-    s.title = "Catalog"
-
-    s["A1"] = "MarketPulse — Catalog Export"
-    s["A1"].font = Font(size=16, bold=True, color="111827")
-    s["A2"] = (f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  ·  "
-               f"{len(catalog_rows)} rows  ·  Filters: {filters_desc}")
-    s["A2"].font = Font(size=10, color=GRAY)
-
-    header_row = 4
-    headers = ["Brand", "Title", "Volume", "Type", "Store", "Current (€)", "Previous (€)", "Change %", "In stock", "URL"]
-    for ci, label in enumerate(headers, start=1):
-        c = s.cell(row=header_row, column=ci, value=label)
-        c.font = Font(bold=True, color="111827")
-        c.alignment = Alignment(horizontal="left")
-
-    if not catalog_rows:
-        s.cell(row=5, column=1, value="No products match these filters.").font = Font(italic=True, color=GRAY)
-        last_row = 5
-    else:
-        for ri, p in enumerate(catalog_rows, start=5):
-            cur = float(p.last_price) if p.last_price else 0
-            prev = float(p.old_price) if p.old_price else cur
-            pct = _delta_percent(cur, prev)
-            s.cell(row=ri, column=1, value=p.brand or "—")
-            s.cell(row=ri, column=2, value=p.title or "—")
-            s.cell(row=ri, column=3, value=p.volume or "—")
-            s.cell(row=ri, column=4, value=p.concentration or "—")
-            s.cell(row=ri, column=5, value=(p.search_term or "—").capitalize())
-            s.cell(row=ri, column=6, value=cur).number_format = "0.00"
-            s.cell(row=ri, column=7, value=prev).number_format = "0.00"
-            ch = s.cell(row=ri, column=8, value=f"{pct:+.1f}%" if pct is not None else "flat")
-            ch.alignment = Alignment(horizontal="center")
-            if pct is not None:
-                ch.font = Font(bold=True, color="FFFFFF")
-                ch.fill = PatternFill("solid", fgColor=(GREEN if pct < 0 else RED))
-            s.cell(row=ri, column=9, value="Yes" if p.is_available else "No")
-            url_cell = s.cell(row=ri, column=10, value=p.url or "—")
-            if p.url:
-                url_cell.hyperlink = p.url
-                url_cell.font = Font(color="2563EB", underline="single")
-        last_row = 4 + len(catalog_rows)
-
-    _apply_grid_border(s, f"A{header_row}:J{last_row}", color="111827")
-
-    widths = [18, 40, 10, 10, 14, 12, 12, 12, 10, 50]
-    for i, w in enumerate(widths, start=1):
-        s.column_dimensions[get_column_letter(i)].width = w
-
-    s.freeze_panes = "A5"
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf
-
-
 # ── PDF — single product ─────────────────────────────────────────────────────
 
 
@@ -783,7 +730,7 @@ def _build_product_pdf(product: Product, history_rows: list, offer_rows: list, p
 
     # Footer
     story.append(Paragraph(
-        "marketpulse.lv  ·  automated perfume price intelligence",
+        "marketpulse1.me  ·  perfume prices in Latvian shops, checked nightly",
         small,
     ))
 
@@ -794,102 +741,17 @@ def _build_product_pdf(product: Product, history_rows: list, offer_rows: list, p
 # ── PDF — catalog ────────────────────────────────────────────────────────────
 
 
-def _build_catalog_pdf(catalog_rows: list[Product], filters_desc: str) -> io.BytesIO:
-    """Landscape multi-page table report with branded header + filter chips + page numbers."""
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4),
-        topMargin=1.2 * cm, bottomMargin=1.4 * cm,
-        leftMargin=1.2 * cm, rightMargin=1.2 * cm,
-        title="MarketPulse Catalog Export",
-    )
-    title_style, sub_style, h2, body, small = _pdf_styles()
-    story = []
-
-    story.append(Paragraph("MarketPulse · Catalog Export", title_style))
-    story.append(Paragraph(
-        f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  ·  "
-        f"<b>{len(catalog_rows)} rows</b>  ·  {filters_desc}",
-        sub_style,
-    ))
-    story.append(HRFlowable(width="100%", thickness=1.2, color=rl_colors.HexColor(f"#{TEAL}"), spaceAfter=6))
-
-    header = ["Brand", "Title", "Volume", "Type", "Store", "Price (€)", "Prev (€)", "Δ%", "Stock"]
-    data = [header]
-    for p in catalog_rows:
-        cur = float(p.last_price) if p.last_price else 0
-        prev = float(p.old_price) if p.old_price else cur
-        pct = _delta_percent(cur, prev)
-        data.append([
-            (p.brand or "—")[:20],
-            (p.title or "—")[:55],
-            p.volume or "—",
-            p.concentration or "—",
-            (p.search_term or "—").capitalize()[:12],
-            f"{cur:.2f}",
-            f"{prev:.2f}",
-            f"{pct:+.1f}" if pct is not None else "—",
-            "Y" if p.is_available else "N",
-        ])
-    if len(data) == 1:
-        data.append(["—"] * len(header))
-
-    tbl = Table(data, repeatRows=1, colWidths=[
-        2.8 * cm, 7.5 * cm, 1.7 * cm, 1.5 * cm, 2.2 * cm, 1.9 * cm, 1.9 * cm, 1.4 * cm, 1.1 * cm,
-    ])
-    style_cmds = [
-        ("BACKGROUND", (0, 0), (-1, 0), rl_colors.HexColor(f"#{TEAL_DARK}")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7.8),
-        ("ALIGN", (5, 1), (7, -1), "RIGHT"),
-        ("ALIGN", (8, 1), (8, -1), "CENTER"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor(f"#{LIGHT}")]),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.6, rl_colors.HexColor(f"#{TEAL}")),
-    ]
-    # Color the Δ% cells
-    for ri in range(1, len(data)):
-        cell = data[ri][7]
-        if cell == "—":
-            continue
-        try:
-            val = float(cell)
-        except (TypeError, ValueError):
-            continue
-        if val < 0:
-            style_cmds.append(("TEXTCOLOR", (7, ri), (7, ri), rl_colors.HexColor(f"#{GREEN}")))
-        elif val > 0:
-            style_cmds.append(("TEXTCOLOR", (7, ri), (7, ri), rl_colors.HexColor(f"#{RED}")))
-    tbl.setStyle(TableStyle(style_cmds))
-    story.append(tbl)
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("marketpulse.lv · automated perfume price intelligence", small))
-
-    def _draw_page_num(canvas, doc):
-        canvas.saveState()
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(rl_colors.HexColor("#6B7280"))
-        page = canvas.getPageNumber()
-        canvas.drawRightString(landscape(A4)[0] - 1.2 * cm, 0.8 * cm, f"Page {page}")
-        canvas.restoreState()
-
-    doc.build(story, onFirstPage=_draw_page_num, onLaterPages=_draw_page_num)
-    return buf
-
-
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
 @router.get("/products/{product_id}")
 async def export_product(
     product_id: int,
-    format: str = Query("xlsx", pattern="^(xlsx|pdf)$"),
+    format: str = Query("xlsx", pattern=_FORMATS),
     period: str = Query("3m", pattern="^(1w|1m|3m|6m|1y|all)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export a single product (xlsx | pdf). CSV/JSON live on the frontend."""
+    """Export a single product: price history and today's shop prices."""
     stmt = (
         select(Product)
         .options(selectinload(Product.history))
@@ -925,6 +787,25 @@ async def export_product(
         offers = [product]
 
     base = _safe_filename(f"{product.brand or ''}_{product.title}".strip("_"))
+    if format in ("csv", "json"):
+        tables = [
+            _Table("Shop prices", [
+                ("Shop", "text"), ("Title", "text"), ("Price", "eur"), ("Previous", "eur"),
+                ("Promo price", "eur"), ("Promo code", "text"), ("In stock", "bool"), ("URL", "url"),
+            ], [
+                [store_label(store_key(o.search_term)), o.title, _num(o.last_price), _num(o.old_price),
+                 _num(o.promo_price), o.promo_code, o.is_available, o.url]
+                for o in offers
+            ]),
+            _Table("Price history", [
+                ("Date", "datetime"), ("Price", "eur"), ("In stock", "bool"), ("Change", "text"),
+            ], [
+                [h.parsed_at, _num(h.price), h.in_stock, CHANGE_LABEL.get(h.change_type, h.change_type)]
+                for h in history
+            ]),
+        ]
+        title = f"{product.brand or ''} {product.title}".strip()
+        return _render(tables, format, base, title, f"Period: {PERIOD_LABEL[period]}")
     if format == "xlsx":
         buf = _build_product_xlsx(product, history, offers, period)
         return _stream(buf, f"{base}.xlsx",
@@ -933,36 +814,389 @@ async def export_product(
     return _stream(buf, f"{base}.pdf", "application/pdf")
 
 
+
+
+# ── Generic tables: one source, four formats ─────────────────────────────────
+
+
+@dataclass
+class _Table:
+    title: str
+    columns: list[tuple[str, str]]   # (label, kind): text eur pct int num bool url date datetime
+    rows: list[list[Any]]
+
+
+def _num(v) -> Optional[float]:
+    return round(float(v), 2) if v is not None else None
+
+
+def _plain(v, kind: str):
+    if v is None:
+        return None
+    if kind in ("date", "datetime") and isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d") if kind == "date" else v.strftime("%Y-%m-%d %H:%M")
+    return v
+
+
+def _tables_csv(tables: list[_Table]) -> io.BytesIO:
+    out = io.StringIO()
+    w = csv.writer(out)
+    for i, t in enumerate(tables):
+        if len(tables) > 1:
+            if i:
+                w.writerow([])
+            w.writerow([f"# {t.title}"])
+        w.writerow([c for c, _ in t.columns])
+        for r in t.rows:
+            w.writerow(["" if v is None else ("yes" if v is True else "no" if v is False else _plain(v, k))
+                        for v, (_, k) in zip(r, t.columns)])
+    # BOM so Excel opens UTF-8 (brand names with accents) correctly.
+    return io.BytesIO(("\ufeff" + out.getvalue()).encode("utf-8"))
+
+
+def _key(label: str) -> str:
+    return "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")
+
+
+def _tables_json(tables: list[_Table], title: str, subtitle: str) -> io.BytesIO:
+    doc = {
+        "title": title,
+        "note": subtitle,
+        "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": "marketpulse1.me",
+        "tables": {
+            _key(t.title): [
+                {_key(c): _plain(v, k) for v, (c, k) in zip(r, t.columns)} for r in t.rows
+            ]
+            for t in tables
+        },
+    }
+    return io.BytesIO(json.dumps(doc, ensure_ascii=False, indent=2, default=str).encode("utf-8"))
+
+
+_XL_FORMATS = {"eur": '"€"#,##0.00', "pct": '+0.0"%";-0.0"%";0"%"', "int": "#,##0", "num": "0.00"}
+_XL_WIDTH = {"text": 22, "eur": 11, "pct": 10, "int": 9, "num": 9, "bool": 9, "url": 46, "date": 12, "datetime": 17}
+
+
+def _tables_xlsx(tables: list[_Table], title: str, subtitle: str) -> io.BytesIO:
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    used: set[str] = set()
+    for t in tables:
+        name = "".join(c for c in t.title if c not in "[]:*?/\\")[:31] or "Sheet"
+        while name in used:
+            name = name[:28] + f"_{len(used)}"
+        used.add(name)
+        ws = wb.create_sheet(name)
+        ws["A1"] = f"MarketPulse · {title}"
+        ws["A1"].font = Font(size=15, bold=True, color=TEAL)
+        ws["A2"] = f"{t.title}  ·  {subtitle}  ·  generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+        ws["A2"].font = Font(size=9, color=GRAY)
+        hr = 4
+        for ci, (label, kind) in enumerate(t.columns, start=1):
+            c = ws.cell(row=hr, column=ci, value=label)
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor=TEAL)
+            c.alignment = Alignment(horizontal="right" if kind in ("eur", "pct", "int", "num") else "left",
+                                    vertical="center")
+            ws.column_dimensions[get_column_letter(ci)].width = max(_XL_WIDTH.get(kind, 14), min(40, len(label) + 3))
+        for ri, row in enumerate(t.rows, start=hr + 1):
+            for ci, (v, (_, kind)) in enumerate(zip(row, t.columns), start=1):
+                if kind == "bool" and v is not None:
+                    v = "Yes" if v else "No"
+                c = ws.cell(row=ri, column=ci, value=_plain(v, kind) if kind in ("date", "datetime") else v)
+                if kind in _XL_FORMATS:
+                    c.number_format = _XL_FORMATS[kind]
+                if kind == "pct" and isinstance(v, (int, float)) and v:
+                    c.font = Font(color=GREEN if v < 0 else RED)
+                if kind == "url" and v:
+                    c.hyperlink = v
+                    c.font = Font(color="2563EB", underline="single")
+            if (ri - hr) % 2 == 0:
+                for ci in range(1, len(t.columns) + 1):
+                    ws.cell(row=ri, column=ci).fill = PatternFill("solid", fgColor="F7F7F5")
+        last = hr + max(1, len(t.rows))
+        if t.rows:
+            ws.auto_filter.ref = f"A{hr}:{get_column_letter(len(t.columns))}{last}"
+        else:
+            ws.cell(row=hr + 1, column=1, value="No rows.").font = Font(italic=True, color=GRAY)
+        ws.freeze_panes = f"A{hr + 1}"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf
+
+
+_PDF_WIDTH = {"text": 3.2, "eur": 1.9, "pct": 1.6, "int": 1.6, "num": 1.6, "bool": 1.4, "url": 0, "date": 2.0,
+              "datetime": 2.8}
+
+
+def _pdf_cell(v, kind: str) -> str:
+    if v is None:
+        return "—"
+    if kind == "eur":
+        return f"€{v:,.2f}"
+    if kind == "pct":
+        return f"{v:+.1f}%" if v else "0%"
+    if kind == "int":
+        return f"{v:,}"
+    if kind == "num":
+        return f"{v:.2f}"
+    if kind == "bool":
+        return "Yes" if v else "No"
+    return str(_plain(v, kind))
+
+
+def _tables_pdf(tables: list[_Table], title: str, subtitle: str) -> io.BytesIO:
+    buf = io.BytesIO()
+    page = landscape(A4)
+    doc = SimpleDocTemplate(
+        buf, pagesize=page, topMargin=1.2 * cm, bottomMargin=1.4 * cm,
+        leftMargin=1.2 * cm, rightMargin=1.2 * cm, title=f"MarketPulse · {title}",
+    )
+    title_style, sub_style, h2, body, small = _pdf_styles()
+    cell = ParagraphStyle("MPCell", parent=body, fontSize=7.6, leading=9.2)
+    story = [
+        Paragraph(f"MarketPulse · {title}", title_style),
+        Paragraph(f"{subtitle}  ·  generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", sub_style),
+        HRFlowable(width="100%", thickness=1.2, color=rl_colors.HexColor(f"#{ACCENT}"), spaceAfter=6),
+    ]
+    usable = page[0] - 2.4 * cm
+    for t in tables:
+        cols = [(c, k) for c, k in t.columns if k != "url"]   # links do not fit on paper
+        idx = [i for i, (_, k) in enumerate(t.columns) if k != "url"]
+        fixed = sum(_PDF_WIDTH.get(k, 2) for _, k in cols if k != "text") * cm
+        n_text = sum(1 for _, k in cols if k == "text") or 1
+        text_w = max(2.4 * cm, (usable - fixed) / n_text)
+        widths = [text_w if k == "text" else _PDF_WIDTH.get(k, 2) * cm for _, k in cols]
+        data = [[c for c, _ in cols]]
+        for r in t.rows:
+            data.append([
+                Paragraph(_pdf_cell(r[i], k).replace("&", "&amp;").replace("<", "&lt;"), cell) if k == "text"
+                else _pdf_cell(r[i], k)
+                for i, (_, k) in zip(idx, cols)
+            ])
+        if len(data) == 1:
+            data.append(["No rows."] + [""] * (len(cols) - 1))
+        tbl = Table(data, repeatRows=1, colWidths=widths)
+        cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), rl_colors.HexColor(f"#{TEAL}")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7.6),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor("#F7F7F5")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        for ci, (_, k) in enumerate(cols):
+            if k in ("eur", "pct", "int", "num"):
+                cmds.append(("ALIGN", (ci, 0), (ci, -1), "RIGHT"))
+            if k == "pct":
+                for ri, r in enumerate(t.rows, start=1):
+                    v = r[idx[ci]]
+                    if isinstance(v, (int, float)) and v:
+                        cmds.append(("TEXTCOLOR", (ci, ri), (ci, ri), rl_colors.HexColor(f"#{GREEN if v < 0 else RED}")))
+        tbl.setStyle(TableStyle(cmds))
+        story += [Paragraph(t.title, h2), tbl, Spacer(1, 8)]
+    story.append(Paragraph("marketpulse1.me · perfume prices in Latvian shops, checked nightly", small))
+
+    def _page_num(canvas, _doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(rl_colors.HexColor("#6B7280"))
+        canvas.drawRightString(page[0] - 1.2 * cm, 0.8 * cm, f"Page {canvas.getPageNumber()}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_page_num, onLaterPages=_page_num)
+    return buf
+
+
+_MEDIA = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf": "application/pdf",
+    "csv": "text/csv; charset=utf-8",
+    "json": "application/json",
+}
+
+
+def _render(tables: list[_Table], format: str, base: str, title: str, subtitle: str) -> StreamingResponse:
+    if format == "csv":
+        buf = _tables_csv(tables)
+    elif format == "json":
+        buf = _tables_json(tables, title, subtitle)
+    elif format == "pdf":
+        buf = _tables_pdf(tables, title, subtitle)
+    else:
+        buf = _tables_xlsx(tables, title, subtitle)
+    return _stream(buf, f"{base}.{format}", _MEDIA[format])
+
+
+# ── Catalogue ─────────────────────────────────────────────────────────────────
+
+
+def _filters_desc(**f) -> str:
+    parts = []
+    for k, v in f.items():
+        if v in (None, [], False, ""):
+            continue
+        parts.append(f"{k.replace('_', ' ')}: {', '.join(map(str, v)) if isinstance(v, list) else v}")
+    return "  ·  ".join(parts) or "all perfumes"
+
+
 @router.get("/catalog")
 async def export_catalog(
-    format: str = Query("xlsx", pattern="^(xlsx|pdf)$"),
+    format: str = Query("xlsx", pattern=_FORMATS),
+    view: str = Query("cards", pattern="^(cards|listings)$"),
+    keys: List[str] = Query(None, description="Selected perfume cards (view=cards)"),
+    ids: List[int] = Query(None, description="Selected shop listings (view=listings)"),
     search: Optional[str] = None,
     brands: List[str] = Query(None),
     stores: List[str] = Query(None),
-    limit: int = Query(2000, ge=1, le=10000),
+    volumes: List[str] = Query(None),
+    types: List[str] = Query(None),
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    in_stock: Optional[bool] = None,
+    promo: Optional[bool] = None,
+    multi_shop: Optional[bool] = None,
+    dropped: Optional[bool] = None,
+    sort: Optional[str] = None,
+    limit: int = Query(2000, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export filtered catalog. Same filter semantics as /products/catalog."""
-    stmt = select(Product)
-    if search:
-        stmt = stmt.where(or_(Product.title.ilike(f"%{search}%"), Product.brand.ilike(f"%{search}%")))
-    if brands:
-        stmt = stmt.where(Product.brand.in_(brands))
-    if stores:
-        stmt = stmt.where(_store_filter_clause(stores))
-    stmt = stmt.order_by(Product.brand.asc(), Product.title.asc()).limit(limit)
-    rows = (await db.execute(stmt)).scalars().all()
+    """Catalogue export: the selected rows, or everything matching the filters.
 
-    filt_parts = []
-    if search: filt_parts.append(f"search='{search}'")
-    if brands: filt_parts.append(f"brands={','.join(brands)}")
-    if stores: filt_parts.append(f"stores={','.join(stores)}")
-    filters_desc = "  ·  ".join(filt_parts) if filt_parts else "no filters"
+    view=cards writes one row per perfume and size with a price column per
+    shop; view=listings writes one row per shop listing, like the table view.
+    """
+    filters = dict(search=search, brands=brands, stores=stores, volumes=volumes, types=types,
+                   price_min=price_min, price_max=price_max, in_stock=in_stock, promo=promo)
+    stamp = datetime.utcnow().strftime("%Y%m%d")
+    desc = f"{len(keys or ids or [])} selected" if (keys or ids) else _filters_desc(
+        **filters, multi_shop=multi_shop, dropped=dropped)
 
-    base = f"marketpulse_catalog_{datetime.utcnow().strftime('%Y%m%d')}"
-    if format == "xlsx":
-        buf = _build_catalog_xlsx(rows, filters_desc)
-        return _stream(buf, f"{base}.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    buf = _build_catalog_pdf(rows, filters_desc)
-    return _stream(buf, f"{base}.pdf", "application/pdf")
+    if view == "cards":
+        if keys:
+            cards = await cards_for_keys(db, keys[:limit])
+        else:
+            page = await query_cards(db, **filters, multi_shop=multi_shop, dropped=dropped,
+                                     sort=sort if sort in ("shops", "drop", "low", "high", "gap", "brand", "new") else "shops",
+                                     skip=0, limit=limit)
+            cards = page.items
+        shops = [k for k in STORE_LABELS if any(o.store == k for c in cards for o in c.offers)]
+        cols = [("Brand", "text"), ("Perfume", "text"), ("Type", "text"), ("Volume", "text"),
+                ("Cheapest shop", "text"), ("Lowest", "eur"), ("Highest", "eur"), ("Shops", "int"),
+                ("30-day change", "pct")] + [(f"{store_label(k)}", "eur") for k in shops]
+        rows = []
+        for c in cards:
+            by_shop = {}
+            for o in c.offers:
+                if o.in_stock and (o.store not in by_shop or o.price < by_shop[o.store]):
+                    by_shop[o.store] = o.price
+            rows.append([c.brand, c.name, c.concentration, c.volume, store_label(c.cheapest_store),
+                         c.min_price, c.max_price, c.shops, c.change_30d] + [by_shop.get(k) for k in shops])
+        table = _Table("Perfumes", cols, rows)
+    else:
+        page = await query_listings(db, ids=ids, **filters, multi_shop=multi_shop, dropped=dropped,
+                                    sort=sort if sort in ("brand", "name", "price", "change", "shop") else "brand",
+                                    skip=0, limit=limit)
+        table = _Table("Shop listings", [
+            ("Brand", "text"), ("Perfume", "text"), ("Type", "text"), ("Volume", "text"), ("Shop", "text"),
+            ("Price", "eur"), ("Previous", "eur"), ("Promo price", "eur"), ("Promo code", "text"),
+            ("30-day change", "pct"), ("In stock", "bool"), ("Checked", "datetime"), ("URL", "url"),
+        ], [
+            [r.brand, r.name, r.concentration, r.volume, r.store_name, r.price, r.old_price, r.promo_price,
+             r.promo_code, r.change_30d, r.in_stock, r.checked_at, r.url]
+            for r in page.items
+        ])
+    return _render([table], format, f"marketpulse_catalogue_{stamp}", "Catalogue", desc)
+
+
+# ── Analytics ────────────────────────────────────────────────────────────────
+
+_SECTIONS = ("overview", "shops", "drops", "rises", "gaps", "brands", "bands", "activity", "index")
+
+
+@router.get("/analytics")
+async def export_analytics(
+    format: str = Query("xlsx", pattern=_FORMATS),
+    days: int = Query(7, ge=1, le=90, description="Window for the biggest moves"),
+    section: Optional[str] = Query(None, description="Only this section (CSV of one table)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everything on the analytics page, one table per section."""
+    if section and section not in _SECTIONS:
+        raise HTTPException(422, f"section must be one of {', '.join(_SECTIONS)}")
+    want = (lambda name: section is None or section == name)
+    snap = await market.snapshot(db)
+    tables: list[_Table] = []
+    if want("overview"):
+        tables.append(_Table("Market overview", [("Metric", "text"), ("Value", "text")], [
+            ["Latest scan", snap.as_of.strftime("%Y-%m-%d %H:%M UTC") if snap.as_of else "—"],
+            ["Listings tracked", f"{snap.total_products:,}"],
+            ["In stock now", f"{snap.current_products:,}"],
+            ["Bottles in 2+ shops", f"{snap.comparable:,}"],
+            ["Price changes, 7 days", f"{snap.changes_7d:,}"],
+            ["Price changes, 30 days", f"{snap.changes_30d:,}"],
+            ["Median gap, dearest vs cheapest shop", f"{snap.spread_median:.1f}%"],
+            ["Mean gap", f"{snap.spread_mean:.1f}%"],
+            ["Price records since", snap.history_since.strftime("%Y-%m-%d") if snap.history_since else "—"],
+        ]))
+    if want("shops"):
+        tables.append(_Table("Shops", [
+            ("Shop", "text"), ("Listings", "int"), ("In stock", "int"), ("Changes 7d", "int"),
+            ("Changes 30d", "int"), ("Cheapest for", "int"), ("Cheapest share", "pct"), ("Promo listings", "int"),
+        ], [[s.store_name, s.products, s.current, s.changes_7d, s.changes_30d, s.cheapest_count,
+             s.cheapest_share, s.promo_listings] for s in snap.shops]))
+    move_cols = [("Brand", "text"), ("Perfume", "text"), ("Type", "text"), ("Volume", "text"), ("Shop", "text"),
+                 ("Before", "eur"), ("Now", "eur"), ("Change", "pct")]
+    if want("drops"):
+        rows = await market.moves(db, days=days, direction="down", limit=30)
+        tables.append(_Table(f"Biggest drops, {days} days", move_cols, [
+            [m.brand, m.name, m.concentration, m.volume, m.store_name, m.old_price, m.new_price, m.change_percent]
+            for m in rows]))
+    if want("rises"):
+        rows = await market.moves(db, days=days, direction="up", limit=30)
+        tables.append(_Table(f"Biggest rises, {days} days", move_cols, [
+            [m.brand, m.name, m.concentration, m.volume, m.store_name, m.old_price, m.new_price, m.change_percent]
+            for m in rows]))
+    if want("gaps"):
+        cards = await cards_for_keys(db, await market.top_gap_keys(db, limit=50))
+        rows = []
+        for c in cards:
+            live = [o for o in c.offers if o.in_stock] or c.offers
+            dear = max(live, key=lambda o: o.price)
+            rows.append([c.brand, c.name, c.concentration, c.volume, store_label(c.cheapest_store), c.min_price,
+                         dear.store_name, dear.price, round((dear.price - c.min_price) / c.min_price * 100, 1)])
+        tables.append(_Table("Widest gaps between shops", [
+            ("Brand", "text"), ("Perfume", "text"), ("Type", "text"), ("Volume", "text"),
+            ("Cheapest shop", "text"), ("Lowest", "eur"), ("Dearest shop", "text"), ("Highest", "eur"), ("Gap", "pct"),
+        ], rows))
+    if want("brands"):
+        m = await market.brand_shop(db, top=20)
+        cell = {(c.brand, c.store): c for c in m.cells}
+        tables.append(_Table("Brand × shop premium over the cheapest", [("Brand", "text")] + [
+            (store_label(s), "pct") for s in m.stores
+        ], [[b] + [cell[(b, s)].premium if (b, s) in cell else None for s in m.stores] for b in m.brands]))
+    if want("bands"):
+        bands = await market.price_bands(db)
+        labels = list(dict.fromkeys(b.label for b in sorted(bands, key=lambda b: b.band)))
+        stores = list(dict.fromkeys(b.store for b in bands))
+        cnt = {(b.store, b.label): b.count for b in bands}
+        tables.append(_Table("In-stock listings by price band", [("Shop", "text")] + [(lb, "int") for lb in labels],
+                             [[store_label(s)] + [cnt.get((s, lb), 0) for lb in labels] for s in stores]))
+    if want("activity"):
+        act = await market.activity(db, 30)
+        tables.append(_Table("Price changes per day, 30 days", [
+            ("Date", "text"), ("Shop", "text"), ("Rises", "int"), ("Drops", "int"),
+        ], [[a.date, store_label(a.store), a.up, a.down] for a in act]))
+    if want("index"):
+        idx = await market.price_index(db, 30)
+        shops = list(idx.shops)
+        tables.append(_Table("Price index, 100 = 30 days ago", [("Date", "text")] + [
+            (store_label(s), "num") for s in shops
+        ], [[d] + [idx.shops[s][i] for s in shops] for i, d in enumerate(idx.days)]))
+    stamp = datetime.utcnow().strftime("%Y%m%d")
+    return _render(tables, format, f"marketpulse_analytics_{stamp}", "Market analytics",
+                   f"Moves over {days} days")

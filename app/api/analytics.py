@@ -1,7 +1,6 @@
 """Analytics endpoints — aggregate views for the B2B analytical cabinet.
 
-All endpoints are public (gated at the /analytics page level on the frontend),
-matching the convention of the existing /analytics/stats endpoint.
+All endpoints need the Pro plan (see app/api/main.py); admins always pass.
 
 Five views, each computed live from Postgres on every request. With ~400 products
 this is fine; if catalog grows past ~10k products we should add a materialized
@@ -604,3 +603,79 @@ async def retailers_trend(
         )
 
     return [schemas.RetailerTrendSeries(store=s, points=pts) for s, pts in by_store.items()]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Redesign: the Pro analytics cabinet. Synthetic gap-fill rows never count as
+# price changes here; the price index draws them as an estimate.
+# ─────────────────────────────────────────────────────────────────────────────
+from app.api.cards import cards_for_keys  # noqa: E402
+from app.services import market  # noqa: E402
+
+
+@router.get("/overview", response_model=schemas.MarketSnapshot)
+async def overview(db: AsyncSession = Depends(get_db)):
+    """Market tonight: listings, comparable bottles, changes, who is cheapest."""
+    return await market.snapshot(db)
+
+
+@router.get("/activity", response_model=list[schemas.ActivityPoint])
+async def activity(days: int = Query(30, ge=7, le=180), db: AsyncSession = Depends(get_db)):
+    """Daily count of real price rises and cuts per shop."""
+    return await market.activity(db, days)
+
+
+@router.get("/price-index", response_model=schemas.PriceIndex)
+async def price_index(days: int = Query(90, ge=14, le=180), db: AsyncSession = Depends(get_db)):
+    """Same-basket price index per shop (100 = first day of the window)."""
+    return await market.price_index(db, days)
+
+
+@router.get("/moves", response_model=list[schemas.MoveItem])
+async def moves(
+    days: int = Query(7, ge=1, le=90),
+    direction: Literal["down", "up"] = "down",
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Biggest moves of the same listing over the window."""
+    return await market.moves(db, days=days, direction=direction, limit=limit)
+
+
+@router.get("/gaps", response_model=list[schemas.GapRow])
+async def gaps(
+    limit: int = Query(20, ge=1, le=100),
+    min_shops: int = Query(2, ge=2, le=5),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bottles with the widest gap between the cheapest and the dearest shop."""
+    keys = await market.top_gap_keys(db, limit=limit, min_shops=min_shops)
+    out = []
+    for card in await cards_for_keys(db, keys):
+        live = [o for o in card.offers if o.in_stock] or card.offers
+        dear = max(live, key=lambda o: o.price)
+        out.append(schemas.GapRow(
+            card=card,
+            gap_percent=round((dear.price - card.min_price) / card.min_price * 100, 1),
+            gap_eur=round(dear.price - card.min_price, 2),
+            dearest_store=dear.store,
+        ))
+    return out
+
+
+@router.get("/brand-shop", response_model=schemas.BrandShopMatrix)
+async def brand_shop(top: int = Query(12, ge=3, le=40), db: AsyncSession = Depends(get_db)):
+    """Brand × shop: mean premium over the cheapest shop for the same bottles."""
+    return await market.brand_shop(db, top)
+
+
+@router.get("/distribution", response_model=list[schemas.DistributionBin])
+async def distribution(days: int = Query(30, ge=7, le=90), db: AsyncSession = Depends(get_db)):
+    """How far listings moved over the window, in 5% bins."""
+    return await market.distribution(db, days)
+
+
+@router.get("/price-bands", response_model=list[schemas.PriceBandRow])
+async def price_bands(db: AsyncSession = Depends(get_db)):
+    """In-stock listings per shop and price band."""
+    return await market.price_bands(db)

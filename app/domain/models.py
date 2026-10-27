@@ -126,6 +126,9 @@ class User(SQLModel, table=True):
     hashed_password: str
     is_active: bool = Field(default=True)
     is_admin: bool = Field(default=False)
+    # "free" or "pro". Pro opens the analytics cabinet and data exports; an
+    # admin switches it on by hand until card payments are wired in.
+    plan: str = Field(default="free", max_length=16)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -154,5 +157,8 @@ class Favorite(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", index=True)
     product_id: int = Field(foreign_key="product.id", index=True)
     alert_enabled: bool = Field(default=True)
+    # Drop (in %) that triggers an alert for this bottle; None = the user's
+    # general notification_threshold_percent.
+    alert_threshold_percent: Optional[Decimal] = Field(default=None)
     price_when_added: Optional[Decimal] = Field(default=None)  # snapshot for "savings vs. entry"
     created_at: datetime = Field(default_factory=datetime.utcnow)

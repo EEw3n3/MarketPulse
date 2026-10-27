@@ -64,6 +64,20 @@ async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def has_pro(user: User) -> bool:
+    return bool(user.is_admin or (user.plan or "free") == "pro")
+
+
+async def get_pro_user(user: User = Depends(get_current_user)) -> User:
+    """Require the Pro plan (admins always pass); otherwise 403."""
+    if not has_pro(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Pro plan required",
+        )
+    return user
+
+
 from fastapi import Header  # noqa: E402
 
 from app.core.config import settings  # noqa: E402

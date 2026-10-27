@@ -32,6 +32,7 @@ def _build_user_read(user: User, prefs: UserPreferences | None) -> schemas.UserR
         full_name=user.full_name,
         is_active=user.is_active,
         is_admin=user.is_admin,
+        plan=user.plan,
         created_at=user.created_at,
         preferences=schemas.UserPreferencesRead.model_validate(prefs) if prefs else None,
     )

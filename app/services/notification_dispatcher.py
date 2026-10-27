@@ -129,7 +129,11 @@ class NotificationDispatcher:
         for fav, user, prefs in rows:
             # back_in_stock bypasses the threshold — always notify
             if history.change_type != "back_in_stock":
-                threshold = float(prefs.notification_threshold_percent or Decimal("5.0"))
+                # A bottle's own threshold wins over the user's general one.
+                if fav.alert_threshold_percent is not None:
+                    threshold = float(fav.alert_threshold_percent)
+                else:
+                    threshold = float(prefs.notification_threshold_percent or Decimal("5.0"))
                 if abs(percent_change) < threshold:
                     continue
 
