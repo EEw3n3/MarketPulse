@@ -27,6 +27,15 @@ const en = {
   gateKicker: "Pro analytics",
   gateTitle: "See the whole market, not one bottle",
   locks: ["Price index per shop", "Who is cheapest", "Biggest moves", "Gaps between shops", "Brand × shop map", "Export in 4 formats"],
+  lockNotes: [
+    "Four shops on one 100-point scale, day by day",
+    "Share of bottles each shop sells cheapest",
+    "Largest price cuts and rises in 30 days",
+    "One bottle: lowest against highest shop price",
+    "Which shop is dearer for each brand",
+    "Excel, PDF, CSV or JSON, whole page or one section",
+  ],
+  sideKicker: "Inside Pro",
   preview: "Preview with sample shapes",
   comparable: (n: number) => plural(n, { one: "bottle compared", other: "bottles compared" }),
 };
@@ -58,6 +67,15 @@ const lv: typeof en = {
   gateKicker: "Pro analītika",
   gateTitle: "Redziet visu tirgu, ne tikai vienu pudeli",
   locks: ["Cenu indekss pa veikaliem", "Kurš ir lētākais", "Lielākās izmaiņas", "Atšķirības starp veikaliem", "Zīmolu × veikalu karte", "Eksports 4 formātos"],
+  lockNotes: [
+    "Četri veikali vienā 100 punktu skalā, dienu pa dienai",
+    "Cik pudeļu katrs veikals pārdod vislētāk",
+    "Lielākie cenu kritumi un kāpumi 30 dienās",
+    "Viena pudele: zemākā pret augstāko veikala cenu",
+    "Kurš veikals katram zīmolam ir dārgāks",
+    "Excel, PDF, CSV vai JSON, visa lapa vai viena sadaļa",
+  ],
+  sideKicker: "Pro saturs",
   preview: "Priekšskatījums ar parauga formām",
   comparable: (n) => plural(n, { one: "salīdzināta pudele", other: "salīdzinātas pudeles", zero: "salīdzinātu pudeļu" }),
 };

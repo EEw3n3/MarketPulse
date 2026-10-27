@@ -266,10 +266,21 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .gate-card li::before { content: "✓"; font-weight: 600; }
 .gate-card .acts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .gate-card .note { background: #232528; border-radius: 18px; padding: 14px 16px; color: #e8e8e3; font-size: 14.5px; }
-.gate-side { grid-column: 8 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gutter); align-content: start; }
-.lock { border-radius: 26px; background: var(--field); padding: 16px 18px; min-height: 150px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
-.lock svg { width: 18px; height: 18px; fill: none; stroke: var(--ink); stroke-width: 1.8; }
-.lock b { font-weight: 500; line-height: 1.25; }
+.gate-side { grid-column: 8 / -1; background: var(--card); border: 1px solid var(--rule); border-radius: 32px; padding: clamp(20px, 2.4vw, 30px); display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.gate-side-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.gate-side-h small { color: var(--muted); font-size: 13px; }
+.gate-side-k { font-family: var(--serif); font-weight: 500; font-size: 28px; line-height: 1.1; }
+.locks { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-rows: 1fr; flex: 1; }
+.lock { display: grid; grid-template-columns: 132px minmax(0, 1fr) 16px; gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule); }
+.lock:first-child { border-top: 0; padding-top: 4px; }
+.lock .pv { width: 132px; height: 56px; background: var(--bg); border-radius: 10px; padding: 6px 8px; box-sizing: border-box; overflow: visible; filter: saturate(.85); }
+.lock b { display: block; font-weight: 500; line-height: 1.25; }
+.lock small { display: block; color: var(--muted); font-size: 13.5px; line-height: 1.35; margin-top: 3px; }
+.lock .lk { width: 15px; height: 15px; color: var(--muted); }
+.pv-base { stroke: var(--rule); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.pv-range { stroke: var(--rule); stroke-width: 3; stroke-linecap: round; }
+.pv-file { fill: var(--card); stroke: var(--rule); stroke-width: 1.5; }
+.pv-fmt { font: 600 9.5px var(--sans); fill: var(--ink-soft); letter-spacing: .02em; }
 .ghost { margin-top: clamp(40px, 5vw, 72px); opacity: .5; pointer-events: none; user-select: none; -webkit-mask-image: linear-gradient(#000 20%, transparent 85%); mask-image: linear-gradient(#000 20%, transparent 85%); max-height: 560px; overflow: hidden; }
 .probar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; background: var(--card); border-radius: 22px; padding: 12px 14px 12px 18px; font-size: 14.5px; }
 .probar b { font-weight: 500; }
@@ -337,8 +348,8 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
   .ava { width: 36px; height: 36px; }
   .find label { height: 38px; padding: 0 12px; }
   .suggest { min-width: 0; left: -60px; right: -46px; }
-  .gate-side { grid-template-columns: 1fr 1fr; }
-  .lock { min-height: 108px; }
+  .lock { grid-template-columns: 88px minmax(0, 1fr) 14px; gap: 12px; }
+  .lock .pv { width: 88px; height: 36px; padding: 4px 6px; }
 }
 
 /* ── Landing ─────────────────────────────────────────────────────────────── */
