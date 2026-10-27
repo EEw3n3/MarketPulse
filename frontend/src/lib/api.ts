@@ -1,5 +1,5 @@
 /**
- * MarketPulse API Client
+ * MarketPulse API client: types mirror app/api/schemas.py.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL as string;
@@ -55,6 +55,7 @@ export interface UserRead {
   full_name: string | null;
   is_active: boolean;
   is_admin: boolean;
+  plan: "free" | "pro" | string;
   created_at: string;
   preferences: UserPreferences | null;
 }
@@ -80,43 +81,209 @@ export interface UserPreferencesUpdate {
   monitored_stores?: string[];
   interested_brands?: string[];
   onboarding_completed?: boolean;
+  notification_channels?: ("email" | "telegram")[];
+  notification_threshold_percent?: number;
 }
 
-// ── Interfaces matching app/api/schemas.py ──────────────────────────────────
+// ── Catalogue (redesign) ─────────────────────────────────────────────────────
 
-export interface ProductFeedItem {
-  id: number;
-  brand: string;
+/** Daily lowest price per shop; every list has one value per day. */
+export interface PriceSeries {
+  days: string[];
+  shops: Record<string, (number | null)[]>;
+  cheapest: (string | null)[];
+}
+
+export interface CardOffer {
+  product_id: number;
+  store: string;
+  store_name: string;
   title: string;
-  currentPrice: number;
-  previousPrice: number;
-  changePercent: number;
-  changeDirection: "up" | "down" | "none";
-  storeInitial: string;
-  storeName: string;
-  storeColor: string;
-  image_url: string | null;
-  lastUpdated?: string; // ISO timestamp of last_seen — used to sort "Latest changes" by recency
+  price: number;
+  old_price: number | null;
+  promo_price: number | null;
+  promo_code: string | null;
+  url: string;
+  in_stock: boolean;
+  checked_at: string | null;
+  change_30d: number | null;
 }
 
-export interface CatalogItem {
-  id: number;
-  sku: string;
+/** One perfume in one size, with every shop that sells it. */
+export interface CatalogCard {
+  key: string;
+  product_id: number;
   brand: string;
   name: string;
-  volume: string;
-  type: string;
-  price: number;
-  previousPrice: number;
-  changePercent: number;
-  changeDirection: "up" | "down" | "none";
-  store: string;
-  storeColor: string;
-  in_stock: boolean;      // snake_case — matches FastAPI response
-  lastUpdated: string;
-  promoPrice?: number | null;  // price with a shop promo code
-  promoCode?: string | null;
+  concentration: string | null;
+  volume: string | null;
+  image_url: string | null;
+  min_price: number;
+  max_price: number;
+  cheapest_store: string;
+  shops: number;
+  change_30d: number | null;
+  has_promo: boolean;
+  offers: CardOffer[];
 }
+
+export interface CardsPage {
+  total: number;
+  listings: number;
+  items: CatalogCard[];
+}
+
+export interface ListingRow {
+  product_id: number;
+  brand: string;
+  name: string;
+  title: string;
+  volume: string | null;
+  concentration: string | null;
+  image_url: string | null;
+  price: number;
+  old_price: number | null;
+  promo_price: number | null;
+  promo_code: string | null;
+  change_30d: number | null;
+  store: string;
+  store_name: string;
+  in_stock: boolean;
+  url: string;
+  checked_at: string | null;
+}
+
+export interface ListingsPage {
+  total: number;
+  items: ListingRow[];
+}
+
+export interface FacetValue {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface CatalogFacets {
+  stores: FacetValue[];
+  concentrations: FacetValue[];
+  volumes: FacetValue[];
+  brands: FacetValue[];
+  price_min: number;
+  price_max: number;
+  as_of: string | null;
+}
+
+export type CardSort = "shops" | "drop" | "low" | "high" | "gap" | "brand" | "new";
+export type ListingSort = "brand" | "name" | "price" | "change" | "shop";
+
+export interface CatalogQuery {
+  search?: string;
+  brands?: string[];
+  stores?: string[];
+  volumes?: string[];
+  types?: string[];
+  price_min?: number | null;
+  price_max?: number | null;
+  in_stock?: boolean;
+  promo?: boolean;
+  multi_shop?: boolean;
+  dropped?: boolean;
+}
+
+export interface MoveItem {
+  product_id: number;
+  store: string;
+  store_name: string;
+  brand: string;
+  name: string;
+  concentration: string | null;
+  volume: string | null;
+  image_url: string | null;
+  old_price: number;
+  new_price: number;
+  change_percent: number;
+  since: string | null;
+}
+
+// ── Market analytics (Pro) ───────────────────────────────────────────────────
+
+export interface ShopSnapshot {
+  store: string;
+  store_name: string;
+  products: number;
+  current: number;
+  changes_7d: number;
+  changes_30d: number;
+  cheapest_share: number;
+  cheapest_count: number;
+  promo_listings: number;
+}
+
+export interface MarketSnapshot {
+  as_of: string | null;
+  total_products: number;
+  current_products: number;
+  comparable: number;
+  changes_7d: number;
+  changes_30d: number;
+  history_rows: number;
+  history_since: string | null;
+  spread_median: number;
+  spread_mean: number;
+  shops: ShopSnapshot[];
+}
+
+export interface ActivityPoint {
+  date: string;
+  store: string;
+  up: number;
+  down: number;
+}
+
+export interface PriceIndex {
+  days: string[];
+  shops: Record<string, (number | null)[]>;
+  basket: Record<string, number>;
+  estimated_from: string | null;
+  estimated_to: string | null;
+}
+
+export interface BrandShopMatrix {
+  brands: string[];
+  stores: string[];
+  cells: { brand: string; store: string; premium: number; bottles: number }[];
+}
+
+export interface DistributionBin {
+  lower: number;
+  upper: number;
+  count: number;
+}
+
+export interface PriceBandRow {
+  store: string;
+  band: number;
+  label: string;
+  count: number;
+}
+
+export interface GapRow {
+  card: CatalogCard;
+  gap_percent: number;
+  gap_eur: number;
+  dearest_store: string;
+}
+
+export interface LandingData {
+  market: MarketSnapshot;
+  hero: CatalogCard | null;
+  shelf: CatalogCard[];
+  gaps: CatalogCard[];
+  drops: MoveItem[];
+}
+
+// ── Product page ─────────────────────────────────────────────────────────────
 
 export interface PriceHistoryRead {
   id: number;
@@ -124,8 +291,6 @@ export interface PriceHistoryRead {
   in_stock: boolean;
   parsed_at: string;
   change_type: string;
-  /** Lowercase canonical store domain (e.g. "douglas.lv"). Used by PriceChart
-   *  to render one line per store across the product's group. */
   store_name?: string;
 }
 
@@ -150,8 +315,15 @@ export interface StoreOffer {
   image_url: string | null;
   concentration?: string | null;
   variants: StoreOfferVariant[];
-  promoPrice?: number | null;  // price with a shop promo code
+  promoPrice?: number | null;
   promoCode?: string | null;
+}
+
+export interface SizeOption {
+  product_id: number;
+  volume: string;
+  min_price: number;
+  shops: number;
 }
 
 export interface ProductCardDetail {
@@ -167,99 +339,13 @@ export interface ProductCardDetail {
   old_price: number | null;
   store_name: string;
   is_available: boolean;
-  promo_price?: number | null;  // price with a shop promo code
+  promo_price?: number | null;
   promo_code?: string | null;
   history: PriceHistoryRead[];
   offers: StoreOffer[];
-}
-
-export interface DashboardStats {
-  total_products: string;     // formatted "1,234"
-  avg_price_change: string;   // formatted "+1.5%"
-  stores_monitored: number;
-  potential_savings: string;  // formatted "€123"
-  alerts_triggered: number;
-}
-
-// ── Analytics types ─────────────────────────────────────────────────────────
-
-export interface MoverItem {
-  product_id: number;
-  brand: string | null;
-  title: string;
-  image_url: string | null;
-  store_name: string;
-  current_price: number;
-  start_price: number;
-  change_abs: number;
-  change_percent: number;
-  direction: "up" | "down";
-}
-
-export interface SpreadItem {
-  group_id: number;
-  name: string;
-  image_url: string | null;
-  cheapest_product_id: number;
-  cheapest_store: string;
-  cheapest_price: number;
-  most_expensive_store: string;
-  most_expensive_price: number;
-  spread_abs: number;
-  spread_percent: number;
-  store_count: number;
-}
-
-export interface RetailerStats {
-  store: string;
-  product_count: number;
-  avg_price: number;
-  drop_count: number;
-  drop_rate: number;
-  cheapest_wins: number;
-  cheapest_win_rate: number;
-}
-
-export interface BrandStoreCell {
-  brand: string;
-  store: string;
-  product_count: number;
-  avg_price: number;
-}
-
-export interface VolatilityItem {
-  product_id: number;
-  brand: string | null;
-  title: string;
-  image_url: string | null;
-  store_name: string;
-  current_price: number;
-  volatility_eur: number;
-  range_eur: number;
-  observation_count: number;
-}
-
-export interface MarketTrendPoint {
-  date: string;            // ISO YYYY-MM-DD
-  avg_price: number;
-  observation_count: number;
-}
-
-export interface MoversDistributionBin {
-  lower: number;
-  upper: number;
-  count: number;
-  label: string;
-}
-
-export interface RetailerTrendPoint {
-  date: string;
-  avg_price: number;
-}
-
-export interface RetailerTrendSeries {
-  store: string;
-  points: RetailerTrendPoint[];
+  display_name: string | null;
+  sizes: SizeOption[];
+  series: PriceSeries | null;
 }
 
 // ── Chat types ───────────────────────────────────────────────────────────────
@@ -289,7 +375,22 @@ export interface FavoriteItem {
   store_name: string;
   is_available: boolean;
   alert_enabled: boolean;
+  alert_threshold_percent: number | null;
   created_at: string;
+  display_name: string | null;
+  offers: FavoriteOffer[];
+  series: PriceSeries | null;
+  change_30d: number | null;
+}
+
+export interface FavoriteOffer {
+  product_id: number;
+  store: string;
+  store_name: string;
+  price: number;
+  old_price: number | null;
+  url: string | null;
+  is_available: boolean;
 }
 
 // ── Admin types ──────────────────────────────────────────────────────────────
@@ -344,12 +445,14 @@ export interface AdminUserRead {
   full_name: string | null;
   is_active: boolean;
   is_admin: boolean;
+  plan: "free" | "pro" | string;
   created_at: string;
   favorites_count: number;
 }
 
 export interface AdminUserPatch {
   is_active?: boolean;
+  plan?: "free" | "pro";
 }
 
 export interface AdminLogsResponse {
@@ -359,42 +462,36 @@ export interface AdminLogsResponse {
 
 // ── Typed API methods ────────────────────────────────────────────────────────
 
+function qs(params: object): string {
+  const out = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null || v === "" || v === false) continue;
+    if (Array.isArray(v)) v.forEach((x) => out.append(k, String(x)));
+    else out.append(k, String(v));
+  }
+  const s = out.toString();
+  return s ? `?${s}` : "";
+}
+
 export const api = {
-  // Products (public)
-  getFeed: (params: { limit?: number; brands?: string[]; stores?: string[]; search?: string } | number = {}) => {
-    // Backwards-compat: getFeed(50) still works
-    const opts = typeof params === "number" ? { limit: params } : params;
-    const qs = new URLSearchParams();
-    qs.append("limit", String(opts.limit ?? 20));
-    opts.brands?.forEach(b => qs.append("brands", b));
-    opts.stores?.forEach(s => qs.append("stores", s.toLowerCase()));
-    if (opts.search) qs.append("search", opts.search);
-    return fetchApi<ProductFeedItem[]>(`/products/feed?${qs.toString()}`);
-  },
-  getCatalog: (params?: string) =>
-    fetchApi<CatalogItem[]>(`/products/catalog${params ? `?${params}` : ""}`),
-  getCatalogCount: (params?: string) =>
-    fetchApi<{ total: number }>(`/products/catalog/count${params ? `?${params}` : ""}`),
-  getBrands: () =>
-    fetchApi<Array<{ name: string; count: number }>>(`/products/brands`),
-  getStores: () =>
-    fetchApi<Array<{ key: string; label: string; count: number }>>(`/products/stores`),
-  getVolumes: () =>
-    fetchApi<Array<{ value: string; count: number }>>(`/products/volumes`),
-  getProduct: (id: number | string) =>
-    fetchApi<ProductCardDetail>(`/products/${id}`),
-  getStats: () =>
-    fetchApi<DashboardStats>("/analytics/stats"),
+  // Catalogue
+  getCards: (q: CatalogQuery & { sort?: CardSort; skip?: number; limit?: number }) =>
+    fetchApi<CardsPage>(`/products/cards${qs(q)}`),
+  getListings: (q: CatalogQuery & { sort?: ListingSort; direction?: "asc" | "desc"; skip?: number; limit?: number }) =>
+    fetchApi<ListingsPage>(`/products/listings${qs(q)}`),
+  getFilters: () => fetchApi<CatalogFacets>("/products/filters"),
+  getDrops: (q: { days?: number; stores?: string[]; brands?: string[]; limit?: number }) =>
+    fetchApi<MoveItem[]>(`/products/drops${qs(q)}`),
+  getProduct: (id: number | string) => fetchApi<ProductCardDetail>(`/products/${id}`),
+  getLanding: () => fetchApi<LandingData>("/public/landing"),
 
   // Auth
   register: (body: UserCreate) =>
     fetchApi<TokenResponse>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: LoginRequest) =>
     fetchApi<TokenResponse>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
-  me: () =>
-    fetchApi<UserRead>("/auth/me"),
-  deleteAccount: () =>
-    fetchApi<void>("/auth/me", { method: "DELETE" }),
+  me: () => fetchApi<UserRead>("/auth/me"),
+  deleteAccount: () => fetchApi<void>("/auth/me", { method: "DELETE" }),
   updatePreferences: (body: UserPreferencesUpdate) =>
     fetchApi<UserPreferences>("/auth/preferences", { method: "PATCH", body: JSON.stringify(body) }),
   changePassword: (current_password: string, new_password: string) =>
@@ -403,100 +500,69 @@ export const api = {
       body: JSON.stringify({ current_password, new_password }),
     }),
   updateProfile: (full_name: string) =>
-    fetchApi<UserRead>("/auth/profile", {
-      method: "PATCH",
-      body: JSON.stringify({ full_name }),
-    }),
+    fetchApi<UserRead>("/auth/profile", { method: "PATCH", body: JSON.stringify({ full_name }) }),
   connectTelegram: () =>
     fetchApi<TelegramConnectResponse>("/auth/telegram/connect", { method: "POST" }),
-  disconnectTelegram: () =>
-    fetchApi<void>("/auth/telegram/disconnect", { method: "POST" }),
+  disconnectTelegram: () => fetchApi<void>("/auth/telegram/disconnect", { method: "POST" }),
 
-  // Analytics
-  getMovers: (window: "24h" | "7d" | "30d" = "7d", limit = 20, direction: "both" | "up" | "down" = "both") =>
-    fetchApi<MoverItem[]>(`/analytics/movers?window=${window}&limit=${limit}&direction=${direction}`),
-  getSpreads: (limit = 20) =>
-    fetchApi<SpreadItem[]>(`/analytics/spreads?limit=${limit}`),
-  getRetailers: () =>
-    fetchApi<RetailerStats[]>("/analytics/retailers"),
-  getBrandStoreMatrix: (top_brands = 20, min_count = 1) =>
-    fetchApi<BrandStoreCell[]>(`/analytics/brand-store-matrix?top_brands=${top_brands}&min_count=${min_count}`),
-  getVolatility: (window: "24h" | "7d" | "30d" = "30d", limit = 20) =>
-    fetchApi<VolatilityItem[]>(`/analytics/volatility?window=${window}&limit=${limit}`),
-  getMarketTrend: (window: "7d" | "30d" | "90d" = "30d") =>
-    fetchApi<MarketTrendPoint[]>(`/analytics/market-trend?window=${window}`),
-  getMoversDistribution: (window: "24h" | "7d" | "30d" = "7d", bin_size = 5, bin_max = 30) =>
-    fetchApi<MoversDistributionBin[]>(
-      `/analytics/movers/distribution?window=${window}&bin_size=${bin_size}&bin_max=${bin_max}`
-    ),
-  getRetailersTrend: (window: "7d" | "30d" | "90d" = "30d") =>
-    fetchApi<RetailerTrendSeries[]>(`/analytics/retailers/trend?window=${window}`),
+  // Market analytics (Pro)
+  analytics: {
+    overview: () => fetchApi<MarketSnapshot>("/analytics/overview"),
+    activity: (days = 30) => fetchApi<ActivityPoint[]>(`/analytics/activity?days=${days}`),
+    priceIndex: (days = 30) => fetchApi<PriceIndex>(`/analytics/price-index?days=${days}`),
+    moves: (days = 7, direction: "down" | "up" = "down", limit = 10) =>
+      fetchApi<MoveItem[]>(`/analytics/moves?days=${days}&direction=${direction}&limit=${limit}`),
+    gaps: (limit = 20, min_shops = 2) => fetchApi<GapRow[]>(`/analytics/gaps?limit=${limit}&min_shops=${min_shops}`),
+    brandShop: (top = 12) => fetchApi<BrandShopMatrix>(`/analytics/brand-shop?top=${top}`),
+    distribution: (days = 30) => fetchApi<DistributionBin[]>(`/analytics/distribution?days=${days}`),
+    priceBands: () => fetchApi<PriceBandRow[]>("/analytics/price-bands"),
+  },
 
   // Admin
   admin: {
-    health: () =>
-      fetchApi<AdminHealthResponse>("/admin/health"),
-    rules: (domain: string) =>
-      fetchApi<AdminScrapingRule>(`/admin/rules/${encodeURIComponent(domain)}`),
+    health: () => fetchApi<AdminHealthResponse>("/admin/health"),
+    rules: (domain: string) => fetchApi<AdminScrapingRule>(`/admin/rules/${encodeURIComponent(domain)}`),
     regenerateRules: (domain: string) =>
-      fetchApi<{ status: string; domain: string }>(`/admin/rules/${encodeURIComponent(domain)}/regenerate`, { method: "POST" }),
+      fetchApi<{ status: string; domain: string }>(`/admin/rules/${encodeURIComponent(domain)}/regenerate`, {
+        method: "POST",
+      }),
     triggerScrape: (domain: string, maxItems?: number | null) => {
-      const qs = maxItems != null ? `?max_items=${maxItems}` : "";
+      const q = maxItems != null ? `?max_items=${maxItems}` : "";
       return fetchApi<{ status: string; domain: string; job_id: string; max_items: number | null }>(
-        `/admin/scrape/${encodeURIComponent(domain)}${qs}`,
-        { method: "POST" }
+        `/admin/scrape/${encodeURIComponent(domain)}${q}`,
+        { method: "POST" },
       );
     },
-    deleteUser: (userId: number) =>
-      fetchApi<void>(`/admin/users/${userId}`, { method: "DELETE" }),
+    deleteUser: (userId: number) => fetchApi<void>(`/admin/users/${userId}`, { method: "DELETE" }),
     batchDeactivate: (userIds: number[]) =>
       fetchApi<{ updated: number; skipped_self: number }>(`/admin/users/batch/deactivate`, {
         method: "POST",
         body: JSON.stringify({ user_ids: userIds }),
       }),
-    dataQuality: () =>
-      fetchApi<AdminDataQuality>("/admin/data-quality"),
-    users: () =>
-      fetchApi<AdminUserRead[]>("/admin/users"),
+    dataQuality: () => fetchApi<AdminDataQuality>("/admin/data-quality"),
+    users: () => fetchApi<AdminUserRead[]>("/admin/users"),
     updateUser: (userId: number, patch: AdminUserPatch) =>
       fetchApi<AdminUserRead>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(patch) }),
-    logs: (tail = 50) =>
-      fetchApi<AdminLogsResponse>(`/admin/logs?tail=${tail}`),
+    logs: (tail = 50) => fetchApi<AdminLogsResponse>(`/admin/logs?tail=${tail}`),
     workerStatus: () =>
       fetchApi<{ online: boolean; last_seen_ago_s: number | null; queue_depth: number }>("/admin/worker/status"),
   },
 
   // Chat
-  sendChat: (message: string, history: ChatMessage[]) =>
+  sendChat: (message: string, history: ChatMessage[], page_context?: string) =>
     fetchApi<ChatResponse>("/chat", {
       method: "POST",
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ message, history, page_context }),
     }),
 
   // Favorites
-  listFavorites: () =>
-    fetchApi<FavoriteItem[]>("/favorites"),
+  listFavorites: () => fetchApi<FavoriteItem[]>("/favorites"),
   addFavorite: (product_id: number, alert_enabled = true) =>
     fetchApi<FavoriteItem>("/favorites", {
       method: "POST",
       body: JSON.stringify({ product_id, alert_enabled }),
     }),
-  updateFavorite: (product_id: number, alert_enabled: boolean) =>
-    fetchApi<FavoriteItem>(`/favorites/${product_id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ alert_enabled }),
-    }),
-  removeFavorite: (product_id: number) =>
-    fetch(`${API_BASE_URL}/favorites/${product_id}`, {
-      method: "DELETE",
-      headers: {
-        ...(localStorage.getItem(TOKEN_KEY)
-          ? { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` }
-          : {}),
-      },
-    }).then((r) => {
-      if (!r.ok && r.status !== 204) {
-        throw new Error(`API Error: ${r.status} ${r.statusText}`);
-      }
-    }),
+  updateFavorite: (product_id: number, patch: { alert_enabled?: boolean; alert_threshold_percent?: number }) =>
+    fetchApi<FavoriteItem>(`/favorites/${product_id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  removeFavorite: (product_id: number) => fetchApi<void>(`/favorites/${product_id}`, { method: "DELETE" }),
 };

@@ -25,7 +25,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) { setLoading(false); return; }
     api.me()
       .then(setUser)
-      .catch(() => { localStorage.removeItem(TOKEN_KEY); setToken(null); })
+      .catch((e) => {
+        // Only a rejected token signs the user out; a network blip keeps it for the next load.
+        if (/API Error: 40[13]\b/.test(e instanceof Error ? e.message : "")) {
+          localStorage.removeItem(TOKEN_KEY);
+          setToken(null);
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 

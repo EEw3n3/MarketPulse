@@ -14,9 +14,10 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Geist", "Inter", "system-ui", "sans-serif"],
-        display: ["Geist", "Inter", "system-ui", "sans-serif"],
-        mono: ['"Geist Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ['"Bricolage Grotesque"', '"Helvetica Neue"', "Arial", "sans-serif"],
+        serif: ['"Bodoni Moda"', "Didot", '"Bodoni 72"', "Georgia", "serif"],
+        display: ['"Bodoni Moda"', "Didot", '"Bodoni 72"', "Georgia", "serif"],
+        mono: ["ui-monospace", '"SF Mono"', "Menlo", "Consolas", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",

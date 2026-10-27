@@ -3,6 +3,6 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (!user?.is_admin) return <Navigate to="/dashboard" replace />;
+  if (!user?.is_admin) return <Navigate to="/today" replace />;
   return <>{children}</>;
 }

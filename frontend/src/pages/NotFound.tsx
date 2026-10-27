@@ -1,24 +1,36 @@
-import { useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useT } from "@/i18n";
+import LangSwitch from "@/components/mp/LangSwitch";
 
-const NotFound = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
-
+export default function NotFound() {
+  const t = useT();
+  const { user } = useAuth();
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">404</h1>
-        <p className="mb-4 text-xl text-muted-foreground">Oops! Page not found</p>
-        <a href="/" className="text-primary underline hover:text-primary/90">
-          Return to Home
-        </a>
+    <div className="pg-nf wrap">
+      <div className="nf-top">
+        <Link className="logo" to={user ? "/today" : "/"}>
+          MarketPulse
+        </Link>
+        <LangSwitch />
       </div>
+      <main className="empty">
+        <p className="nf-code serif num" aria-hidden="true">
+          404
+        </p>
+        <h1>{t.common.notFoundTitle}</h1>
+        <p>{t.common.notFoundText}</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+          <Link className="btn btn-ink" to={user ? "/today" : "/"}>
+            {user ? t.common.goHome : t.common.goStart}
+          </Link>
+          {user && (
+            <Link className="btn btn-soft" to="/catalog">
+              {t.shell.nav.catalog}
+            </Link>
+          )}
+        </div>
+      </main>
     </div>
   );
-};
-
-export default NotFound;
+}

@@ -1,64 +1,69 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { I18nProvider } from "@/i18n";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { FavoritesProvider } from "@/contexts/FavoritesContext";
-import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { ChatProvider } from "@/contexts/ChatContext";
+import ProtectedRoute, { PageLoading } from "@/components/auth/ProtectedRoute";
 import AdminRoute from "@/components/auth/AdminRoute";
+import Landing from "./pages/Landing";
 
-import Index from "./pages/Index.tsx";
-import SignIn from "./pages/SignIn.tsx";
-import Register from "./pages/Register.tsx";
-import OnboardingStores from "./pages/OnboardingStores.tsx";
-import OnboardingBrands from "./pages/OnboardingBrands.tsx";
-import Favorites from "./pages/Favorites.tsx";
-import Dashboard from "./pages/Dashboard.tsx";
-import Catalog from "./pages/Catalog.tsx";
-import Analytics from "./pages/Analytics.tsx";
-import ProductAnalytics from "./pages/ProductAnalytics.tsx";
-import Settings from "./pages/Settings.tsx";
-import AdminPanel from "./pages/AdminPanel.tsx";
-import NotFound from "./pages/NotFound.tsx";
+const Auth = lazy(() => import("./pages/Auth"));
+const OnboardingStores = lazy(() => import("./pages/Onboarding").then((m) => ({ default: m.OnboardingStores })));
+const OnboardingBrands = lazy(() => import("./pages/Onboarding").then((m) => ({ default: m.OnboardingBrands })));
+const Today = lazy(() => import("./pages/Today"));
+const Catalog = lazy(() => import("./pages/Catalog"));
+const Product = lazy(() => import("./pages/Product"));
+const Favorites = lazy(() => import("./pages/Favorites"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const Profile = lazy(() => import("./pages/Profile"));
+const AdminPanel = lazy(() => import("./pages/AdminPanel"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 60_000 } },
+});
+
+const guard = (el: React.ReactNode) => <ProtectedRoute>{el}</ProtectedRoute>;
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
+    <BrowserRouter>
+      <I18nProvider>
         <AuthProvider>
           <FavoritesProvider>
-          <Routes>
-            {/* Public */}
-            <Route path="/" element={<Index />} />
-            <Route path="/signin" element={<SignIn />} />
-            <Route path="/register" element={<Register />} />
+            <ChatProvider>
+              <Toaster />
+              <Suspense fallback={<PageLoading />}>
+                <Routes>
+                  <Route path="/" element={<Landing />} />
+                  <Route path="/signin" element={<Auth mode="signin" />} />
+                  <Route path="/register" element={<Auth mode="register" />} />
 
-            {/* Onboarding (requires auth) */}
-            <Route path="/onboarding/stores" element={<ProtectedRoute><OnboardingStores /></ProtectedRoute>} />
-            <Route path="/onboarding/brands" element={<ProtectedRoute><OnboardingBrands /></ProtectedRoute>} />
+                  <Route path="/onboarding/stores" element={guard(<OnboardingStores />)} />
+                  <Route path="/onboarding/brands" element={guard(<OnboardingBrands />)} />
 
-            {/* Protected app */}
-            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/catalog" element={<ProtectedRoute><Catalog /></ProtectedRoute>} />
-            <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
-            <Route path="/product/:id" element={<ProtectedRoute><ProductAnalytics /></ProtectedRoute>} />
-            <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                  <Route path="/today" element={guard(<Today />)} />
+                  <Route path="/dashboard" element={<Navigate to="/today" replace />} />
+                  <Route path="/catalog" element={guard(<Catalog />)} />
+                  <Route path="/product/:id" element={guard(<Product />)} />
+                  <Route path="/favorites" element={guard(<Favorites />)} />
+                  <Route path="/analytics" element={guard(<Analytics />)} />
+                  <Route path="/profile" element={guard(<Profile />)} />
+                  <Route path="/settings" element={<Navigate to="/profile" replace />} />
 
-            {/* Admin */}
-            <Route path="/admin" element={<ProtectedRoute><AdminRoute><AdminPanel /></AdminRoute></ProtectedRoute>} />
+                  <Route path="/admin" element={guard(<AdminRoute><AdminPanel /></AdminRoute>)} />
 
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </ChatProvider>
           </FavoritesProvider>
         </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
+      </I18nProvider>
+    </BrowserRouter>
   </QueryClientProvider>
 );
 

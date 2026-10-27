@@ -2,380 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
+/* shadcn/ui tokens (dialogs, menus, toasts, switches) mapped onto the
+   MarketPulse palette in src/styles/mp.css. Light only: the redesign has one
+   look, warm paper with pastel shop colours. */
 @layer base {
   :root {
-    /* ─── Dark mode (default) — deep navy + teal, B2B ─── */
-    --background: 220 30% 8%;
-    --foreground: 210 20% 96%;
-
-    --card: 220 25% 12%;
-    --card-foreground: 210 20% 96%;
-
-    --popover: 220 25% 12%;
-    --popover-foreground: 210 20% 96%;
-
-    --primary: 180 70% 45%;
-    --primary-foreground: 220 30% 8%;
-
-    --secondary: 210 50% 45%;
-    --secondary-foreground: 210 20% 96%;
-
-    --muted: 220 18% 18%;
-    --muted-foreground: 220 12% 65%;
-
-    --accent: 180 70% 45%;
-    --accent-foreground: 220 30% 8%;
-
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 142 70% 45%;
-    --success-foreground: 0 0% 100%;
-
-    --warning: 38 90% 55%;
-    --warning-foreground: 220 30% 8%;
-
-    --surface: 220 25% 12%;
-    --surface-foreground: 210 20% 96%;
-
-    --surface-2: 220 22% 16%;
-    --surface-2-foreground: 210 20% 96%;
-
-    --border: 220 15% 20%;
-    --input: 220 15% 20%;
-    --ring: 180 70% 45%;
-
-    --radius: 0.5rem;
-    --radius-card: 10px;
-    --radius-button: 8px;
-    --radius-modal: 16px;
-
-    --bezier-brand: cubic-bezier(0.4, 0, 0.2, 1);
-    --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.3);
-    --shadow-glow: 0 0 24px hsl(var(--primary) / 0.18);
-
-    --sidebar-background: 220 28% 10%;
-    --sidebar-foreground: 210 20% 96%;
-    --sidebar-primary: 180 70% 45%;
-    --sidebar-primary-foreground: 220 30% 8%;
-    --sidebar-accent: 220 22% 16%;
-    --sidebar-accent-foreground: 210 20% 96%;
-    --sidebar-border: 220 15% 20%;
-    --sidebar-ring: 180 70% 45%;
-  }
-
-  .light {
-    /* ─── Light mode — clean off-white + darker teal ─── */
-    --background: 220 20% 98%;
-    --foreground: 220 40% 12%;
-
+    --background: 60 9% 96.5%;      /* #f7f7f5 */
+    --foreground: 210 10% 7.6%;     /* #111315 */
     --card: 0 0% 100%;
-    --card-foreground: 220 40% 12%;
-
+    --card-foreground: 210 10% 7.6%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 40% 12%;
-
-    --primary: 180 72% 35%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 210 50% 40%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 220 14% 94%;
-    --muted-foreground: 220 15% 42%;
-
-    --accent: 180 72% 35%;
+    --popover-foreground: 210 10% 7.6%;
+    --primary: 210 10% 7.6%;
+    --primary-foreground: 60 9% 96.5%;
+    --secondary: 60 6% 91.6%;       /* #ecece8 */
+    --secondary-foreground: 210 10% 7.6%;
+    --muted: 60 6% 91.6%;
+    --muted-foreground: 60 2% 38%;  /* #63635f */
+    --accent: 330 86% 44%;          /* #d0106f */
     --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 70% 50%;
+    --destructive: 356 64% 43%;     /* #b3262f */
     --destructive-foreground: 0 0% 100%;
-
-    --success: 142 72% 35%;
+    --success: 141 62% 30%;         /* #1d7a3e */
     --success-foreground: 0 0% 100%;
-
-    --warning: 38 90% 45%;
+    --warning: 41 100% 35%;
     --warning-foreground: 0 0% 100%;
-
     --surface: 0 0% 100%;
-    --surface-foreground: 220 40% 12%;
-
-    --surface-2: 220 20% 95%;
-    --surface-2-foreground: 220 40% 12%;
-
-    --border: 220 14% 88%;
-    --input: 220 14% 88%;
-    --ring: 180 72% 35%;
-
-    --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.04);
-    --shadow-glow: 0 0 20px hsl(var(--primary) / 0.15);
-
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 220 40% 12%;
-    --sidebar-primary: 180 72% 35%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 94%;
-    --sidebar-accent-foreground: 220 40% 12%;
-    --sidebar-border: 220 14% 88%;
-    --sidebar-ring: 180 72% 35%;
+    --surface-foreground: 210 10% 7.6%;
+    --surface-2: 60 6% 91.6%;
+    --surface-2-foreground: 210 10% 7.6%;
+    --border: 60 7% 85%;            /* #dcdcd6 */
+    --input: 60 7% 85%;
+    --ring: 330 86% 44%;
+    --radius: 1rem;
+    --radius-card: 26px;
+    --radius-button: 999px;
+    --radius-modal: 28px;
   }
 
   * {
     @apply border-border;
   }
 
-  body {
-    @apply bg-background text-foreground font-sans;
-    transition: background-color 0.25s var(--bezier-brand), color 0.25s var(--bezier-brand);
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  }
-
-  /* Hide native browser password reveal buttons — we render our own Eye toggle */
   input[type="password"]::-ms-reveal,
-  input[type="password"]::-ms-clear,
-  input[type="password"]::-webkit-credentials-auto-fill-button {
+  input[type="password"]::-ms-clear {
     display: none !important;
   }
-
-  /* Selection — teal tint */
-  ::selection {
-    background: hsl(var(--primary) / 0.25);
-    color: hsl(var(--foreground));
-  }
 }
 
-@layer components {
-  /* ── Glass card — reserved for AiPanel only; kept minimal ── */
-  .glass-card {
-    background: hsl(var(--surface) / 0.8);
-    backdrop-filter: blur(12px);
-    border-radius: var(--radius-card);
-    border: 1px solid hsl(var(--border));
-    box-shadow: var(--shadow-card);
-    transition: all 0.2s var(--bezier-brand);
-  }
-
-  .light .glass-card {
-    background: hsl(var(--surface) / 0.85);
-  }
-
-  /* ── Feature card — flat surface, subtle hover lift ── */
-  .feature-card {
-    background: hsl(var(--surface));
-    border-radius: var(--radius-card);
-    border: 1px solid hsl(var(--border));
-    box-shadow: var(--shadow-card);
-    transition: border-color 0.2s var(--bezier-brand), transform 0.2s var(--bezier-brand),
-      box-shadow 0.2s var(--bezier-brand);
-  }
-
-  .feature-card:hover {
-    transform: translateY(-2px);
-    border-color: hsl(var(--primary) / 0.4);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  }
-
-  .light .feature-card:hover {
-    box-shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
-  }
-
-  /* ── Hero blob (background accent, navy-teal) ── */
-  .hero-blob {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(120px);
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.35;
-  }
-
-  /* ── Badge pill — subtle indicator ── */
-  .badge-pill {
-    @apply inline-flex items-center gap-1.5 text-xs font-medium;
-    background: hsl(var(--primary) / 0.1);
-    border: 1px solid hsl(var(--primary) / 0.2);
-    border-radius: 9999px;
-    padding: 0.25rem 0.75rem;
-    color: hsl(var(--foreground) / 0.75);
-    transition: all 0.15s var(--bezier-brand);
-  }
-
-  .badge-pill .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: hsl(var(--primary));
-    display: inline-block;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-
-  /* ── Check badge (trust indicators) ── */
-  .check-badge {
-    @apply inline-flex items-center gap-1.5 text-xs;
-    color: hsl(var(--muted-foreground));
-  }
-
-  .check-badge svg {
-    color: hsl(var(--success));
-  }
-
-  /* ── Stat number (animated counters) ── */
-  .stat-number {
-    font-variant-numeric: tabular-nums;
-    color: hsl(var(--foreground));
-    letter-spacing: -0.02em;
-  }
-
-  /* ── Stats strip — subtle teal tint ── */
-  .stats-strip {
-    background: hsl(var(--surface) / 0.5);
-    border-top: 1px solid hsl(var(--border));
-    border-bottom: 1px solid hsl(var(--border));
-  }
-
-  /* ── CTA card — flat with teal border accent ── */
-  .cta-card {
-    position: relative;
-    background: hsl(var(--surface));
-    border: 1px solid hsl(var(--border));
-    border-radius: var(--radius-card);
-    padding: 3rem 2rem;
-  }
-
-  .cta-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: var(--radius-card);
-    padding: 1px;
-    background: linear-gradient(135deg, hsl(var(--primary) / 0.5), hsl(var(--secondary) / 0.3), transparent);
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask-composite: exclude;
-    pointer-events: none;
-  }
-
-  .cta-glow {
-    position: absolute;
-    inset: 0;
-    border-radius: var(--radius-card);
-    background: radial-gradient(ellipse at 50% 100%, hsl(var(--primary) / 0.12) 0%, transparent 70%);
-    pointer-events: none;
-  }
-
-  .btn-primary {
-    @apply inline-flex items-center justify-center font-semibold text-sm;
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
-    border-radius: var(--radius-button);
-    padding: 0.625rem 1.5rem;
-    box-shadow: var(--shadow-glow);
-    transition: filter 0.15s var(--bezier-brand), transform 0.15s var(--bezier-brand),
-      box-shadow 0.15s var(--bezier-brand);
-  }
-
-  .btn-primary:hover {
-    filter: brightness(1.08);
-    transform: translateY(-0.5px);
-    box-shadow: 0 0 32px hsl(var(--primary) / 0.35);
-  }
-
-  .btn-primary:active {
-    transform: translateY(0);
-    filter: brightness(0.95);
-  }
-
-  .price-display {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .story-link * {
-    @apply relative inline-block after:content-[''] after:absolute after:w-full after:scale-x-0 after:h-0.5 after:bottom-0 after:left-0 after:bg-primary after:origin-bottom-right after:transition-transform after:duration-300 hover:after:scale-x-100 hover:after:origin-bottom-left;
-  }
-
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-
-  .hover-scale {
-    @apply transition-transform duration-200 hover:scale-[1.02];
-  }
-
-  /* Gradient text — teal → steel-blue, token-driven */
-  .gradient-text {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-}
-
-@layer utilities {
-  @keyframes pulse-dot {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.8); }
-  }
-
-  @keyframes count-up {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .animate-count-up {
-    animation: count-up 0.6s ease-out forwards;
-  }
-
-  /* Tabular-lining numerals for data UI (KPIs, prices, timestamps) */
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* ── Landing page animations (Index.tsx) ─────────────────────── */
-
-  @keyframes marquee-scroll {
-    from { transform: translateX(0); }
-    to   { transform: translateX(-50%); }
-  }
-  .animate-marquee-scroll {
-    animation: marquee-scroll 38s linear infinite;
-    width: max-content;
-  }
-
-  @keyframes shimmer {
-    0%   { background-position: -150% center; }
-    100% { background-position: 250% center; }
-  }
-  .animate-shimmer {
-    background-size: 200% auto;
-    animation: shimmer 6s linear infinite;
-  }
-
-  @keyframes typing-cursor {
-    0%, 49%   { opacity: 1; }
-    50%, 100% { opacity: 0; }
-  }
-  .animate-typing-cursor {
-    animation: typing-cursor 1s step-end infinite;
-  }
-
-  @keyframes drift-slow {
-    0%, 100% { transform: translate(0, 0); }
-    50%      { transform: translate(4px, -8px); }
-  }
-  .animate-drift-slow {
-    animation: drift-slow 6s ease-in-out infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .animate-marquee-scroll,
-    .animate-shimmer,
-    .animate-typing-cursor,
-    .animate-drift-slow {
-      animation: none !important;
-    }
-  }
-}

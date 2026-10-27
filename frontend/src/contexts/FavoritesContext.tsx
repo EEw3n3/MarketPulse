@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -13,6 +14,7 @@ const FavoritesContext = createContext<FavoritesContextValue | null>(null);
 
 export function FavoritesProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
+  const qc = useQueryClient();
   const [ids, setIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
 
@@ -52,7 +54,8 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       // Optimistic
       setIds((prev) => {
         const next = new Set(prev);
-        currentlyFav ? next.delete(productId) : next.add(productId);
+        if (currentlyFav) next.delete(productId);
+        else next.add(productId);
         return next;
       });
 
@@ -62,17 +65,19 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         } else {
           await api.addFavorite(productId);
         }
+        qc.invalidateQueries({ queryKey: ["favorites"] });
       } catch (err) {
         // Revert
         setIds((prev) => {
           const next = new Set(prev);
-          currentlyFav ? next.add(productId) : next.delete(productId);
+          if (currentlyFav) next.add(productId);
+          else next.delete(productId);
           return next;
         });
         console.error("Failed to toggle favorite:", err);
       }
     },
-    [ids, user]
+    [ids, user, qc]
   );
 
   return (

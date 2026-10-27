@@ -65,6 +65,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Lets the browser read the export file name when the UI runs on another port.
+    expose_headers=["Content-Disposition"],
 )
 
 # --- Routers ---
