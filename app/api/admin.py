@@ -1,4 +1,5 @@
 """Admin-only API endpoints. All routes require is_admin=True via get_current_admin."""
+import re
 import time
 from datetime import datetime
 from typing import Optional, List
@@ -7,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, delete, update
+from sqlalchemy import func, delete, update, or_
 
 from app.api.deps import get_db, get_current_admin, get_worker
 from app.core.job_queue import job_queue
@@ -241,6 +242,7 @@ async def scrape_ingest(
     assign group_id + emit 'initial' PriceHistory.
     """
     from decimal import Decimal
+    from app.core.constants import MAX_PLAUSIBLE_PRICE
     from app.services.matcher import matcher_service
     from app.domain.models import ProductGroup
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -261,7 +263,27 @@ async def scrape_ingest(
             .limit(1)
         )
         product = (await db.execute(stmt)).scalar_one_or_none()
-        price_dec = Decimal(str(item.last_price)) if item.last_price is not None else None
+        if product is None and "notino.lv/" in item.url:
+            # Notino links a card to one of its variants (".../p-16228733/") and
+            # picks a different one from run to run; the page without the
+            # /p-…/ part + volume is the same variant.
+            base = re.sub(r"p-\d+/?$", "", item.url)
+            legacy = (
+                select(Product)
+                .where(
+                    Product.search_term == "notino.lv",
+                    Product.volume == item.volume,
+                    or_(Product.url == base, Product.url.like(base + "p-%")),
+                )
+                .order_by(Product.last_seen.desc())
+                .limit(1)
+            )
+            product = (await db.execute(legacy)).scalar_one_or_none()
+            if product is not None:
+                product.url = item.url
+        price_dec =Decimal(str(item.last_price)) if item.last_price is not None else None
+        if price_dec is not None and price_dec > MAX_PLAUSIBLE_PRICE:
+            price_dec = None  # a seller's placeholder price, not a real one
         promo_dec = Decimal(str(item.promo_price)) if item.promo_price is not None else None
 
         if product is None:

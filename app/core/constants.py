@@ -1,4 +1,5 @@
 # app/core/constants.py
+import os
 
 # A centralized dictionary for hardcoded scraping strings to prevent "Brittle Strings" issues.
 
@@ -51,13 +52,20 @@ VERIFIED_FAST_DOMAINS: set[str] = {
 # Used in scrape_catalog() when scheduling deep dives.
 DOMAIN_DEEP_DIVE_CONFIG: dict[str, dict] = {
     "douglas.lv": {"concurrent": 2, "delay_min": 1.5, "delay_max": 3.0},
-    "notino.lv":  {"concurrent": 5, "delay_min": 0.5, "delay_max": 1.0},
+    # Parallel product pages for notino.lv; tune with NOTINO_DEEP_DIVE_CONCURRENCY.
+    "notino.lv":  {"concurrent": int(os.getenv("NOTINO_DEEP_DIVE_CONCURRENCY", "2")), "delay_min": 1.0, "delay_max": 2.0},
     "1a.lv":      {"concurrent": 3, "delay_min": 0.5, "delay_max": 1.0},
     "220.lv":     {"concurrent": 3, "delay_min": 0.5, "delay_max": 1.0},
     "makeup.lv":  {"concurrent": 2, "delay_min": 1.0, "delay_max": 2.0},
     # Default for unknown domains (conservative)
     "_default":   {"concurrent": 3, "delay_min": 3.0, "delay_max": 5.0},
 }
+
+# --- PRICE SANITY ---
+# The most expensive real perfume in the catalog costs ~3 200 €. A higher price is
+# a seller's placeholder (220.lv lists unavailable items at 10 000 €) and is treated
+# as unknown, so it never reaches last_price or the price history.
+MAX_PLAUSIBLE_PRICE = 5000
 
 # --- PRODUCT FILTER ---
 # Keywords that identify non-perfume items to discard entirely.

@@ -487,7 +487,8 @@ def _catalog_base_stmt(
     in_stock: Optional[bool] = None,
 ):
     """Shared filter logic for catalog endpoints."""
-    stmt = select(Product)
+    # A product that never had a price (last_price 0) would show as "0 €".
+    stmt = select(Product).where(Product.last_price > 0)
     if search:
         # Expand short brand aliases (JPG → Jean Paul Gaultier, etc.) so the
         # search box works for industry-standard short names.

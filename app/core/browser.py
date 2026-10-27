@@ -273,7 +273,9 @@ class BrowserManager:
     # Present on every real notino.lv catalog / product page, never on the
     # Cloudflare interstitial.
     NOTINO_CONTENT = ("[data-testid='product-container'], [data-testid='pd-price-wrapper'], "
-                      "[data-testid='price-component'], #pdVariantsTile, #pdVariantsThumbnail")
+                      "[data-testid='price-component'], #pdVariantsTile, #pdVariantsThumbnail, "
+                      # a sold-out product page has no price or variant buttons, only its header
+                      "[data-testid='pd-header-title']")
 
     async def wait_for_notino_content(self, page: Page, timeout_ms: int = 25000) -> bool:
         """Wait for the real notino.lv page. Notino sometimes answers with a

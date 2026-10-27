@@ -665,6 +665,8 @@ _GIFT_SET_PATTERNS = [
     # Composition listings: "edp/100ml + edp/10ml", "75 ml + 12.5 ml" — but
     # "30 ml + Case" is one bottle with a travel case, not a set.
     r"\d+(?:[.,]\d+)?\s*ml\s*\+(?!\s*case\b)",
+    # Douglas names a bottle with its travel spray "100 + 15 ml".
+    r"\b\d+(?:[.,]\d+)?\s*\+\s*\d+(?:[.,]\d+)?\s*ml\b",
 ]
 _GIFT_SET_RE = re.compile("|".join(_GIFT_SET_PATTERNS), re.IGNORECASE)
 
