@@ -22,6 +22,10 @@ from app.domain.models import PriceHistory, Product
 # A product the scraper has not seen for this long stops drawing a line.
 STALE_AFTER_DAYS = 3
 
+# No shop was scraped from July to September 2026, so charts start on the first
+# day of the October estimate rows instead of drawing a flat line from June.
+HISTORY_START = date(2026, 10, 7)
+
 # Order in which shops lend their title and photo to a grouped card: Notino and
 # Makeup photos sit on white and their titles are not upper-cased.
 _DISPLAY_PRIORITY = ["notino", "makeup", "douglas", "220", "1a"]
@@ -82,7 +86,9 @@ def display_image(products: Sequence[Product]) -> Optional[str]:
 def day_range(days: int, end: Optional[date] = None) -> list[date]:
     end = end or datetime.utcnow().date()
     start = end - timedelta(days=days - 1)
-    return [start + timedelta(days=i) for i in range(days)]
+    if end >= HISTORY_START:
+        start = max(start, HISTORY_START)
+    return [start + timedelta(days=i) for i in range((end - start).days + 1)]
 
 
 async def product_series(

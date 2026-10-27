@@ -400,6 +400,9 @@ async def scrape_complete(
                 rule.last_success = datetime.utcnow()
                 rule.success_count += 1
                 rule.last_error = None
+                # The worker's own data check ran on its DB; a finished job
+                # clears the score left by an earlier failed server-side run.
+                rule.health_score = 1.0
             else:
                 rule.failure_count += 1
             await db.commit()

@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
-from app.services.price_series import STORE_LABELS, display_name, store_label
+from app.services.price_series import HISTORY_START, STORE_LABELS, display_name, store_label
 
 def _key_sql(t: str = "") -> str:
     """Card key (see app/api/cards.card_key_expr) as SQL, for table alias `t`."""
@@ -33,6 +33,11 @@ def _store_sql(t: str = "") -> str:
 
 _KEY_SQL = _key_sql()
 _STORE_SQL = _store_sql()
+
+# Above this change, an old price read only once is taken for a misreading.
+SINGLE_READING_MAX = 0.4
+# Price index: a listing whose price leaves this band against day one is left out.
+INDEX_RATIO_MIN, INDEX_RATIO_MAX = 0.5, 1.5
 
 _CACHE: dict[str, tuple[float, object]] = {}
 _TTL = 900
@@ -210,7 +215,8 @@ async def moves(
 
     Only listings with a real price change inside the window count, and moves
     beyond `max_move` are left out (almost always a re-matched or mislabeled
-    listing). `matched_only` keeps bottles that two or more shops sell, which
+    listing). A move over 40% also needs the old price to have been seen twice
+    in a row. `matched_only` keeps bottles that two or more shops sell, which
     filters out obscure sets and kits.
     """
     start = datetime.utcnow() - timedelta(days=days)
@@ -227,15 +233,24 @@ async def moves(
     where.append("p.last_price < ref.price" if down else "p.last_price > ref.price")
     where.append("abs(p.last_price - ref.price) / ref.price < :max_move")
     params["max_move"] = max_move
+    # A big move counts only from a price seen twice: a one-off reading (the
+    # wrong size's price, fixed by the next scrape) is not a real old price.
+    where.append(f"""(abs(p.last_price - ref.price) / ref.price < {SINGLE_READING_MAX}
+        or abs(ref.price - ref.prev_price) / ref.price < {SINGLE_READING_MAX})""")
     if matched_only:
         where.append(f"""p.group_id in (
             select group_id from product where group_id is not null and is_available
             group by group_id having count(distinct {_STORE_SQL}) >= 2)""")
     rows = (await db.execute(text(f"""
-        with ref as (
-            select distinct on (product_id) product_id, price
+        with seen as (
+            select product_id, price, parsed_at,
+                   lag(price) over (partition by product_id order by parsed_at) as prev_price
             from pricehistory
-            where parsed_at <= :start and in_stock and price > 0 and change_type <> 'synthetic'
+            where in_stock and price > 0 and change_type <> 'synthetic'
+        ),
+        ref as (
+            select distinct on (product_id) product_id, price, prev_price
+            from seen where parsed_at <= :start
             order by product_id, parsed_at desc
         ),
         last_move as (
@@ -288,7 +303,7 @@ async def recent_drops(db: AsyncSession, days: int = 30, limit: int = 6, **kw) -
 
 async def activity(db: AsyncSession, days: int = 30) -> list[schemas.ActivityPoint]:
     """Real price rises and cuts per shop and day (synthetic rows excluded)."""
-    start = datetime.utcnow().date() - timedelta(days=days - 1)
+    start = max(datetime.utcnow().date() - timedelta(days=days - 1), HISTORY_START)
     rows = (await db.execute(text(f"""
         select date(h.parsed_at) as d, {_store_sql('p')} as store,
                count(*) filter (where h.change_type = 'price_up') as up,
@@ -316,7 +331,9 @@ async def price_index(db: AsyncSession, days: int = 90) -> schemas.PriceIndex:
     Every listing that had a price on day one is followed with its
     forward-filled daily price; the shop's index is the 5%-trimmed mean of
     price/day-one-price, so a few mismatched listings cannot drag a whole
-    shop. The October 7-21 gap is drawn from the estimate rows.
+    shop, and a listing that halves or gains half is left out altogether.
+    The window starts no earlier than October 7 (see HISTORY_START); the
+    October 7-21 gap is drawn from the estimate rows.
     """
     key = f"index:{days}"
     hit = _cached(key)
@@ -340,7 +357,7 @@ async def price_index(db: AsyncSession, days: int = 90) -> schemas.PriceIndex:
     def flush(store: str, events: list, seen) -> None:
         # Forward-fill this listing over the window and add its ratios.
         i, cur, base = 0, None, None
-        r = ratios.setdefault(store, [[] for _ in range(n)])
+        line: list[Optional[float]] = []
         for di, d in enumerate(dates):
             while i < len(events) and events[i][0] <= d:
                 cur = events[i][1]
@@ -351,8 +368,15 @@ async def price_index(db: AsyncSession, days: int = 90) -> schemas.PriceIndex:
                 base = cur
                 if not base:
                     return
-            if cur:
-                r[di].append(cur / base)
+            line.append(cur / base if cur else None)
+        # Halving or +50% inside the window is a parser fix or a wrong size,
+        # not the market: such a listing stays out of the basket.
+        if any(x is not None and not INDEX_RATIO_MIN <= x <= INDEX_RATIO_MAX for x in line):
+            return
+        r = ratios.setdefault(store, [[] for _ in range(n)])
+        for di, x in enumerate(line):
+            if x is not None:
+                r[di].append(x)
 
     pid, store, seen, events = None, None, None, []
     for r in rows:
