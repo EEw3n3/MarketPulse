@@ -15,7 +15,7 @@ const en = {
   selecting: (n: number) => plural(n, { one: "row picked", other: "rows picked" }),
   selectPage: "Select this page",
   exportSelected: "Export selected",
-  stop: "Done",
+  stop: "Cancel",
   section: "Section",
   sections: {
     all: "Whole report",
@@ -46,7 +46,7 @@ const lv: typeof en = {
   selecting: (n) => plural(n, { one: "izvēlēta rinda", other: "izvēlētas rindas", zero: "izvēlētu rindu" }),
   selectPage: "Atlasīt šo lapu",
   exportSelected: "Eksportēt atlasītās",
-  stop: "Gatavs",
+  stop: "Atcelt",
   section: "Sadaļa",
   sections: {
     all: "Visa atskaite",

@@ -172,6 +172,12 @@ export default function Catalog() {
     dropped: query.dropped,
   };
   const pickedN = view === "cards" ? pickedKeys.size : pickedIds.size;
+  // Leaving pick mode drops the selection: the frames would otherwise stay with nothing to act on.
+  function stopPicking() {
+    setPicking(false);
+    setPickedKeys(new Set());
+    setPickedIds(new Set());
+  }
   const exportAll = (fmt: string) =>
     exportUrl("/exports/catalog", { format: fmt, view: view === "cards" ? "cards" : "listings", ...exportFilters, sort: view === "cards" ? sort : tsort, limit: 5000 });
   const exportPicked = (fmt: string) =>
@@ -248,7 +254,7 @@ export default function Catalog() {
               </button>
             </div>
             {pro && (
-              <button className="btn btn-soft btn-sm" type="button" aria-pressed={picking} onClick={() => setPicking((x) => !x)} title={t.catalog.pickHint}>
+              <button className="btn btn-soft btn-sm" type="button" aria-pressed={picking} onClick={() => (picking ? stopPicking() : setPicking(true))} title={t.catalog.pickHint}>
                 <ListChecks />
                 {t.catalog.pick}
               </button>
@@ -593,7 +599,7 @@ export default function Catalog() {
                 <ExportMenu path={exportPicked} fallbackName="marketpulse_selection" label={t.exporter.exportSelected} className="btn btn-accent btn-sm" />
               </>
             )}
-            <button className="btn btn-white btn-sm" type="button" onClick={() => setPicking(false)}>
+            <button className="btn btn-white btn-sm" type="button" onClick={stopPicking}>
               {t.exporter.stop}
             </button>
           </div>
