@@ -1116,6 +1116,7 @@ class ScraperService:
                     }
                     variants_data = ((p.get("analytics") or {}).get("variantsData")) or {}
                     if isinstance(variants_data, dict) and variants_data:
+                        first = len(candidates)
                         for _vid, info in variants_data.items():
                             if not isinstance(info, dict):
                                 continue
@@ -1127,6 +1128,26 @@ class ScraperService:
                                 in_stock and v_price > 0 and str(_vid) not in not_available,
                                 full_link, image_url, brand, base_norm,
                             )
+                        # A volume the page no longer lists is gone from the shop:
+                        # mark the stored row unavailable instead of leaving it
+                        # "in stock" at its last price.
+                        listed = {c["volume"] for c in candidates[first:]}
+                        gone = (await session.execute(
+                            select(Product).where(
+                                Product.url == full_link,
+                                Product.card_type == "perfume",
+                                Product.is_available.is_(True),
+                            )
+                        )).scalars().all()
+                        for old in gone:
+                            if old.volume in listed:
+                                continue
+                            candidates.append({
+                                "url": old.url, "image_url": old.image_url, "brand": old.brand,
+                                "volume": old.volume, "concentration": old.concentration,
+                                "title": old.title, "price": None, "is_available": False,
+                                "card_type": "perfume", "promo_price": None, "promo_code": None,
+                            })
                     elif not in_stock:
                         # Out-of-stock cards list no volumes and no price. Mark the
                         # volumes already known for this product page unavailable
