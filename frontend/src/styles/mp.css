@@ -155,7 +155,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .tile:focus-visible, .tile:has(.t-cover:focus-visible) { outline: 2px solid var(--ink); outline-offset: 3px; }
 .t-cover { position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
 .t-cover:focus-visible { outline: none; }
-.tile.sel { box-shadow: 0 0 0 3px var(--ink); }
+.tile.is-picked { box-shadow: 0 0 0 3px var(--ink); }
 .t-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; min-width: 0; }
 .t-top .where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .t-chg { font-size: 13px; background: rgba(255,255,255,.6); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
@@ -174,7 +174,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .heart:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .heart svg { width: 17px; height: 17px; fill: none; stroke: var(--ink); stroke-width: 1.8; }
 .heart[aria-pressed="true"] svg { fill: var(--ink); }
-.pick { all: unset; cursor: pointer; position: absolute; left: 12px; bottom: 74px; width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,.75); display: grid; place-items: center; z-index: 2; }
+.pick { all: unset; cursor: pointer; position: absolute; left: 12px; top: 47px; width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,.75); display: grid; place-items: center; z-index: 2; }
 .pick[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .pick svg { width: 16px; height: 16px; }
 .pick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
