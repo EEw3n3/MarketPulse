@@ -16,11 +16,12 @@ import Pager from "@/components/mp/Pager";
 import SearchBox from "@/components/mp/SearchBox";
 import ShopPill from "@/components/mp/ShopPill";
 import Tile from "@/components/mp/Tile";
+import useFlip from "@/components/mp/useFlip";
 import usePeek from "@/components/mp/usePeek";
 
 const CARDS_PER_PAGE = 24;
 const ROWS_PER_PAGE = 50;
-const CARD_SORTS: CardSort[] = ["shops", "drop", "low", "high", "gap", "brand", "new"];
+const CARD_SORTS: CardSort[] = ["popular", "shops", "drop", "low", "high", "gap", "brand", "new"];
 
 function num(v: string | null): number | null {
   if (v == null || v === "") return null;
@@ -49,8 +50,8 @@ export default function Catalog() {
   const multi = sp.get("multi") === "1";
   const dropped = sp.get("dropped") === "1";
   const view = sp.get("view") === "table" ? "table" : "cards";
-  const sort = (CARD_SORTS.includes(sp.get("sort") as CardSort) ? sp.get("sort") : "shops") as CardSort;
-  const tsort = (["brand", "name", "price", "change", "shop"].includes(sp.get("tsort") ?? "") ? sp.get("tsort") : "brand") as ListingSort;
+  const sort = (CARD_SORTS.includes(sp.get("sort") as CardSort) ? sp.get("sort") : "popular") as CardSort;
+  const tsort = (["popular", "brand", "name", "price", "change", "shop"].includes(sp.get("tsort") ?? "") ? sp.get("tsort") : "popular") as ListingSort;
   const tdir = sp.get("tdir") === "desc" ? "desc" : "asc";
   const page = Math.max(1, Number(sp.get("page")) || 1);
 
@@ -112,6 +113,7 @@ export default function Catalog() {
     enabled: view === "table",
     placeholderData: keepPreviousData,
   });
+  const flip = useFlip<HTMLDivElement>(cards.data);
 
   const f = facets.data;
   const typeOpts = (f?.concentrations ?? []).map((c) => ({ ...c, label: c.value === "other" ? t.catalog.other : c.label }));
@@ -221,12 +223,12 @@ export default function Catalog() {
         </div>
 
         <div className="searchrow">
-          <SearchBox variant="big" initial={search} onSubmit={(q) => setOne("q", q || null)} />
+          <SearchBox variant="big" live initial={search} onSubmit={(q) => setOne("q", q || null)} />
           <div className="right">
             {view === "cards" && (
               <label>
                 <span className="sr">{t.catalog.sort}</span>
-                <select className="sel" value={sort} onChange={(e) => setOne("sort", e.target.value === "shops" ? null : e.target.value)}>
+                <select className="sel" value={sort} onChange={(e) => setOne("sort", e.target.value === "popular" ? null : e.target.value)}>
                   {CARD_SORTS.map((s) => (
                     <option key={s} value={s}>
                       {t.catalog.sorts[s]}
@@ -403,7 +405,7 @@ export default function Catalog() {
               ))}
             </div>
           ) : cards.data?.items.length ? (
-            <div className="grid" aria-live="polite" style={{ opacity: cards.isPlaceholderData ? 0.6 : 1, transition: "opacity 200ms" }}>
+            <div ref={flip} className="grid" aria-live="polite" style={{ opacity: cards.isPlaceholderData ? 0.6 : 1, transition: "opacity 200ms" }}>
               {cards.data.items.map((c, i) => (
                 <Tile
                   key={c.key}

@@ -5,6 +5,7 @@ const en = {
   searchPlaceholder: "Brand, perfume or EDP/EDT",
   sort: "Sort",
   sorts: {
+    popular: "Popular first",
     shops: "Sold in most shops",
     drop: "Biggest 30-day drop",
     low: "Lowest price",
@@ -66,6 +67,7 @@ const lv: typeof en = {
   searchPlaceholder: "Zīmols, smaržas vai EDP/EDT",
   sort: "Kārtot",
   sorts: {
+    popular: "Populārākās vispirms",
     shops: "Vairumā veikalu",
     drop: "Lielākais kritums 30 dienās",
     low: "Zemākā cena",

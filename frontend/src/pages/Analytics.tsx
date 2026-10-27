@@ -97,9 +97,7 @@ function ProAnalytics() {
 
   const idx = index.data;
   const idxLines = idx
-    ? LIVE_SHOPS.filter((s) => idx.shops[s.key])
-        .map((s) => ({ key: s.key, name: s.label, color: s.line, values: idx.shops[s.key], width: focus === s.key ? 3 : 2 }))
-        .sort((a, b) => (a.key === focus ? 1 : 0) - (b.key === focus ? 1 : 0))
+    ? LIVE_SHOPS.filter((s) => idx.shops[s.key]).map((s) => ({ key: s.key, name: s.label, color: s.line, values: idx.shops[s.key], width: focus === s.key ? 3 : 2 }))
     : [];
 
   const heatMax = Math.max(1, ...(heat.data?.cells ?? []).map((c) => c.premium));

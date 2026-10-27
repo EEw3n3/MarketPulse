@@ -12,15 +12,19 @@ export function spec(c: { concentration?: string | null; volume?: string | null 
 }
 
 /** Search field with live suggestions from the catalogue. Enter opens the
- *  highlighted perfume, or the catalogue with the query when nothing is highlighted. */
+ *  highlighted perfume, or the catalogue with the query when nothing is highlighted.
+ *  With `live`, there are no suggestions: the query is applied as you type
+ *  (the catalogue filters its own grid). */
 export default function SearchBox({
   variant = "top",
   initial = "",
   onSubmit,
+  live = false,
 }: {
   variant?: "top" | "big" | "hero";
   initial?: string;
   onSubmit?: (q: string) => void;
+  live?: boolean;
 }) {
   const t = useT();
   const nav = useNavigate();
@@ -31,31 +35,42 @@ export default function SearchBox({
   const [sel, setSel] = useState(-1);
   const wrap = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setQ(initial), [initial]);
+  // a trailing space the visitor is still typing is not a change
+  useEffect(() => setQ((cur) => (cur.trim() === initial ? cur : initial)), [initial]);
+
+  const submitRef = useRef(onSubmit);
+  submitRef.current = onSubmit;
+  useEffect(() => {
+    if (!live) return;
+    const v = q.trim();
+    if (v === initial) return;
+    const h = setTimeout(() => submitRef.current?.(v), 250);
+    return () => clearTimeout(h);
+  }, [q, live, initial]);
 
   useEffect(() => {
     const v = q.trim();
-    if (v.length < 2) {
+    if (live || v.length < 2) {
       setHits(null);
       return;
     }
-    let live = true;
+    let alive = true;
     const h = setTimeout(() => {
       api
-        .getCards({ search: v, limit: 6, sort: "shops" })
+        .getCards({ search: v, limit: 6, sort: "popular" })
         .then((r) => {
-          if (live) {
+          if (alive) {
             setHits(r.items);
             setSel(-1);
           }
         })
-        .catch(() => live && setHits([]));
+        .catch(() => alive && setHits([]));
     }, 180);
     return () => {
-      live = false;
+      alive = false;
       clearTimeout(h);
     };
-  }, [q]);
+  }, [q, live]);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {

@@ -8,7 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageContext } from "@/contexts/ChatContext";
 import { useT } from "@/i18n";
 import { ago, dateTime, day, int, num } from "@/lib/format";
-import { fieldStyle, shopOf } from "@/lib/shops";
+import { fieldStyle, isShownShop, shopOf } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
 
 type Tab = "health" | "scraping" | "quality" | "users";
@@ -16,7 +16,10 @@ const TABS: Tab[] = ["health", "scraping", "quality", "users"];
 const LIMITS: (number | null)[] = [50, 100, 500, 1000, null];
 const STUCK_MS = 6 * 60 * 1000;
 
-const healthQuery = { queryKey: ["admin", "health"], queryFn: api.admin.health };
+const healthQuery = {
+  queryKey: ["admin", "health"],
+  queryFn: () => api.admin.health().then((h) => ({ ...h, sites: h.sites.filter((s) => isShownShop(s.domain)) })),
+};
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message.replace(/^API Error:\s*/, "") : String(e);

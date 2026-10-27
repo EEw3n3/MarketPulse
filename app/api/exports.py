@@ -1081,7 +1081,7 @@ async def export_catalog(
             cards = await cards_for_keys(db, keys[:limit])
         else:
             page = await query_cards(db, **filters, multi_shop=multi_shop, dropped=dropped,
-                                     sort=sort if sort in ("shops", "drop", "low", "high", "gap", "brand", "new") else "shops",
+                                     sort=sort if sort in ("popular", "shops", "drop", "low", "high", "gap", "brand", "new") else "popular",
                                      skip=0, limit=limit)
             cards = page.items
         shops = [k for k in STORE_LABELS if any(o.store == k for c in cards for o in c.offers)]
@@ -1099,7 +1099,7 @@ async def export_catalog(
         table = _Table("Perfumes", cols, rows)
     else:
         page = await query_listings(db, ids=ids, **filters, multi_shop=multi_shop, dropped=dropped,
-                                    sort=sort if sort in ("brand", "name", "price", "change", "shop") else "brand",
+                                    sort=sort if sort in ("popular", "brand", "name", "price", "change", "shop") else "popular",
                                     skip=0, limit=limit)
         table = _Table("Shop listings", [
             ("Brand", "text"), ("Perfume", "text"), ("Type", "text"), ("Volume", "text"), ("Shop", "text"),

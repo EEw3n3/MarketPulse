@@ -361,7 +361,7 @@ export default function Landing() {
                   <div>
                     <div className="from">
                       <span>{t.landing.msgFrom}</span>
-                      <span>04:12</span>
+                      <span>09:12</span>
                     </div>
                     <div className="txt">
                       {t.landing.msgText(`${d.brand} ${d.name}`, pctPlain(Math.abs(d.change_percent)), shopOf(d.store).label)}

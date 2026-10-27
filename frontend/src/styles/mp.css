@@ -18,8 +18,8 @@
   --down: #1d7a3e;   /* price fell: good for the buyer */
   --up: #b3262f;     /* price rose */
   --warn: #b07a00;
-  --f-notino: #a3b4f7; --f-makeup: #fdb592; --f-220: #bdf29c; --f-douglas: #fed878; --f-1a: #f4b7cf;
-  --l-notino: #4766e8; --l-makeup: #d9622b; --l-220: #3b8f22; --l-douglas: #b98a00; --l-1a: #c2417a;
+  --f-notino: #a3b4f7; --f-makeup: #fdb592; --f-220: #bdf29c; --f-douglas: #fed878; --f-rose: #f4b7cf;
+  --l-notino: #4766e8; --l-makeup: #d9622b; --l-220: #3b8f22; --l-douglas: #b98a00; --l-rose: #c2417a;
   --serif: "Bodoni Moda", "Didot", "Bodoni 72", Georgia, serif;
   --sans: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -658,6 +658,8 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .pg-product .facts { grid-column: 8 / -1; display: flex; flex-direction: column; gap: 26px; padding-top: 6px; min-width: 0; }
 .pg-product .crumbs { font-size: 14px; color: var(--muted); }
 .pg-product .crumbs a { text-decoration: none; }
+.pg-product .back { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px 0 10px; margin: 0 14px 0 0; border: 1px solid var(--rule); border-radius: 999px; background: var(--card); color: var(--ink); font: 500 14px/1 var(--sans); cursor: pointer; vertical-align: middle; transition: background-color 160ms, border-color 160ms; }
+.pg-product .back:hover { background: var(--surface); border-color: var(--ink-soft); }
 .pg-product .brand { font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 18px; }
 .pg-product h1.name { font-family: var(--serif); font-weight: 500; font-size: clamp(2.8rem, 1.2rem + 4.6vw, 6rem); line-height: .92; letter-spacing: -0.03em; margin: 6px 0 10px -0.04em; overflow-wrap: anywhere; }
 .pg-product .spec { color: var(--muted); }
@@ -1025,5 +1027,5 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .pg-nf { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
 .pg-nf .nf-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 18px; }
 .pg-nf .empty { align-content: center; }
-.pg-nf .nf-code { font-size: clamp(6rem, 4rem + 10vw, 12rem); line-height: .8; letter-spacing: -0.04em; color: var(--f-1a); }
+.pg-nf .nf-code { font-size: clamp(6rem, 4rem + 10vw, 12rem); line-height: .8; letter-spacing: -0.04em; color: var(--f-rose); }
 .pg-nf h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(2rem, 1.5rem + 1.5vw, 2.8rem); line-height: 1; }

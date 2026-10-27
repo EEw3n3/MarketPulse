@@ -439,8 +439,8 @@ async def chat(
         full_prompt = (
             f"You are MarketPulse AI — a price intelligence assistant for the "
             f"Latvian perfume market.\n"
-            f"You track prices across 5 stores: Notino, Douglas, Makeup.lv, "
-            f"220.lv, 1a.lv.\n"
+            f"You track prices across 4 stores: Notino, Douglas, Makeup.lv, "
+            f"220.lv.\n"
             f"Today's date: {today}\n"
             f"{page_block}\n"
             f"RULES — follow strictly:\n"

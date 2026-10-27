@@ -33,7 +33,7 @@ const en = {
   prefsSaved: "Shops and brands saved",
 
   alertsH: "Price alerts",
-  alertsP: "When a saved bottle gets cheaper by your threshold, we tell you. One message per drop, at most one a night.",
+  alertsP: "When a saved bottle gets cheaper by your threshold, we tell you. One message per drop, at most one a day.",
   emailCh: "Email",
   emailTo: (email: string) => `to ${email}`,
   tgCh: "Telegram",
@@ -121,7 +121,7 @@ const lv: typeof en = {
   prefsSaved: "Veikali un zīmoli saglabāti",
 
   alertsH: "Cenu paziņojumi",
-  alertsP: "Kad saglabāta pudele kļūst lētāka par jūsu slieksni, mēs jums paziņojam. Viena ziņa par kritumu, ne vairāk kā viena naktī.",
+  alertsP: "Kad saglabāta pudele kļūst lētāka par jūsu slieksni, mēs jums paziņojam. Viena ziņa par kritumu, ne vairāk kā viena dienā.",
   emailCh: "E-pasts",
   emailTo: (email) => `uz ${email}`,
   tgCh: "Telegram",

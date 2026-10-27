@@ -32,7 +32,7 @@ export default function Tile({
   // A shop can list the same bottle more than once; count shops, not listings.
   const live = new Set(card.offers.filter((o) => o.in_stock).map((o) => shopKey(o.store))).size || card.shops;
   return (
-    <div className={`tile ${picked ? "sel" : ""} ${className}`} style={{ ...fieldStyle(card.cheapest_store), ...style }}>
+    <div data-key={card.key} className={`tile ${picked ? "sel" : ""} ${className}`} style={{ ...fieldStyle(card.cheapest_store), ...style }}>
       <Link
         to={`/product/${card.product_id}`}
         className="t-cover"

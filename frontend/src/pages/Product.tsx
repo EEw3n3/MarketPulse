@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Heart as HeartIcon, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Heart as HeartIcon, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { api, type ProductCardDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,6 +46,7 @@ function notesOf(p: ProductCardDetail): Note[] {
 export default function Product() {
   const t = useT();
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { ask } = useChat();
   const qc = useQueryClient();
@@ -175,8 +176,12 @@ export default function Product() {
     .slice()
     .sort((a, b) => LIVE_SHOPS.findIndex((s) => s.key === a[0]) - LIVE_SHOPS.findIndex((s) => s.key === b[0]))
     .map(([k, values]) => ({ key: k, name: shopOf(k).label, color: shopOf(k).line, values, width: focus === k ? 3 : 2 }));
-  // the highlighted line is drawn last so it sits on top
-  if (focus) lines.sort((a, b) => (a.key === focus ? 1 : 0) - (b.key === focus ? 1 : 0));
+
+  // Back to wherever the visitor came from; a page opened from a link goes to the catalogue.
+  function goBack() {
+    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
+    else navigate("/catalog");
+  }
 
   return (
     <AppShell>
@@ -189,6 +194,9 @@ export default function Product() {
           <div className="facts swap">
             <div>
               <p className="crumbs">
+                <button type="button" className="back" onClick={goBack}>
+                  <ArrowLeft size={15} aria-hidden="true" /> {t.product.back}
+                </button>
                 <Link to="/catalog">{t.catalog.title}</Link> / {p.brand && <Link to={`/catalog?brand=${encodeURIComponent(p.brand)}`}>{p.brand}</Link>} / {name}
               </p>
               <p className="brand">{p.brand}</p>
@@ -201,7 +209,7 @@ export default function Product() {
                   {p.sizes.map((s) => {
                     const on = s.volume.replace(/\s/g, "").toLowerCase() === (p.volume ?? "").replace(/\s/g, "").toLowerCase();
                     return (
-                      <Link key={s.product_id} to={`/product/${s.product_id}`} className="chip" aria-pressed={on} aria-current={on ? "page" : undefined}>
+                      <Link key={s.product_id} to={`/product/${s.product_id}`} replace className="chip" aria-pressed={on} aria-current={on ? "page" : undefined}>
                         {s.volume} <small className="num">{eur(s.min_price)}</small>
                       </Link>
                     );

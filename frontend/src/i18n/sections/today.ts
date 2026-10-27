@@ -4,7 +4,7 @@ const en = {
   morning: (n: string) => `Good morning, ${n}`,
   afternoon: (n: string) => `Good afternoon, ${n}`,
   evening: (n: string) => `Good evening, ${n}`,
-  sub: (d: string) => `Prices from the nightly scan of ${d}. Here is what changed in your shops and on your list.`,
+  sub: (d: string) => `Prices from the scan of ${d}. Here is what changed in your shops and on your list.`,
   kFav: "On your list",
   kFavN: (n: number) => (n ? plural(n, { one: "bottle is cheaper than when you added it", other: "bottles are cheaper than when you added them" }) : "Heart a bottle to follow its price"),
   kDrop: "Biggest cut in your shops",
@@ -32,7 +32,7 @@ const en = {
   pickP: "Bottles sold in two or more shops whose lowest price fell most in 30 days.",
   seeAll: "See all in the catalogue",
   askH: "Ask about any bottle",
-  askP: "The assistant knows tonight’s prices in every shop and the history behind them.",
+  askP: "The assistant knows today’s prices in every shop and the history behind them.",
   askCta: "Open the chat",
 };
 
@@ -40,7 +40,7 @@ const lv: typeof en = {
   morning: (n) => `Labrīt, ${n}`,
   afternoon: (n) => `Labdien, ${n}`,
   evening: (n) => `Labvakar, ${n}`,
-  sub: (d) => `Cenas no ${d} nakts skenēšanas. Lūk, kas mainījies jūsu veikalos un izlasē.`,
+  sub: (d) => `Cenas no ${d} skenēšanas. Lūk, kas mainījies jūsu veikalos un izlasē.`,
   kFav: "Jūsu izlasē",
   kFavN: (n) => (n ? plural(n, { one: "pudele ir lētāka nekā pievienojot", other: "pudeles ir lētākas nekā pievienojot", zero: "pudeļu ir lētākas nekā pievienojot" }) : "Atzīmējiet pudeli, lai sekotu tās cenai"),
   kDrop: "Lielākais kritums jūsu veikalos",
@@ -68,7 +68,7 @@ const lv: typeof en = {
   pickP: "Pudeles, ko pārdod divos vai vairāk veikalos un kuru zemākā cena 30 dienās kritusies visvairāk.",
   seeAll: "Skatīt visu katalogā",
   askH: "Jautājiet par jebkuru pudeli",
-  askP: "Asistents zina šovakar cenas visos veikalos un to vēsturi.",
+  askP: "Asistents zina šodienas cenas visos veikalos un to vēsturi.",
   askCta: "Atvērt čatu",
 };
 

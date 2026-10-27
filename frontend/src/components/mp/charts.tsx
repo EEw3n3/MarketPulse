@@ -206,6 +206,13 @@ export function LineChart({
             </g>
           );
         })}
+        {focus &&
+          paths
+            .filter(({ s }) => s.key === focus)
+            .map(({ s, d }) => (
+              // the highlighted line again, on top; the list itself keeps its order
+              <path key={`top-${s.key}`} d={d} fill="none" stroke={s.color} strokeWidth={s.width ?? 2} strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
+            ))}
         {cur > -1 && (
           <g>
             <line className="c-cross" x1={x(cur)} x2={x(cur)} y1={padT} y2={H - padB} />

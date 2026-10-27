@@ -174,8 +174,8 @@ export interface CatalogFacets {
   as_of: string | null;
 }
 
-export type CardSort = "shops" | "drop" | "low" | "high" | "gap" | "brand" | "new";
-export type ListingSort = "brand" | "name" | "price" | "change" | "shop";
+export type CardSort = "popular" | "shops" | "drop" | "low" | "high" | "gap" | "brand" | "new";
+export type ListingSort = "popular" | "brand" | "name" | "price" | "change" | "shop";
 
 export interface CatalogQuery {
   search?: string;

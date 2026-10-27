@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import schemas
 from app.api.catalog_filters import apply_product_filters
 from app.api.deps import get_current_user, get_db
-from app.domain.models import PriceHistory, Product
+from app.domain.models import Favorite, PriceHistory, Product
 from app.services import market
 from app.services.price_series import display_image, display_name, store_key, store_label
 
@@ -94,7 +94,36 @@ def _f(v) -> Optional[float]:
     return float(v) if v is not None else None
 
 
-CardSort = Literal["shops", "drop", "low", "high", "gap", "brand", "new"]
+# Houses most shoppers know by name. A perfume from one of them ranks higher in
+# the "popular" order, which the catalogue opens with.
+POPULAR_BRANDS = (
+    "dior", "chanel", "yves saint laurent", "giorgio armani", "armani", "hugo boss", "boss",
+    "versace", "paco rabanne", "rabanne", "jean paul gaultier", "dolce & gabbana",
+    "carolina herrera", "lancôme", "lancome", "guerlain", "givenchy", "tom ford", "creed",
+    "prada", "gucci", "burberry", "calvin klein", "montblanc", "azzaro", "valentino",
+    "viktor & rolf", "mugler", "narciso rodriguez", "kenzo", "hermès", "hermes", "chloé",
+    "chloe", "marc jacobs", "lacoste", "davidoff", "maison francis kurkdjian",
+    "parfums de marly", "initio", "xerjoff", "byredo", "le labo", "jo malone",
+    "zadig & voltaire", "ralph lauren", "bvlgari", "cartier", "jimmy choo", "lattafa",
+)
+
+
+def favorites_subquery():
+    """(pid, n): how many users saved each product."""
+    return select(Favorite.product_id.label("pid"), func.count().label("n")).group_by(Favorite.product_id).subquery()
+
+
+def popularity(shops, brand_lower, favs, in_stock):
+    """Sold in many shops, a known house, saved by users, in stock now."""
+    return (
+        shops * 10
+        + case((brand_lower.in_(POPULAR_BRANDS), 8), else_=0)
+        + func.least(func.coalesce(favs, 0), 6) * 4
+        + case((in_stock, 3), else_=0)
+    )
+
+
+CardSort = Literal["popular", "shops", "drop", "low", "high", "gap", "brand", "new"]
 
 
 async def query_cards(
@@ -112,12 +141,13 @@ async def query_cards(
     multi_shop: Optional[bool] = None,
     dropped: Optional[bool] = None,
     ids: Optional[List[int]] = None,
-    sort: CardSort = "shops",
+    sort: CardSort = "popular",
     skip: int = 0,
     limit: int = 24,
 ) -> schemas.CardsPage:
     key = card_key_expr().label("key")
     ref = ref_price_subquery()
+    favs = favorites_subquery()
     price_live = case((Product.is_available.is_(True), Product.last_price))
 
     base = select(
@@ -131,7 +161,8 @@ async def query_cards(
         Product.title.label("title"),
         Product.created_at.label("created_at"),
         Product.promo_price.label("promo_price"),
-    ).outerjoin(ref, ref.c.pid == Product.id).where(Product.last_price > 0)
+        func.coalesce(favs.c.n, 0).label("favs"),
+    ).outerjoin(ref, ref.c.pid == Product.id).outerjoin(favs, favs.c.pid == Product.id).where(Product.last_price > 0)
     base = apply_product_filters(
         base, search=search, brands=brands, stores=stores, volumes=volumes, types=types,
         price_min=price_min, price_max=price_max, in_stock=in_stock, promo=promo, ids=ids,
@@ -149,6 +180,8 @@ async def query_cards(
         func.min(func.lower(base.c.brand)).label("brand_sort"),
         func.min(func.lower(base.c.title)).label("title_sort"),
         func.min(base.c.created_at).label("first_seen"),
+        func.sum(base.c.favs).label("favs"),
+        func.count(base.c.price_live).label("live"),
     ).group_by(base.c.key)
     if multi_shop:
         agg = agg.having(func.count(func.distinct(base.c.store)) >= 2)
@@ -161,6 +194,8 @@ async def query_cards(
     change = (agg.c.min_price - agg.c.min_ref) / func.nullif(agg.c.min_ref, 0)
     gap = (agg.c.max_price - agg.c.min_price) / func.nullif(agg.c.min_price, 0)
     order = {
+        # md5 spreads equal scores across brands instead of listing them A–Z.
+        "popular": [popularity(agg.c.shops, agg.c.brand_sort, agg.c.favs, agg.c.live > 0).desc(), func.md5(agg.c.key)],
         "shops": [agg.c.shops.desc(), agg.c.offers.desc(), agg.c.brand_sort, agg.c.title_sort],
         "drop": [change.asc().nulls_last(), agg.c.shops.desc()],
         "low": [agg.c.min_price.asc(), agg.c.title_sort],
@@ -253,7 +288,7 @@ async def get_cards(
     promo: Optional[bool] = None,
     multi_shop: Optional[bool] = None,
     dropped: Optional[bool] = None,
-    sort: CardSort = "shops",
+    sort: CardSort = "popular",
     skip: int = Query(0, ge=0),
     limit: int = Query(24, ge=1, le=96),
     db: AsyncSession = Depends(get_db),
@@ -266,7 +301,7 @@ async def get_cards(
     )
 
 
-ListingSort = Literal["brand", "name", "price", "change", "shop"]
+ListingSort = Literal["popular", "brand", "name", "price", "change", "shop"]
 
 _VOLUME_TAIL = re.compile(r"\s+\d+(?:[.,]\d+)?\s?(?:ml|g)\b.*$", re.IGNORECASE)
 
@@ -282,7 +317,7 @@ def listing_name(p: Product) -> str:
 async def query_listings(
     db: AsyncSession,
     *,
-    sort: ListingSort = "brand",
+    sort: ListingSort = "popular",
     direction: Literal["asc", "desc"] = "asc",
     skip: int = 0,
     limit: int = 50,
@@ -307,15 +342,27 @@ async def query_listings(
         stmt = stmt.where(key.in_(select(multi.c.k)))
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     change = (Product.last_price - ref.c.ref_price) / func.nullif(ref.c.ref_price, 0)
-    col = {
-        "brand": [func.lower(Product.brand), func.lower(Product.title)],
-        "name": [func.lower(Product.title)],
-        "price": [Product.last_price],
-        "change": [change],
-        "shop": [store_expr(), Product.last_price],
-    }[sort]
-    order = [c.desc().nulls_last() if direction == "desc" else c.asc().nulls_last() for c in col]
-    rows = (await db.execute(stmt.order_by(*order, Product.id).offset(skip).limit(limit))).all()
+    if sort == "popular":
+        shops_per_card = (
+            select(card_key_expr().label("k"), func.count(func.distinct(store_expr())).label("s"))
+            .where(Product.last_price > 0)
+            .group_by(card_key_expr())
+            .subquery()
+        )
+        favs = favorites_subquery()
+        stmt = stmt.outerjoin(shops_per_card, shops_per_card.c.k == card_key_expr()).outerjoin(favs, favs.c.pid == Product.id)
+        score = popularity(func.coalesce(shops_per_card.c.s, 1), func.lower(Product.brand), favs.c.n, Product.is_available.is_(True))
+        rows = (await db.execute(stmt.order_by(score.desc(), func.md5(cast(Product.id, String))).offset(skip).limit(limit))).all()
+    else:
+        col = {
+            "brand": [func.lower(Product.brand), func.lower(Product.title)],
+            "name": [func.lower(Product.title)],
+            "price": [Product.last_price],
+            "change": [change],
+            "shop": [store_expr(), Product.last_price],
+        }[sort]
+        order = [c.desc().nulls_last() if direction == "desc" else c.asc().nulls_last() for c in col]
+        rows = (await db.execute(stmt.order_by(*order, Product.id).offset(skip).limit(limit))).all()
     items = [
         schemas.ListingRow(
             product_id=p.id,
@@ -354,7 +401,7 @@ async def get_listings(
     promo: Optional[bool] = None,
     multi_shop: Optional[bool] = None,
     dropped: Optional[bool] = None,
-    sort: ListingSort = "brand",
+    sort: ListingSort = "popular",
     direction: Literal["asc", "desc"] = "asc",
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),

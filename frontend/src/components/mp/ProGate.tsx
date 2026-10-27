@@ -4,7 +4,7 @@ import { useT } from "@/i18n";
 import { eur } from "@/lib/format";
 import { PRO_PRICE } from "@/lib/plan";
 
-const LOCK_FIELDS = ["var(--f-notino)", "var(--f-makeup)", "var(--f-220)", "var(--f-douglas)", "var(--f-1a)", "var(--surface)"];
+const LOCK_FIELDS = ["var(--f-notino)", "var(--f-makeup)", "var(--f-220)", "var(--f-douglas)", "var(--f-rose)", "var(--surface)"];
 const LOCK_ICONS = [LineIcon, Scale, TrendingDown, BarChart3, Map, Download];
 
 /** What a Free user sees in place of a Pro feature: the price, what Pro adds

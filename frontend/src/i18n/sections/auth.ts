@@ -1,7 +1,7 @@
 const en = {
   sideTitle: ["Pay the", "lower price."],
   sideList: [
-    "Every perfume in Notino, Makeup.lv, 220.lv and Douglas, checked every night",
+    "Every perfume in Notino, Makeup.lv, 220.lv and Douglas, checked every day",
     "The cheapest shop for each bottle, with its price history",
     "A message when a bottle you watch gets cheaper",
   ],
@@ -32,7 +32,7 @@ const en = {
 const lv: typeof en = {
   sideTitle: ["Maksājiet", "zemāko cenu."],
   sideList: [
-    "Visas smaržas Notino, Makeup.lv, 220.lv un Douglas, pārbaudītas katru nakti",
+    "Visas smaržas Notino, Makeup.lv, 220.lv un Douglas, pārbaudītas katru dienu",
     "Lētākais veikals katrai pudelei ar cenu vēsturi",
     "Ziņa, kad vērotā pudele kļūst lētāka",
   ],

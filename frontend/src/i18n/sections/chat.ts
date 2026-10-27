@@ -1,7 +1,7 @@
 const en = {
   fab: "Ask MarketPulse",
   title: "MarketPulse AI",
-  sub: "Prices from the latest scan, all five shops",
+  sub: "Prices from the latest scan, all four shops",
   clear: "New chat",
   close: "Close chat",
   placeholder: "Ask about a perfume or a price…",
@@ -21,7 +21,7 @@ const en = {
 const lv: typeof en = {
   fab: "Jautāt MarketPulse",
   title: "MarketPulse AI",
-  sub: "Cenas no pēdējās skenēšanas, visi pieci veikali",
+  sub: "Cenas no pēdējās skenēšanas, visi četri veikali",
   clear: "Jauna saruna",
   close: "Aizvērt čatu",
   placeholder: "Jautājiet par smaržām vai cenu…",

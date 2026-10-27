@@ -2,7 +2,7 @@ import { plural } from "../plural";
 
 const en = {
   title: "Analytics",
-  sub: (d: string) => `The whole Latvian perfume market from the nightly scan of ${d}`,
+  sub: (d: string) => `The whole Latvian perfume market from the scan of ${d}`,
   freeSub: "Market analytics is part of Pro. Here is what it opens.",
   period: "Period",
   days: (n: number) => `${n} days`,
@@ -67,7 +67,7 @@ const en = {
 
 const lv: typeof en = {
   title: "Analītika",
-  sub: (d) => `Viss Latvijas smaržu tirgus pēc ${d} nakts skenēšanas`,
+  sub: (d) => `Viss Latvijas smaržu tirgus pēc ${d} skenēšanas`,
   freeSub: "Tirgus analītika ir daļa no Pro. Lūk, ko tā atver.",
   period: "Periods",
   days: (n) => `${n} dienas`,
