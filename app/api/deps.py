@@ -78,6 +78,8 @@ async def get_pro_user(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+import hmac  # noqa: E402
+
 from fastapi import Header  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
@@ -91,7 +93,7 @@ async def get_worker(authorization: str | None = Header(default=None)) -> bool:
     """
     if not settings.WORKER_TOKEN:
         raise HTTPException(503, "Worker integration is not configured (WORKER_TOKEN env missing)")
-    if authorization != f"Bearer {settings.WORKER_TOKEN}":
+    if not hmac.compare_digest(authorization or "", f"Bearer {settings.WORKER_TOKEN}"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid worker credentials",

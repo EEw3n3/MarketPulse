@@ -4,12 +4,14 @@ Public: POST /auth/register, POST /auth/login
 Protected: GET /auth/me, PATCH /auth/preferences
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.api import schemas
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
+from app.core.rate_limit import limit
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -38,9 +40,18 @@ def _build_user_read(user: User, prefs: UserPreferences | None) -> schemas.UserR
     )
 
 
-@router.post("/register", response_model=schemas.TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=schemas.TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit("register", 5, 3600))],
+)
 async def register(payload: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
-    """Create user + empty preferences in one transaction. Auto-promotes to admin if email == ADMIN_EMAIL."""
+    """Create user + empty preferences in one transaction.
+
+    The first account with email == ADMIN_EMAIL becomes admin, but only while
+    there is no admin yet (e-mail is not verified, so it must not work twice).
+    """
     email = payload.email.lower().strip()
 
     existing_user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
@@ -58,9 +69,10 @@ async def register(payload: schemas.UserCreate, db: AsyncSession = Depends(get_d
             detail="Email already registered",
         )
 
-    is_admin = bool(
-        settings.ADMIN_EMAIL and email == settings.ADMIN_EMAIL.lower().strip()
-    )
+    is_admin = False
+    if settings.ADMIN_EMAIL and email == settings.ADMIN_EMAIL.lower().strip():
+        admins = await db.scalar(select(func.count()).select_from(User).where(User.is_admin))
+        is_admin = not admins
 
     user = User(
         email=email,
@@ -84,7 +96,11 @@ async def register(payload: schemas.UserCreate, db: AsyncSession = Depends(get_d
     )
 
 
-@router.post("/login", response_model=schemas.TokenResponse)
+@router.post(
+    "/login",
+    response_model=schemas.TokenResponse,
+    dependencies=[Depends(limit("login", 10, 300))],
+)
 async def login(payload: schemas.LoginRequest, db: AsyncSession = Depends(get_db)):
     email = payload.email.lower().strip()
     res = await db.execute(select(User).where(User.email == email))
@@ -162,7 +178,11 @@ async def update_preferences(
     return schemas.UserPreferencesRead.model_validate(prefs)
 
 
-@router.patch("/password", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(limit("password", 5, 900))],
+)
 async def change_password(
     payload: schemas.PasswordChangeRequest,
     user: User = Depends(get_current_user),

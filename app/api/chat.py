@@ -11,6 +11,7 @@ from sqlalchemy import desc, func, or_
 from app.api import schemas
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
+from app.core.rate_limit import limit
 from app.domain.models import Favorite, Product
 from app.services.ai_generator import ai_generator
 
@@ -405,7 +406,11 @@ async def _build_spreads_block(db: AsyncSession) -> str:
     return "\n".join(lines) if lines else "No cross-store spreads found."
 
 
-@router.post("", response_model=schemas.ChatResponse)
+@router.post(
+    "",
+    response_model=schemas.ChatResponse,
+    dependencies=[Depends(limit("chat", 20, 600))],
+)
 async def chat(
     payload: schemas.ChatRequest,
     user=Depends(get_current_user),

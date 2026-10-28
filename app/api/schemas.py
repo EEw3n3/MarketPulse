@@ -1,7 +1,7 @@
 from typing import Optional, List, Literal
 from decimal import Decimal
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 # --- Base Schemas ---
 
@@ -544,12 +544,19 @@ class FavoriteUpdate(BaseModel):
 # --- Chat ---
 
 class ChatMessage(BaseModel):
-    role: str  # "user" or "assistant"
+    role: Literal["user", "assistant"]
     content: str
 
+    @field_validator("content")
+    @classmethod
+    def _cut_content(cls, v: str) -> str:
+        # Long old answers only cost prompt tokens; keep the start.
+        return v[:4000]
+
 class ChatRequest(BaseModel):
-    message: str
-    history: List[ChatMessage] = []
+    message: str = Field(min_length=1, max_length=2000)
+    # The chat sends the last 6 messages; anything older is dropped.
+    history: List[ChatMessage] = Field(default_factory=list, max_length=12)
     # Short description of the page the chat was opened on (product, filters).
     page_context: Optional[str] = Field(default=None, max_length=300)
 

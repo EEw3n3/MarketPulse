@@ -1,10 +1,15 @@
 """Admin-only API endpoints. All routes require is_admin=True via get_current_admin."""
+import json
+import os
 import re
 import time
 from datetime import datetime
+from functools import lru_cache
 from typing import Literal, Optional, List
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -231,6 +236,18 @@ class IngestBatchIn(BaseModel):
     products: List[IngestProductIn]
 
 
+@lru_cache(maxsize=1)
+def _shop_domains() -> frozenset[str]:
+    """Shop hosts from configs/categories.json, without "www."."""
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "configs", "categories.json")
+    with open(path, "r", encoding="utf-8") as f:
+        cats = json.load(f)
+    return frozenset(
+        (urlparse(t["url"]).hostname or "").lower().removeprefix("www.")
+        for block in cats.values() for t in block.get("targets", [])
+    )
+
+
 @router.post("/scrape/ingest")
 async def scrape_ingest(
     payload: IngestBatchIn,
@@ -249,11 +266,24 @@ async def scrape_ingest(
     from app.domain.models import ProductGroup
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+    shop = payload.domain.lower().removeprefix("www.")
+    if shop not in _shop_domains():
+        raise HTTPException(status_code=400, detail=f"Unknown shop domain: {payload.domain}")
+
     inserted = 0
     updated = 0
     price_changes = 0
+    skipped = 0
 
     for item in payload.products:
+        # A leaked worker token must not be able to plant foreign links
+        # (javascript: in "Buy" buttons) or internal image URLs.
+        host = (urlparse(item.url).hostname or "").lower()
+        if not item.url.startswith("https://") or not (host == shop or host.endswith("." + shop)):
+            skipped += 1
+            continue
+        if item.image_url and not item.image_url.startswith("https://"):
+            item.image_url = None
         # Tolerate accidental duplicates by URL+volume (race condition leftovers
         # from earlier parallel uploads created some). `scalar_one_or_none()`
         # crashes on >1 row; we just take the first match — subsequent ingests
@@ -370,7 +400,9 @@ async def scrape_ingest(
                     price_changes += 1
 
     await db.commit()
-    return {"inserted": inserted, "updated": updated, "price_changes": price_changes}
+    if skipped:
+        logger.warning(f"Ingest {payload.domain}: skipped {skipped} products with foreign or non-https URLs")
+    return {"inserted": inserted, "updated": updated, "price_changes": price_changes, "skipped": skipped}
 
 
 @router.post("/scrape/complete")

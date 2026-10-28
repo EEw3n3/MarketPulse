@@ -7,6 +7,7 @@ from sqlalchemy.future import select
 from sqlalchemy import func, desc, or_
 from sqlalchemy.orm import selectinload
 import logging
+import os
 import uvicorn
 
 
@@ -59,12 +60,20 @@ app = FastAPI(
 )
 
 # Configure CORS
+# Only our own site may call the API from a browser. Login is a Bearer
+# header, not a cookie, so credentials are off.
+_CORS_ORIGINS = [o.strip() for o in os.getenv(
+    "CORS_ORIGINS",
+    "https://marketpulse1.me,https://www.marketpulse1.me,"
+    "http://localhost:8080,http://127.0.0.1:8080",
+).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
     # Lets the browser read the export file name when the UI runs on another port.
     expose_headers=["Content-Disposition"],
 )

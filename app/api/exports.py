@@ -24,13 +24,16 @@ from __future__ import annotations
 
 import csv
 import io
+import ipaddress
 import json
+import socket
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, List, Optional
+from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 
 # matplotlib MUST use Agg backend before pyplot import — Docker has no display.
@@ -176,16 +179,39 @@ def _stream(buf: io.BytesIO, filename: str, media_type: str) -> StreamingRespons
     )
 
 
+def _public_url(url: str) -> bool:
+    """True when the URL is https and its host resolves only to public addresses."""
+    host = urlparse(url).hostname
+    if not url.startswith("https://") or not host:
+        return False
+    try:
+        addrs = {info[4][0] for info in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)}
+    except OSError:
+        return False
+    return bool(addrs) and all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addrs)
+
+
 def _fetch_image_bytes(url: Optional[str], timeout: float = 3.0) -> Optional[bytes]:
-    """Best-effort image fetch. Returns None on any failure — caller renders placeholder."""
-    if not url or not isinstance(url, str) or not url.startswith(("http://", "https://")):
+    """Best-effort image fetch. Returns None on any failure — caller renders placeholder.
+
+    Image URLs come from scraped data, so every hop is checked: no plain http
+    and no internal addresses (the server must not fetch its own services).
+    """
+    if not url or not isinstance(url, str):
         return None
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as cli:
-            r = cli.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; MarketPulse/1.0)"})
-            ct = r.headers.get("content-type", "")
-            if r.status_code == 200 and ct.startswith("image/") and r.content:
-                return _shrink_image(r.content)
+        with httpx.Client(timeout=timeout, follow_redirects=False) as cli:
+            for _ in range(3):
+                if not _public_url(url):
+                    return None
+                r = cli.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; MarketPulse/1.0)"})
+                if r.is_redirect and r.headers.get("location"):
+                    url = str(r.url.join(r.headers["location"]))
+                    continue
+                ct = r.headers.get("content-type", "")
+                if r.status_code == 200 and ct.startswith("image/") and r.content:
+                    return _shrink_image(r.content)
+                return None
     except Exception:
         pass
     return None

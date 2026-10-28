@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: market_pulse_db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -16,14 +16,14 @@ services:
     image: redis:alpine
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
   app:
     build: .
     # Команда для запуска миграций и API сервера (Uvicorn)
     command: sh -c "alembic upgrade head && uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - .:/app
     environment:
@@ -65,7 +65,7 @@ services:
     volumes:
       - ./frontend:/app
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api}
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 8080"
@@ -74,8 +74,8 @@ services:
   # Routes:
   #   marketpulse1.me/api/* → app:8000  (FastAPI)
   #   marketpulse1.me/*     → frontend:8080 (Vite)
-  # Direct 8000/8080 host ports are kept open for fallback / worker access,
-  # but normal users hit https://marketpulse1.me (port 443).
+  # Host ports above are bound to 127.0.0.1 only: Docker bypasses ufw, so a
+  # 0.0.0.0 port would put Postgres and Redis on the internet.
   caddy:
     image: caddy:2-alpine
     restart: always

@@ -4,6 +4,7 @@ POST /auth/telegram/connect    — generate deep-link token
 POST /auth/telegram/disconnect — clear chat_id
 POST /auth/telegram/webhook    — receive Telegram updates (always returns 200)
 """
+import hmac
 import secrets
 from datetime import datetime, timedelta
 
@@ -73,7 +74,8 @@ async def telegram_webhook(
 ) -> dict:
     """Receive Telegram updates. ALWAYS returns 200 — Telegram retries on 4xx/5xx."""
     expected = settings.TELEGRAM_WEBHOOK_SECRET
-    if expected and x_telegram_bot_api_secret_token != expected:
+    # Without a secret anyone could post fake updates, so refuse them all.
+    if not expected or not hmac.compare_digest(x_telegram_bot_api_secret_token or "", expected):
         # Return 200 even on auth failure to prevent Telegram retry storms
         return {"ok": False, "error": "invalid secret"}
 

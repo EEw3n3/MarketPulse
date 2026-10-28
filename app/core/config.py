@@ -35,7 +35,8 @@ class Settings:
     RATE_LIMIT_COOLDOWN_MAX: float = 60.0
 
     # Auth (JWT)
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "insecure-default-change-in-production")
+    # No default: tokens must never be signed with a known string.
+    JWT_SECRET: str = os.getenv("JWT_SECRET") or ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
