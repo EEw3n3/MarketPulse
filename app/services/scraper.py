@@ -23,6 +23,31 @@ from app.core.constants import (
     MAX_PLAUSIBLE_PRICE,
 )
 
+# Chrome errors that mean "this computer is offline", not "the shop refused".
+_NETWORK_DOWN = re.compile(
+    r"ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|ERR_ADDRESS_UNREACHABLE"
+)
+
+
+async def _wait_for_network(url: str, max_wait: int = 300) -> bool:
+    """Waits until the shop's host name resolves again. True when it does."""
+    import socket
+    import time
+
+    host = urlparse(url).hostname
+    logger.warning(f"🌐 No network (DNS) — waiting up to {max_wait} s for it to return: {host}")
+    end = time.monotonic() + max_wait
+    while time.monotonic() < end:
+        try:
+            await asyncio.to_thread(socket.getaddrinfo, host, 443)
+            logger.info(f"🌐 Network is back: {host}")
+            return True
+        except OSError:
+            await asyncio.sleep(5)
+    logger.error(f"🌐 Network did not return within {max_wait} s")
+    return False
+
+
 @dataclass
 class ScrapedItem:
     title: str
@@ -265,12 +290,20 @@ class ScraperService:
         page.on("request", handle_request)
         try:
             await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-            for attempt in (1, 2):  # a dropped connection is usually gone on the second try
+            failures = outages = 0
+            while True:
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     break
                 except Exception as e:
-                    if attempt == 2:
+                    # The PC lost its network (Wi-Fi reconnecting after sleep): wait
+                    # for it instead of spending the product's retries on it.
+                    if outages < 3 and _NETWORK_DOWN.search(str(e)):
+                        outages += 1
+                        if await _wait_for_network(url):
+                            continue
+                    failures += 1
+                    if failures == 2:  # a dropped connection is usually gone on the second try
                         raise
                     logger.warning(f"Notino page load failed ({e.__class__.__name__}), retrying: {url}")
                     await asyncio.sleep(5)
