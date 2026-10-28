@@ -364,7 +364,9 @@ class ScraperService:
                         apollo[vid] = v
             except Exception as e:
                 logger.debug(f"Notino variant names unavailable: {e}")
-            await page.close()
+            # The whole context, not just the page: an open context keeps its
+            # connections (New Relic beacons) and thousands of them run Windows out of ports.
+            await context.close()
 
         variants = []
         for vid, d in details.items():
