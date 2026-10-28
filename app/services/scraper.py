@@ -3,6 +3,7 @@ import random
 import sys
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 from parsel import Selector
@@ -22,6 +23,11 @@ from app.core.constants import (
     FALLBACK_TITLE_CSS,
     MAX_PLAUSIBLE_PRICE,
 )
+
+# makeup.lv: a stored volume its product page has not listed for this long
+# (two daily scans) is marked unavailable.
+GONE_AFTER = timedelta(hours=30)
+
 
 # Chrome errors that mean "this computer is offline", not "the shop refused".
 _NETWORK_DOWN = re.compile(
@@ -1165,13 +1171,18 @@ class ScraperService:
                             )
                         # A volume the page no longer lists is gone from the shop:
                         # mark the stored row unavailable instead of leaving it
-                        # "in stock" at its last price.
+                        # "in stock" at its last price. makeup.lv sometimes drops
+                        # a variant from the listing for a while, so only a row
+                        # missing from the previous daily scan too (not seen for
+                        # GONE_AFTER) counts as gone.
                         listed = {c["volume"] for c in candidates[first:]}
+                        seen_since = datetime.utcnow() - GONE_AFTER
                         gone = (await session.execute(
                             select(Product).where(
                                 Product.url == full_link,
                                 Product.card_type == "perfume",
                                 Product.is_available.is_(True),
+                                Product.last_seen < seen_since,
                             )
                         )).scalars().all()
                         for old in gone:
