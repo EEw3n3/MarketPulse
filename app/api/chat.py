@@ -166,11 +166,19 @@ def _format_search_results(products: list[Product], header: str) -> str:
         avail = "in stock" if p.is_available else "OUT OF STOCK"
         price = float(p.last_price) if p.last_price else 0.0
         price_str = f"€{price:.2f}" if price > 0 else "price unknown"
+        if p.promo_price and 0 < float(p.promo_price) < price:
+            code = f" with code {p.promo_code}" if p.promo_code else ""
+            price_str += f" (promo €{float(p.promo_price):.2f}{code})"
+        conc = f" {p.concentration}" if p.concentration else ""
         lines.append(
-            f"• {p.brand or ''} {p.title} — "
+            f"• {p.brand or ''} {p.title}{conc} — "
             f"{price_str} at {p.search_term} ({avail})"
         )
     return "\n".join(lines)
+
+
+# Rows not seen by a scan for this long are left over from removed listings.
+_FRESH_DAYS = 7
 
 
 async def _build_search_block(
@@ -214,7 +222,9 @@ async def _build_search_block(
             or_(*conditions),
             Product.is_available.is_(True),
             Product.last_price > 0,
+            Product.last_seen >= datetime.utcnow() - timedelta(days=_FRESH_DAYS),
         )
+        .order_by(Product.last_price)
         .limit(300)  # broad fetch; ranked + per-store capped in Python below
     )
     all_in_stock = (await db.execute(in_stock_stmt)).scalars().all()
@@ -223,9 +233,18 @@ async def _build_search_block(
         hay = f"{p.brand or ''} {p.title or ''}".lower()
         return sum(1 for kw in search_kw if kw in hay)
 
+    def _extra_words(p: Product) -> int:
+        # "Eau Sauvage" or "Sauvage Elixir" are other fragrances than "Sauvage":
+        # titles with fewer words beyond the query match it more exactly.
+        brand = (p.brand or "").lower().split()
+        words = re.findall(r"[^\W\d_]+", (p.title or "").lower())
+        return sum(1 for w in words if w not in brand and w != "ml" and not any(w in kw or kw in w for kw in search_kw))
+
     # Most-relevant first so the per-store cap keeps the best matches (e.g. the
-    # notino "Versace Eros" row beats an unrelated Versace product elsewhere).
-    all_in_stock = sorted(all_in_stock, key=_relevance, reverse=True)
+    # notino "Versace Eros" row beats an unrelated Versace product elsewhere);
+    # then the closest names, cheapest first (the query is price-ordered and
+    # sorted() is stable).
+    all_in_stock = sorted(all_in_stock, key=lambda p: (-_relevance(p), _extra_words(p)))
 
     # Cap at 8 products per store so no single retailer dominates the context.
     _PER_STORE_LIMIT = 8
@@ -477,6 +496,13 @@ async def chat(
             f"(name), placing all sizes/volumes of the same product together "
             f"before moving to the next line. Within each line, list cheapest "
             f"first. For cross-store comparisons, group first by store.\n"
+            f"8a. A different name is a different fragrance: 'Eau Sauvage', "
+            f"'Sauvage Elixir' or 'Sauvage Eau Forte' are NOT 'Sauvage'. Only "
+            f"answer with the exact line the user asked for unless they ask "
+            f"for related lines. Always state the concentration (EDT, EDP, "
+            f"Parfum) and volume, and compare prices only between the same "
+            f"concentration and volume. When a promo price is listed, it is "
+            f"the price to pay: show it (with the code, if any).\n"
             f"9. RESPONSE LENGTH LIMIT — strict:\n"
             f"   a) Show at most 5 products TOTAL per response, across all stores combined.\n"
             f"   b) If the query is broad (a brand name, a generic category) AND "
