@@ -245,6 +245,11 @@ async def _build_search_block(
     # then the closest names, cheapest first (the query is price-ordered and
     # sorted() is stable).
     all_in_stock = sorted(all_in_stock, key=lambda p: (-_relevance(p), _extra_words(p)))
+    # "Dior Sauvage" should not bring in Creed Neroli Sauvage: when some rows
+    # match two or more keywords, drop the rows that match fewer.
+    best = _relevance(all_in_stock[0]) if all_in_stock else 0
+    if best >= 2:
+        all_in_stock = [p for p in all_in_stock if _relevance(p) == best]
 
     # Cap at 8 products per store so no single retailer dominates the context.
     _PER_STORE_LIMIT = 8
