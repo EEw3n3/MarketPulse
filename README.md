@@ -1,111 +1,84 @@
-# MarketPulse — Mārketinga automatizācija komerckompānijai
+# MarketPulse
 
-> Inteliģentas smaržu cenu uzraudzības un analīzes sistēmas izstrāde Latvijas e-komercijas segmentā
+Price monitoring for the Latvian perfume market. MarketPulse collects the catalogues of Latvian online stores,
+recognises the same perfume across stores, records every price change and alerts users by Telegram and e-mail.
 
-## Projekta apraksts
+Live: [marketpulse1.me](https://marketpulse1.me) · Built solo as my qualification project at Rīgas Valsts tehnikums (2026).
+Latvian version of this README: [README.lv.md](README.lv.md).
 
-**MarketPulse** ir augsti automatizēta sistēma, kas patstāvīgi vāc, normalizē un analizē datus par vīriešu parfimērijas produktiem no vadošajiem Latvijas interneta veikaliem (Douglas, Notino, 220.lv, Makeup.lv, 1a.lv). Sistēma ļauj lietotājam vienuviet salīdzināt vienas un tās pašas preces cenas dažādos veikalos, sekot līdzi cenu vēsturei un saņemt paziņojumus par izdevīgām cenu izmaiņām.
+## What it does
 
-Galvenās realizētās funkcijas:
+- **One collector per store.** Each store is read from its most reliable source: a REST API (Makeup.lv), JSON
+  embedded in the page (Douglas), the store's own XHR requests (Notino) or widget JSON (220.lv). `curl_cffi` is
+  used where plain HTTP is enough, Playwright where the page needs a browser.
+- **Normalisation and cross-store matching.** Titles are reduced to brand, name, volume and concentration
+  (EDP, EDT, Parfum, Latvian and Lithuanian spellings), then the same perfume is linked into one comparison group
+  across stores. Different products stay apart (Molecule 01 is not Molecule 02, Intense is not Intensely).
+- **Price history and alerts.** Every price and stock change is stored. Users follow products and get Telegram or
+  e-mail alerts when a price drops past their threshold.
+- **Dashboard.** React + TypeScript: catalogue with cross-store comparison, product price history, market
+  analytics charts, favourites, CSV / Excel / PDF export and an AI chat that answers from the catalogue (Gemini).
+- **AI selector generation.** For a store without a verified rule, Gemini proposes CSS selectors from the page
+  HTML; a rule is accepted only when it finds at least 5 product cards.
+- **Scheduled collection.** The server queues jobs in Redis every night. Stores that block data-centre IPs are
+  scraped by a worker on a home PC, which uploads the results to the API.
 
-* **Adaptīvā datu ieguve (Self-Healing AI):** ja mainās veikala vietnes struktūra un vecie selektori vairs nestrādā, sistēma ar Google Gemini mākslīgā intelekta palīdzību automātiski ģenerē jaunus CSS selektorus — bez cilvēka iejaukšanās.
-* **Hibrīdais datu ieguves dzinējs:** ātrā `curl_cffi` metode SSR vietnēm un pilna `Playwright` pārlūkprogrammas automatizācija JavaScript vietnēm, ar aizsardzību pret bloķēšanu.
-* **Produktu sasaiste (Chaining):** identisku preču atpazīšana un grupēšana starp veikaliem pēc zīmola, nosaukuma, tilpuma un koncentrācijas (EDP/EDT), nodrošinot precīzu cenu salīdzināšanu.
-* **Cenu vēsture un analītika:** katra cenu izmaiņa tiek fiksēta; interaktīvie grafiki rāda cenu dinamiku pa veikaliem, tirgus tendences un volatilitāti.
-* **Paziņojumi:** lietotājs pievieno preces sekošanas sarakstam (Watchlist) un saņem brīdinājumus pa **Telegram** un **e-pastu**, kad cenas izmaiņa pārsniedz iestatīto slieksni.
-* **Izkliedētais skenēšanas dzinējs (Distributed Worker):** serveris izvieto skenēšanas uzdevumus Redis rindā, bet pati datu ieguve notiek caur lokālo darbinieku (worker), izmantojot lietotāja IP adresi.
-* **Datu eksports:** preču un kataloga dati eksportējami CSV, JSON, Excel un PDF formātos.
+1a.lv is supported in code but paused: its catalogue is behind a Cloudflare check, and MarketPulse does not try to
+get around such checks.
 
-## Izmantotās tehnoloģijas
+## Architecture
 
-**Servera daļa (Backend):**
-* **Python 3.11** — galvenā izstrādes valoda
-* **FastAPI** — asinhronais tīmekļa ietvars (REST API)
-* **SQLModel** — ORM datu bāzes manipulācijām
-* **Alembic** — datu bāzes shēmas migrācijas
+```
+stores ──> collectors (curl_cffi / Playwright) ──> normaliser ──> matcher ──> PostgreSQL
+                 ▲                                                               │
+     Redis job queue <── nightly timer / admin panel                    FastAPI REST API
+                 │                                                               │
+        home-PC worker (uploads results)                              React dashboard, alerts
+```
 
-**Datu bāze un kešatmiņa:**
-* **PostgreSQL 15** — galvenā relāciju datu bāze (`asyncpg` draiveris)
-* **Redis** — kešatmiņa un izkliedētā skenēšanas uzdevumu rinda
+## Tech stack
 
-**Klienta daļa (Frontend):**
-* **React + TypeScript** (Vite būvētājs)
-* **Tailwind CSS** + **shadcn/ui** — saskarnes komponenti
-* **Recharts** — interaktīvie analītiskie grafiki
+| Area | Tools |
+|---|---|
+| Backend | Python 3.11, FastAPI, SQLModel / SQLAlchemy (asyncpg), Pydantic, Alembic, JWT |
+| Data | PostgreSQL 15, Redis (job queue), thefuzz |
+| Scraping | Playwright, curl_cffi |
+| AI | Google Gemini (`google-genai`) |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, Recharts |
+| Notifications | Telegram Bot API, Resend |
+| Exports | openpyxl, ReportLab, matplotlib |
+| Infrastructure | Docker Compose (db, redis, app, frontend, caddy), Caddy with automatic HTTPS, Linux VPS, GitHub Actions |
 
-**Datu ieguve (Scraping):**
-* **Playwright + Stealth** — pārlūkprogrammas automatizācija ar aizsardzību pret bloķēšanu
-* **curl_cffi** — ātrais HTTP klients ar TLS pirkstu nospiedumu emulāciju
-* **thefuzz** — neskaidrā (fuzzy) salīdzināšana produktu sasaistei
+CI (`.github/workflows/ci.yml`) runs on every push: compile check, import smoke test, single Alembic head, ruff
+and the frontend build.
 
-**Mākslīgais intelekts:**
-* **Google Gemini** (`google-genai`) — CSS selektoru ģenerēšana un pašārstēšanās
+## Run locally
 
-**Paziņojumi:**
-* **Telegram Bot API** — momentānie paziņojumi
-* **Resend** (HTTP API) — e-pasta paziņojumi
+Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Git.
 
-**Infrastruktūra:**
-* **Docker + Docker Compose** — konteinerizācija
-* **Caddy** — reversais starpniekserveris ar automātisku HTTPS (Let's Encrypt)
-* **DigitalOcean** — mākoņa serveris
-* **GitHub Actions** — CI/CD automātiskā izvietošana
+```bash
+git clone https://github.com/EEw3n3/MarketPulse.git
+cd MarketPulse
+cp .env.example .env    # set at least POSTGRES_PASSWORD, GOOGLE_API_KEY and JWT_SECRET
+docker compose up -d db redis
+docker compose up -d --no-deps app frontend
+```
 
-**Eksporta dzinējs:**
-* **openpyxl** (Excel), **ReportLab** + **matplotlib** (PDF ar grafikiem)
+- Dashboard: http://localhost:8080
+- API docs (Swagger): http://localhost:8000/docs
+- The `app` container applies the database migrations (`alembic upgrade head`) on start.
+- Do not start the `caddy` service locally: it is the production reverse proxy.
 
-## Izmantotie avoti
+To collect data, start a worker in another terminal and queue jobs from Admin → Scraping:
 
-1. [FastAPI Documentation](https://fastapi.tiangolo.com/) — aplikācijas arhitektūras un asinhrono procesu pamats.
-2. [Playwright for Python](https://playwright.dev/python/) — pārlūkprogrammas automatizācija un aizsardzības mehānismu apiešana.
-3. [SQLModel Documentation](https://sqlmodel.tiangolo.com/) — datu bāzes shēmu projektēšana un ORM.
-4. [Google Gemini API](https://ai.google.dev/docs) — mākslīgā intelekta integrācija selektoru ģenerēšanai.
-5. [PostgreSQL Documentation](https://www.postgresql.org/docs/) — datu bāzes optimizācija un sarežģīti vaicājumi.
-6. [React Documentation](https://react.dev/) — klienta puses komponenšu arhitektūra.
-7. [Vite Documentation](https://vitejs.dev/) — frontend būvēšanas rīks un dev serveris.
-8. [Tailwind CSS](https://tailwindcss.com/docs) un [shadcn/ui](https://ui.shadcn.com/) — saskarnes stilizācija un komponenti.
-9. [Recharts](https://recharts.org/) — datu vizualizācijas grafiki.
-10. [Caddy Documentation](https://caddyserver.com/docs/) — reversais starpniekserveris un automātisks HTTPS.
-11. [Resend Documentation](https://resend.com/docs) — e-pasta sūtīšana caur HTTP API.
-12. [Docker Documentation](https://docs.docker.com/) — konteinerizācija un vides standartizācija.
+```bash
+docker compose exec app python scripts/scrape_worker.py
+```
 
-## Uzstādīšanas instrukcijas
+To check a store's scraper against the live site (HTML report in `reports/`):
 
-Projekts ir pilnībā konteinerizēts ar Docker, tāpēc lokālai palaišanai nav nepieciešams manuāli instalēt Python, PostgreSQL vai Node.js.
+```bash
+docker compose exec -T app python scripts/scrape_review.py makeup --pages 3
+```
 
-### Priekšnosacījumi
-* Instalēts [Docker Desktop](https://www.docker.com/products/docker-desktop/) (iekļauj Docker Compose)
-* Instalēts [Git](https://git-scm.com/downloads)
-
-### Soļi
-
-1. **Klonēt repozitoriju:**
-   ```bash
-   git clone https://github.com/pikcrvt-students/26_d43-ErvinsUbinins-Marketinga-automizacija-komerckompanijai.git
-   cd 26_d43-ErvinsUbinins-Marketinga-automizacija-komerckompanijai
-   ```
-
-2. **Izveidot konfigurācijas failu** no parauga un aizpildīt savas atslēgas:
-   ```bash
-   cp .env.example .env
-   ```
-   Atver `.env` un norādi vismaz `POSTGRES_PASSWORD`, `GOOGLE_API_KEY` un `JWT_SECRET` (pārējie nepieciešami konkrētām funkcijām — Telegram, e-pasts, worker). Skaidrojumi par katru mainīgo ir `.env.example` failā.
-
-3. **Palaist sistēmu:**
-   ```bash
-   docker compose up -d --build
-   ```
-   Komanda automātiski uzbūvē un palaiž PostgreSQL, Redis, backend (FastAPI) un frontend (Vite) konteinerus, kā arī pielieto datu bāzes migrācijas (`alembic upgrade head`).
-
-4. **Atvērt sistēmu pārlūkprogrammā:**
-   * Frontend (lietotāja saskarne): http://localhost:8080
-   * Backend API dokumentācija (Swagger): http://localhost:8000/docs
-
-5. **(Neobligāti) Palaist datu ieguves darbinieku** datu savākšanai no veikaliem. Atsevišķā terminālī:
-   ```bash
-   docker compose exec app python scripts/scrape_worker.py
-   ```
-   Pēc tam administratora panelī (Admin → Scraping) var izvietot skenēšanas uzdevumus, kurus apstrādās šis darbinieks.
-
-### Administratora konts
-Lietotājs, kura e-pasts norādīts `.env` mainīgajā `ADMIN_EMAIL`, pēc reģistrācijas automātiski iegūst administratora tiesības (piekļuvi Admin panelim).
+The user whose e-mail is set in `ADMIN_EMAIL` becomes an administrator after registering.
