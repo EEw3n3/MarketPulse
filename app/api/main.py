@@ -561,6 +561,10 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
         )
         grp_res = await db.execute(grp_stmt)
         group_products = list(grp_res.scalars().all())
+    elif product.is_available and product.last_price and product.last_price > 0:
+        # A gift set or an unmatched bottle has no group: its own listing is
+        # the offer (it used to show "out of stock everywhere").
+        group_products = [product]
 
     target_volume = _norm_volume(product.volume)
     # If current product has no volume (gift sets), don't filter by volume.
@@ -604,6 +608,7 @@ async def get_product_detail(product_id: int, db: AsyncSession = Depends(get_db)
             ],
             promoPrice=float(main.promo_price) if main.promo_price else None,
             promoCode=main.promo_code,
+            checkedAt=main.last_seen,
         ))
 
     # Sort stores by their cheapest price ASC, cap at 5 unique stores

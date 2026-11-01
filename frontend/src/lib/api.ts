@@ -204,6 +204,7 @@ export interface MoveItem {
   new_price: number;
   change_percent: number;
   since: string | null;
+  checked_at?: string | null;
 }
 
 // ── Market analytics (Pro) ───────────────────────────────────────────────────
@@ -317,6 +318,7 @@ export interface StoreOffer {
   variants: StoreOfferVariant[];
   promoPrice?: number | null;
   promoCode?: string | null;
+  checkedAt?: string | null;
 }
 
 export interface SizeOption {

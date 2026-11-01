@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
+from app.services.freshness import deal_fresh_since
 from app.services.price_series import HISTORY_START, STORE_LABELS, display_name, store_label
 
 def _key_sql(t: str = "") -> str:
@@ -221,8 +222,9 @@ async def moves(
     """
     start = datetime.utcnow() - timedelta(days=days)
     down = direction == "down"
-    where = ["p.is_available", "p.last_price > :min_price"]
-    params: dict = {"start": start, "limit": limit * 4, "min_price": min_price}
+    # A price read more than DEAL_MAX_AGE ago is not "now" (the PC skipped a night).
+    where = ["p.is_available", "p.last_price > :min_price", "p.last_seen >= :fresh"]
+    params: dict = {"start": start, "limit": limit * 4, "min_price": min_price, "fresh": deal_fresh_since()}
     if stores:
         where.append(f"{_store_sql('p')} = any(:stores)")
         params["stores"] = [s.lower() for s in stores]
@@ -260,7 +262,7 @@ async def moves(
         )
         select p.id, p.search_term, p.brand, p.title, p.concentration, p.volume, p.image_url,
                p.group_id, ref.price as old_price, p.last_price as new_price, last_move.at as since,
-               (p.last_price - ref.price) / ref.price * 100 as pct
+               p.last_seen as checked_at, (p.last_price - ref.price) / ref.price * 100 as pct
         from product p
         join ref on ref.product_id = p.id
         join last_move on last_move.product_id = p.id
@@ -268,6 +270,10 @@ async def moves(
         order by pct {"asc" if down else "desc"} limit :limit
     """), params)).all()
 
+    return _move_items(rows, limit)
+
+
+def _move_items(rows, limit: int) -> list[schemas.MoveItem]:
     out: list[schemas.MoveItem] = []
     seen: set = set()
     for r in rows:
@@ -291,10 +297,111 @@ async def moves(
             new_price=float(r.new_price),
             change_percent=round(float(r.pct), 1),
             since=r.since,
+            checked_at=r.checked_at,
         ))
         if len(out) >= limit:
             break
     return out
+
+
+# "Cheaper this week": a cut must leave the price at least this far under the
+# usual one, and more than DEAL_MAX_DROP is a misread or mislabeled listing.
+DEAL_MIN_DROP = 0.05
+DEAL_MAX_DROP = 0.6
+# The usual price needs this much in-stock price data inside its 30 days.
+USUAL_MIN_COVER = timedelta(days=7)
+USUAL_WINDOW = timedelta(days=30)
+
+
+async def deals(
+    db: AsyncSession,
+    days: int = 7,
+    limit: int = 12,
+    stores: Optional[list[str]] = None,
+    brands: Optional[list[str]] = None,
+    min_price: float = 10.0,
+    matched_only: bool = False,
+    min_drop: float = DEAL_MIN_DROP,
+    max_drop: float = DEAL_MAX_DROP,
+) -> list[schemas.MoveItem]:
+    """Deals for Today and the landing page: listings cut in the last `days`
+    that now sit under their usual price.
+
+    The usual price is the time-weighted median of the listing's in-stock
+    price over the last 30 days (synthetic gap-fill rows left out): a price
+    that held for three weeks counts three weeks, a one-day promo one day.
+    Comparing with one reading a week ago made false "-50%" out of makeup.lv,
+    which moves prices by cents almost daily, and out of one-day promos.
+
+    Only bottles (no gift sets) with a brand, in stock, priced in the last
+    DEAL_MAX_AGE (app/services/freshness.py) and with at least a week of
+    price data. `old_price` of each item is the usual price.
+    """
+    now = datetime.utcnow()
+    start = now - timedelta(days=days)
+    params: dict = {
+        "now": now, "start": start, "month": now - USUAL_WINDOW, "fresh": deal_fresh_since(now),
+        "min_price": min_price, "min_cover": USUAL_MIN_COVER.total_seconds(),
+        "keep": 1 - min_drop, "floor": 1 - max_drop, "limit": limit * 4,
+    }
+    where = [
+        "p.is_available", "p.last_price > :min_price", "p.last_seen >= :fresh",
+        "p.card_type = 'perfume'", "coalesce(trim(p.brand), '') <> ''",
+    ]
+    if stores:
+        where.append(f"{_store_sql('p')} = any(:stores)")
+        params["stores"] = [s.lower() for s in stores]
+    if brands:
+        where.append("lower(p.brand) like any(:brands)")
+        params["brands"] = [f"%{b.lower()}%" for b in brands]
+    if matched_only:
+        where.append(f"""p.group_id in (
+            select group_id from product where group_id is not null and is_available
+            group by group_id having count(distinct {_STORE_SQL}) >= 2)""")
+    rows = (await db.execute(text(f"""
+        with cut as (
+            select product_id, max(parsed_at) as at from pricehistory
+            where change_type = 'price_down' and parsed_at > :start
+            group by product_id
+        ),
+        cand as (
+            select p.id, cut.at from product p join cut on cut.product_id = p.id
+            where {' and '.join(where)}
+        ),
+        ev as (
+            select h.product_id, h.price, h.in_stock, h.parsed_at,
+                   coalesce(lead(h.parsed_at) over (partition by h.product_id order by h.parsed_at), :now) as until
+            from pricehistory h join cand on cand.id = h.product_id
+            where h.change_type <> 'synthetic'
+        ),
+        span as (
+            select product_id, price,
+                   extract(epoch from (least(until, :now) - greatest(parsed_at, :month))) as secs
+            from ev where in_stock and price > 0 and until > :month
+        ),
+        w as (
+            select product_id, price,
+                   sum(secs) over (partition by product_id order by price rows unbounded preceding) as cum,
+                   sum(secs) over (partition by product_id) as total
+            from span where secs > 0
+        ),
+        usual as (
+            select distinct on (product_id) product_id, price, total
+            from w where cum >= total / 2
+            order by product_id, price
+        )
+        select p.id, p.search_term, p.brand, p.title, p.concentration, p.volume, p.image_url,
+               p.group_id, usual.price as old_price, p.last_price as new_price, cand.at as since,
+               p.last_seen as checked_at, (p.last_price - usual.price) / usual.price * 100 as pct
+        from cand
+        join product p on p.id = cand.id
+        join usual on usual.product_id = p.id
+        where usual.total >= :min_cover
+          and p.last_price <= usual.price * :keep
+          and p.last_price >= usual.price * :floor
+        order by pct asc limit :limit
+    """), params)).all()
+    return _move_items(rows, limit)
 
 
 async def recent_drops(db: AsyncSession, days: int = 30, limit: int = 6, **kw) -> list[schemas.MoveItem]:

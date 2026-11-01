@@ -12,6 +12,7 @@ import { exportUrl } from "@/lib/download";
 import { day, eur, int, pctPlain } from "@/lib/format";
 import { LIVE_SHOPS, fieldStyle, shopKey, shopOf } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
+import Checked from "@/components/mp/Checked";
 import ExportMenu from "@/components/mp/ExportMenu";
 import Img from "@/components/mp/Img";
 import { LineChart, Legend, Ribbon } from "@/components/mp/charts";
@@ -275,6 +276,7 @@ export default function Product() {
                       {shopOf(k).label}
                       {o.promoPrice ? <small className="num">{o.promoCode ? t.product.withCode(o.promoCode, eur(o.promoPrice)) : t.product.member(eur(o.promoPrice))}</small> : null}
                       {o.variants.length > 0 && <small className="num">{t.product.variants(o.variants.length)}</small>}
+                      <Checked at={o.checkedAt} />
                     </span>
                     <span className="more num">{win ? t.product.lowestTag : t.product.more(eur(o.price - best.price))}</span>
                     <span className="p num">

@@ -424,10 +424,10 @@ async def get_drops(
     limit: int = Query(12, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
-    """Biggest recent price cuts, optionally in the user's shops and brands.
-    Feeds the Today page."""
-    return await market.moves(db, days=days, direction="down", limit=limit, stores=stores, brands=brands,
-                              min_price=10.0, max_move=0.6)
+    """Cheaper this week: listings cut in the last `days` that sit under their
+    usual 30-day price, optionally in the user's shops and brands. Feeds the
+    Today page (see market.deals)."""
+    return await market.deals(db, days=days, limit=limit, stores=stores, brands=brands, min_price=10.0)
 
 
 _FACETS_CACHE: dict = {"at": 0.0, "value": None}

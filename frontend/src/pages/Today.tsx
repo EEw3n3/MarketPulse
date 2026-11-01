@@ -8,6 +8,7 @@ import { useT } from "@/i18n";
 import { day, eur, int, pct, pctPlain } from "@/lib/format";
 import { fieldStyle, shopOf } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
+import Checked from "@/components/mp/Checked";
 import Img from "@/components/mp/Img";
 import { spec } from "@/components/mp/SearchBox";
 import Tile from "@/components/mp/Tile";
@@ -29,8 +30,9 @@ function DropCard({ m, i }: { m: MoveItem; i: number }) {
             </span>
           </div>
           <div className="num" style={{ marginTop: 8, fontSize: 15 }}>
-            <s>{eur(m.old_price)}</s> {eur(m.new_price)}
+            <s title={t.today.usual}>{eur(m.old_price)}</s> {eur(m.new_price)}
           </div>
+          <Checked at={m.checked_at} />
         </div>
       </div>
       <div className="drop-pic">

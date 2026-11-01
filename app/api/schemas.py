@@ -82,6 +82,7 @@ class StoreOffer(BaseModel):
     variants: List[StoreOfferVariant] = []
     promoPrice: Optional[float] = None    # price with a shop promo code
     promoCode: Optional[str] = None
+    checkedAt: Optional[datetime] = None  # when the shop's price was last read
 
 
 class ProductCardDetail(BaseModel):
@@ -252,6 +253,7 @@ class MoveItem(BaseModel):
     new_price: float
     change_percent: float
     since: Optional[datetime] = None
+    checked_at: Optional[datetime] = None   # when the shop's price was last read
 
 
 class ActivityPoint(BaseModel):

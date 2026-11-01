@@ -95,6 +95,25 @@ export function dateTime(v: string | Date | null | undefined): string {
   ).format(toDate(v));
 }
 
+/** 09:40 (Riga time) */
+export function clock(v: string | Date | null | undefined): string {
+  if (!v) return "—";
+  return df({ hour: "2-digit", minute: "2-digit", timeZone: "Europe/Riga" }, "hm").format(toDate(v));
+}
+
+/** Same calendar day in Riga as now. */
+export function isToday(v: string | Date | null | undefined): boolean {
+  if (!v) return false;
+  const f = df({ year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/Riga" }, "ymd");
+  return f.format(toDate(v)) === f.format(new Date());
+}
+
+/** Hours since an ISO timestamp. */
+export function hoursSince(v: string | Date | null | undefined): number | null {
+  if (!v) return null;
+  return (Date.now() - toDate(v).getTime()) / 3600000;
+}
+
 /** "3 hours ago", "yesterday" */
 export function ago(v: string | Date | null | undefined): string {
   if (!v) return "—";

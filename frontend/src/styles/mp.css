@@ -411,6 +411,8 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .drop-copy { display: flex; flex-direction: column; justify-content: space-between; gap: 16px; min-width: 0; }
 .drop-name { font-weight: 500; font-size: 17px; line-height: 1.25; }
 .drop-name span { display: block; font-weight: 400; font-size: 15px; }
+.drop .checked { display: block; margin-top: 6px; font-size: 13px; opacity: .72; }
+.checked.stale { color: var(--warn); opacity: 1; }
 .drop-pic { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); place-items: center; min-height: 0; }
 .drop-pic img { max-height: 210px; max-width: 100%; mix-blend-mode: multiply; }
 .pg-landing .shares { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gutter); }

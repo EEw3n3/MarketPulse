@@ -46,7 +46,7 @@ async def landing(db: AsyncSession = Depends(get_db)):
         hero=cards.get(hero_key) if hero_key else None,
         shelf=_distinct([cards[k] for k in shelf if k in cards], 4),
         gaps=[cards[k] for k in gaps if k in cards],
-        drops=await market.recent_drops(db, days=30, limit=6, matched_only=True, max_move=0.5, min_price=25),
+        drops=await market.deals(db, days=30, limit=6, matched_only=True, max_drop=0.5, min_price=25),
     )
     _CACHE.update(at=now, value=value)
     return value
