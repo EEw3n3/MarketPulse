@@ -391,6 +391,9 @@ export default function Landing() {
         <footer className="foot">
           <span>{t.landing.foot}</span>
           <span>{t.landing.footScan(asOf)}</span>
+          <span className="legal">
+            <Link to="/privacy">{t.legal.privacyH}</Link> · <Link to="/terms">{t.legal.termsH}</Link>
+          </span>
         </footer>
       </div>
     </div>

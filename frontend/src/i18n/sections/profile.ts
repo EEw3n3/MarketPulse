@@ -79,6 +79,10 @@ const en = {
   pwWrong: "The current password is wrong.",
   pwSame: "The new password must differ from the current one.",
   pwSaved: "Password changed",
+  pwSet: "Set a password",
+  pwSetDone: "Password set. You can now also sign in with your email.",
+  googleOn: "You can sign in with Google or with your email and password.",
+  googleOnly: "You sign in with Google. Set a password to sign in with your email too.",
 
   outH: "Sign out",
   outP: "Your favorites and alerts stay. Alerts keep coming while you are signed out.",
@@ -169,6 +173,10 @@ const lv: typeof en = {
   pwWrong: "Pašreizējā parole nav pareiza.",
   pwSame: "Jaunajai parolei jāatšķiras no pašreizējās.",
   pwSaved: "Parole nomainīta",
+  pwSet: "Iestatīt paroli",
+  pwSetDone: "Parole iestatīta. Tagad varat pieteikties arī ar e-pastu.",
+  googleOn: "Varat pieteikties ar Google vai ar e-pastu un paroli.",
+  googleOnly: "Jūs piesakāties ar Google. Iestatiet paroli, lai pieteiktos arī ar e-pastu.",
 
   outH: "Iziet",
   outP: "Jūsu izlase un paziņojumi paliek. Paziņojumi turpina nākt arī pēc iziešanas.",

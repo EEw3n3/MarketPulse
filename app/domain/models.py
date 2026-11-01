@@ -170,7 +170,10 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True, max_length=255)
     full_name: Optional[str] = Field(default=None, max_length=100)
-    hashed_password: str
+    # None: the account signs in with Google only (a password can be set later).
+    hashed_password: Optional[str] = Field(default=None)
+    # Google account id ("sub" of the ID token) once Google sign-in was used.
+    google_sub: Optional[str] = Field(default=None, unique=True, index=True, max_length=255)
     is_active: bool = Field(default=True)
     is_admin: bool = Field(default=False)
     # "free" or "pro". Pro opens the analytics cabinet and data exports; an

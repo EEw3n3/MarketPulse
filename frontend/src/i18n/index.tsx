@@ -15,6 +15,7 @@ import favorites from "./sections/favorites";
 import analytics from "./sections/analytics";
 import profile from "./sections/profile";
 import admin from "./sections/admin";
+import legal from "./sections/legal";
 
 export type Lang = "en" | "lv";
 
@@ -34,6 +35,7 @@ const sections = {
   analytics,
   profile,
   admin,
+  legal,
 };
 type Sections = typeof sections;
 export type Dict = { [K in keyof Sections]: Sections[K]["en"] };

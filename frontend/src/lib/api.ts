@@ -64,6 +64,10 @@ export interface UserRead {
   /** End of Pro (UTC, no zone suffix); null = no end. */
   pro_until?: string | null;
   pro_source?: "admin" | "payment" | string | null;
+  /** false: signs in with Google only (can set a password in the profile). */
+  has_password?: boolean;
+  /** Google sign-in linked. */
+  google?: boolean;
   created_at: string;
   preferences: UserPreferences | null;
 }
@@ -72,6 +76,10 @@ export interface TokenResponse {
   access_token: string;
   token_type: "bearer";
   user: UserRead;
+  /** Google sign-in: a new account was made. */
+  new_account?: boolean;
+  /** Google sign-in linked an existing account and switched its old password off. */
+  password_removed?: boolean;
 }
 
 export interface UserCreate {
@@ -572,7 +580,11 @@ export const api = {
   deleteAccount: () => fetchApi<void>("/auth/me", { method: "DELETE" }),
   updatePreferences: (body: UserPreferencesUpdate) =>
     fetchApi<UserPreferences>("/auth/preferences", { method: "PATCH", body: JSON.stringify(body) }),
-  changePassword: (current_password: string, new_password: string) =>
+  googleConfig: () => fetchApi<{ client_id: string | null }>("/auth/google/config"),
+  googleSignIn: (credential: string) =>
+    fetchApi<TokenResponse>("/auth/google", { method: "POST", body: JSON.stringify({ credential }) }),
+  /** current_password null: the account has no password yet (Google only). */
+  changePassword: (current_password: string | null, new_password: string) =>
     fetchApi<void>("/auth/password", {
       method: "PATCH",
       body: JSON.stringify({ current_password, new_password }),

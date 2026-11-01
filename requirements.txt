@@ -26,7 +26,7 @@ rich==14.3.3
 apscheduler==3.11.2
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
-PyJWT==2.10.1
+PyJWT[crypto]==2.10.1
 email-validator==2.2.0
 aiosmtplib==3.0.2
 httpx==0.28.1

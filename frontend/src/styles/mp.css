@@ -413,6 +413,9 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .drop-name span { display: block; font-weight: 400; font-size: 15px; }
 .drop .checked { display: block; margin-top: 6px; font-size: 13px; opacity: .72; }
 .checked.stale { color: var(--warn); opacity: 1; }
+.pg-auth .gbtn { min-height: 44px; display: flex; justify-content: center; }
+.pg-auth .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13.5px; }
+.pg-auth .or::before, .pg-auth .or::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
 .pro-ending { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--warn); color: var(--warn); font-size: 14px; }
 .pro-ending a { color: inherit; font-weight: 600; }
 .drop-pic { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); place-items: center; min-height: 0; }
@@ -1055,6 +1058,14 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .mp-toast { border-radius: 18px !important; background: var(--ink) !important; color: var(--bg) !important; border: 0 !important; font: 15px/1.4 var(--sans) !important; white-space: pre-line; box-shadow: 0 18px 50px rgba(17, 19, 21, .18) !important; }
 .mp-toast [data-icon] { display: none; }
 .mp-toast-act { background: var(--accent) !important; color: var(--accent-ink) !important; border-radius: 999px !important; font-weight: 500 !important; }
+.pg-legal .nf-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 18px; }
+.pg-legal .doc { max-width: 720px; padding-block: 24px 64px; font-size: 16px; line-height: 1.6; }
+.pg-legal h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(2.2rem, 1.6rem + 2vw, 3.2rem); line-height: 1.05; margin-bottom: 8px; }
+.pg-legal h2 { font-size: 18px; font-weight: 600; margin: 28px 0 8px; }
+.pg-legal .doc p { margin: 0 0 10px; }
+.pg-legal .doc .foot { margin-top: 32px; }
+.pg-legal .doc a { text-decoration: underline; }
+.pg-landing .foot .legal a { color: inherit; text-decoration: underline; }
 .pg-nf { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
 .pg-nf .nf-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 18px; }
 .pg-nf .empty { align-content: center; }

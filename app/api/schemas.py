@@ -458,8 +458,14 @@ class LoginRequest(BaseModel):
 
 
 class PasswordChangeRequest(BaseModel):
-    current_password: str
+    # Not needed when the account has no password yet (Google sign-in only).
+    current_password: Optional[str] = None
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class GoogleSignInRequest(BaseModel):
+    """The ID token ("credential") Google Identity Services gave the browser."""
+    credential: str = Field(min_length=20, max_length=4096)
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -481,6 +487,8 @@ class UserRead(BaseModel):
     is_pro: bool = False
     pro_until: Optional[datetime] = None  # UTC; None = no end
     pro_source: Optional[str] = None
+    has_password: bool = True   # False: signs in with Google only, may set one
+    google: bool = False        # Google sign-in linked
     created_at: datetime
     preferences: Optional[UserPreferencesRead] = None
 
@@ -491,6 +499,10 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     user: UserRead
+    # Google sign-in only: a new account was made / an existing account was
+    # linked and its old password switched off (see /auth/google).
+    new_account: bool = False
+    password_removed: bool = False
 
 
 # --- Favorites ---

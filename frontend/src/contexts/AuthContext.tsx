@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { api, UserRead, UserPreferencesUpdate } from "@/lib/api";
+import { api, TokenResponse, UserRead, UserPreferencesUpdate } from "@/lib/api";
 
 const TOKEN_KEY = "marketpulse_token";
 
@@ -9,6 +9,8 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName?: string) => Promise<void>;
+  /** Sign in or sign up with the ID token from the Google button. */
+  loginWithGoogle: (credential: string) => Promise<TokenResponse>;
   logout: () => void;
   updatePreferences: (patch: UserPreferencesUpdate) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -51,6 +53,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     _persist(res.access_token, res.user);
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    const res = await api.googleSignIn(credential);
+    _persist(res.access_token, res.user);
+    return res;
+  };
+
   const logout = () => {
     if (user) localStorage.removeItem(`marketpulse_chat_${user.id}`);
     localStorage.removeItem(TOKEN_KEY);
@@ -77,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, updatePreferences, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, loginWithGoogle, logout, updatePreferences, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

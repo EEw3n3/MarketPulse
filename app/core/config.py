@@ -42,6 +42,9 @@ class Settings:
 
     # Admin bootstrap: email that auto-receives is_admin=True on registration.
     ADMIN_EMAIL: str | None = os.getenv("ADMIN_EMAIL")
+    # "Sign in with Google": the OAuth Web client ID from Google Cloud. It is
+    # public (the browser sends it to Google), not a secret. Empty = no button.
+    GOOGLE_CLIENT_ID: str | None = os.getenv("GOOGLE_CLIENT_ID") or None
 
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: str | None = os.getenv("TELEGRAM_BOT_TOKEN")

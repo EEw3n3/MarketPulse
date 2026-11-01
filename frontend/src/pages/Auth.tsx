@@ -5,6 +5,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { int } from "@/lib/format";
+import { toast } from "sonner";
+import GoogleButton from "@/components/mp/GoogleButton";
 import LangSwitch from "@/components/mp/LangSwitch";
 
 /** Only same-site paths, so a crafted ?next= cannot send people elsewhere. */
@@ -20,7 +22,7 @@ function errorOf(e: unknown): { status: number; detail: string } {
 /** Sign in and registration share one two-column layout. */
 export default function Auth({ mode }: { mode: "signin" | "register" }) {
   const t = useT();
-  const { user, login, register } = useAuth();
+  const { user, login, register, loginWithGoogle } = useAuth();
   const [params] = useSearchParams();
   const next = safeNext(params.get("next"));
   const [name, setName] = useState("");
@@ -49,8 +51,25 @@ export default function Auth({ mode }: { mode: "signin" | "register" }) {
       else await register(email, password, name.trim() || undefined);
     } catch (err) {
       const { status, detail } = errorOf(err);
-      if (mode === "signin") setError(status === 401 ? t.auth.badLogin : status === 403 && detail ? detail : t.auth.failed);
+      if (mode === "signin")
+        setError(
+          status === 401 && /Google/.test(detail) ? t.auth.googleOnly : status === 401 ? t.auth.badLogin : status === 403 && detail ? detail : t.auth.failed,
+        );
       else setError(status === 409 ? t.auth.taken : detail || t.auth.failed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function google(credential: string) {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await loginWithGoogle(credential);
+      if (res.password_removed) toast.info(t.auth.googleLinked, { duration: 12000 });
+    } catch (err) {
+      const { status, detail } = errorOf(err);
+      setError(status === 409 ? t.auth.googleOther : status === 403 && detail ? detail : t.auth.googleFailed);
     } finally {
       setBusy(false);
     }
@@ -93,6 +112,7 @@ export default function Auth({ mode }: { mode: "signin" | "register" }) {
         <div className="form-wrap">
           <form onSubmit={submit} noValidate>
             <h2>{reg ? t.auth.registerH : t.auth.signInH}</h2>
+            <GoogleButton mode={mode} orText={t.auth.or} onCredential={google} />
             {reg && (
               <label className="field-label">
                 <span>
@@ -138,6 +158,10 @@ export default function Auth({ mode }: { mode: "signin" | "register" }) {
                   {t.auth.haveAccount} <Link to={`/signin${next ? `?next=${encodeURIComponent(next)}` : ""}`}>{t.auth.toSignIn}</Link>
                   <br />
                   {t.auth.terms}
+                  <br />
+                  <small className="muted">
+                    {t.auth.agree} <Link to="/terms">{t.legal.termsH}</Link> · <Link to="/privacy">{t.legal.privacyH}</Link>
+                  </small>
                 </>
               ) : (
                 <>

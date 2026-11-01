@@ -40,6 +40,7 @@ services:
       # Auth
       - JWT_SECRET=${JWT_SECRET}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # Telegram (Phase 4)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME}

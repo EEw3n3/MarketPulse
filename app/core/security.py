@@ -15,7 +15,10 @@ def hash_password(password: str) -> str:
     return _pwd_context.hash(password)
 
 
-def verify_password(plain: str, hashed: str) -> bool:
+def verify_password(plain: str, hashed: str | None) -> bool:
+    """False for an account without a password (Google sign-in only)."""
+    if not hashed or not plain:
+        return False
     return _pwd_context.verify(plain, hashed)
 
 

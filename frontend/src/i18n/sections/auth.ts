@@ -27,6 +27,12 @@ const en = {
   failed: "Something went wrong. Try again.",
   terms: "Free plan, no card needed.",
   home: "Home",
+  or: "or with email",
+  agree: "By creating an account you accept the",
+  googleFailed: "Google sign-in did not work. Try again or use your email.",
+  googleOther: "This email is already linked to another Google account.",
+  googleOnly: "This account signs in with Google. Use the Google button above.",
+  googleLinked: "Your account is now linked to Google. The old password is switched off; you can set a new one in your profile.",
 };
 
 const lv: typeof en = {
@@ -58,6 +64,12 @@ const lv: typeof en = {
   failed: "Kaut kas nogāja greizi. Mēģiniet vēlreiz.",
   terms: "Bezmaksas plāns, karte nav vajadzīga.",
   home: "Sākums",
+  or: "vai ar e-pastu",
+  agree: "Izveidojot kontu, jūs piekrītat:",
+  googleFailed: "Pieteikšanās ar Google neizdevās. Mēģiniet vēlreiz vai izmantojiet e-pastu.",
+  googleOther: "Šis e-pasts jau ir piesaistīts citam Google kontam.",
+  googleOnly: "Šajā kontā piesakās ar Google. Izmantojiet Google pogu augšā.",
+  googleLinked: "Jūsu konts tagad ir piesaistīts Google. Vecā parole ir atslēgta; jaunu varat iestatīt profilā.",
 };
 
 export default { en, lv };

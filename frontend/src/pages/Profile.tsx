@@ -421,6 +421,9 @@ function AlertsCard() {
 
 function PasswordCard() {
   const t = useT();
+  const { user, refreshUser } = useAuth();
+  // Google-only accounts have no password yet: they set one, no current password asked.
+  const setting = user?.has_password === false;
   const [open, setOpen] = useState(false);
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
@@ -435,8 +438,9 @@ function PasswordCard() {
     setErr(null);
     setBusy(true);
     try {
-      await api.changePassword(cur, next);
-      toast.success(t.profile.pwSaved);
+      await api.changePassword(setting ? null : cur, next);
+      toast.success(setting ? t.profile.pwSetDone : t.profile.pwSaved);
+      if (setting) refreshUser().catch(() => undefined);
       setCur("");
       setNext("");
       setAgain("");
@@ -452,12 +456,15 @@ function PasswordCard() {
   return (
     <section className="card" aria-labelledby="pw-h">
       <h2 id="pw-h">{t.profile.pwH}</h2>
+      {user?.google && <p className="muted" style={{ marginBottom: 12 }}>{setting ? t.profile.googleOnly : t.profile.googleOn}</p>}
       {open ? (
         <form className="fields" onSubmit={submit}>
-          <label className="field-label">
-            {t.profile.pwCurrent}
-            <input className="field-input" type="password" autoComplete="current-password" required value={cur} onChange={(e) => setCur(e.target.value)} />
-          </label>
+          {!setting && (
+            <label className="field-label">
+              {t.profile.pwCurrent}
+              <input className="field-input" type="password" autoComplete="current-password" required value={cur} onChange={(e) => setCur(e.target.value)} />
+            </label>
+          )}
           <label className="field-label">
             <span>
               {t.profile.pwNew} <small>· {t.profile.pwHint}</small>
@@ -475,7 +482,7 @@ function PasswordCard() {
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn btn-ink btn-sm" type="submit" disabled={busy}>
-              {t.profile.pwChange}
+              {setting ? t.profile.pwSet : t.profile.pwChange}
             </button>
             <button className="btn btn-line btn-sm" type="button" onClick={() => setOpen(false)}>
               {t.common.cancel}
@@ -484,7 +491,7 @@ function PasswordCard() {
         </form>
       ) : (
         <button className="btn btn-soft btn-sm" type="button" onClick={() => setOpen(true)}>
-          {t.profile.pwChange}
+          {setting ? t.profile.pwSet : t.profile.pwChange}
         </button>
       )}
     </section>

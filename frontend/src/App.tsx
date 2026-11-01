@@ -21,6 +21,7 @@ const Analytics = lazy(() => import("./pages/Analytics"));
 const Profile = lazy(() => import("./pages/Profile"));
 const AdminPanel = lazy(() => import("./pages/AdminPanel"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Legal = lazy(() => import("./pages/Legal"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 60_000 } },
@@ -41,6 +42,8 @@ const App = () => (
                   <Route path="/" element={<Landing />} />
                   <Route path="/signin" element={<Auth mode="signin" />} />
                   <Route path="/register" element={<Auth mode="register" />} />
+                  <Route path="/privacy" element={<Legal page="privacy" />} />
+                  <Route path="/terms" element={<Legal page="terms" />} />
 
                   <Route path="/onboarding/stores" element={guard(<OnboardingStores />)} />
                   <Route path="/onboarding/brands" element={guard(<OnboardingBrands />)} />
