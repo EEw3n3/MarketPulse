@@ -16,6 +16,8 @@ const en = {
   proAdds: "Pro adds",
   proOn: "Pro is on. Analytics and export are open everywhere.",
   adminPro: "As an admin you have every Pro feature.",
+  proUntil: (d: string) => `Pro until ${d}.`,
+  proNoEnd: "Pro without an end date.",
   openAnalytics: "Open analytics",
 
   langH: "Language",
@@ -104,6 +106,8 @@ const lv: typeof en = {
   proAdds: "Pro pievieno",
   proOn: "Pro ir ieslēgts. Analītika un eksports ir pieejami visur.",
   adminPro: "Kā administratoram jums ir visas Pro funkcijas.",
+  proUntil: (d: string) => `Pro beigu datums: ${d}.`,
+  proNoEnd: "Pro bez beigu datuma.",
   openAnalytics: "Atvērt analītiku",
 
   langH: "Valoda",

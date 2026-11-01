@@ -68,6 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   };
 
+  // A Pro endpoint answered 403: the term ended while the page was open.
+  useEffect(() => {
+    if (!token) return;
+    const onEnded = () => { api.me().then(setUser).catch(() => undefined); };
+    window.addEventListener("mp:pro-ended", onEnded);
+    return () => window.removeEventListener("mp:pro-ended", onEnded);
+  }, [token]);
+
   return (
     <AuthContext.Provider value={{ user, token, loading, login, register, logout, updatePreferences, refreshUser }}>
       {children}

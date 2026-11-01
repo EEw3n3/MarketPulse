@@ -476,6 +476,11 @@ class UserRead(BaseModel):
     is_admin: bool
     # "free" or "pro". Admins get every Pro feature regardless of this value.
     plan: str = "free"
+    # Pro features are open: an admin, or Pro whose term has not ended. The
+    # site uses this flag, never `plan`, to show Pro screens.
+    is_pro: bool = False
+    pro_until: Optional[datetime] = None  # UTC; None = no end
+    pro_source: Optional[str] = None
     created_at: datetime
     preferences: Optional[UserPreferencesRead] = None
 

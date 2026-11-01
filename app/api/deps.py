@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_maker
 from app.core.security import decode_access_token
 from app.domain.models import User
+from app.services import plans
 
 # tokenUrl is informational (used by Swagger UI); our actual login is /auth/login
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -51,6 +52,9 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account disabled",
         )
+    if plans.expire_if_due(db, user):
+        await db.commit()
+        await db.refresh(user)
     return user
 
 
@@ -65,7 +69,8 @@ async def get_current_admin(user: User = Depends(get_current_user)) -> User:
 
 
 def has_pro(user: User) -> bool:
-    return bool(user.is_admin or (user.plan or "free") == "pro")
+    """Admins, or Pro whose term has not ended (app/services/plans.py)."""
+    return plans.has_pro(user)
 
 
 async def get_pro_user(user: User = Depends(get_current_user)) -> User:

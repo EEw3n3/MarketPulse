@@ -18,6 +18,7 @@ from app.core.security import (
     verify_password,
 )
 from app.domain.models import User, UserPreferences
+from app.services.plans import has_pro, pro_active
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -35,6 +36,9 @@ def _build_user_read(user: User, prefs: UserPreferences | None) -> schemas.UserR
         is_active=user.is_active,
         is_admin=user.is_admin,
         plan=user.plan,
+        is_pro=has_pro(user),
+        pro_until=user.pro_until if pro_active(user) else None,
+        pro_source=user.pro_source if pro_active(user) else None,
         created_at=user.created_at,
         preferences=schemas.UserPreferencesRead.model_validate(prefs) if prefs else None,
     )

@@ -152,6 +152,9 @@ function PlanCard() {
       {pro ? (
         <>
           <p style={{ marginTop: 12 }}>{user?.is_admin && user.plan !== "pro" ? t.profile.adminPro : t.profile.proOn}</p>
+          {user?.plan === "pro" && (
+            <p className="muted" style={{ marginTop: 6 }}>{user.pro_until ? t.profile.proUntil(dayLong(user.pro_until)) : t.profile.proNoEnd}</p>
+          )}
           <ul>
             {adds.map((b) => (
               <li key={b}>{b}</li>

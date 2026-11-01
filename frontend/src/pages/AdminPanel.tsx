@@ -1,13 +1,22 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type AdminHealthResponse, type AdminScrapingRule, type AdminSiteHealth, type AdminUserRead } from "@/lib/api";
+import {
+  api,
+  type AdminHealthResponse,
+  type AdminScrapingRule,
+  type AdminSiteHealth,
+  type AdminUserFilter,
+  type AdminUserPatch,
+  type AdminUserRead,
+  type AdminUsersPage,
+} from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageContext } from "@/contexts/ChatContext";
 import { useT } from "@/i18n";
-import { ago, dateTime, day, int, num } from "@/lib/format";
+import { ago, dateTime, day, dayLong, int, num } from "@/lib/format";
 import { fieldStyle, isShownShop, shopOf } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
 
@@ -582,29 +591,160 @@ function QualityTab() {
 
 // ── Users ───────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 50;
+const FILTERS: AdminUserFilter[] = ["all", "pro", "free", "blocked", "admin"];
+type Term = 7 | 30 | 90 | 365 | "date" | "forever";
+const TERMS: Term[] = [7, 30, 90, 365, "date", "forever"];
+
+function PlanCell({ u }: { u: AdminUserRead }) {
+  const t = useT();
+  if (!u.is_pro || u.plan !== "pro") {
+    return <span className="badge b-free">{t.common.free}</span>;
+  }
+  return (
+    <span className="plan-cell">
+      <span className="badge b-pro">Pro</span>
+      <small className="muted">
+        {u.pro_until ? t.admin.proUntil(dayLong(u.pro_until)) : t.admin.proNoEnd}
+        {u.pro_source === "payment" ? ` · ${t.admin.proPaid}` : ""}
+      </small>
+    </span>
+  );
+}
+
+/** Give Pro for a term, extend it or take it away; the user's plan history below. */
+function ProPanel({ u, close, saved }: { u: AdminUserRead; close: () => void; saved: (x: AdminUserRead) => void }) {
+  const t = useT();
+  const [term, setTerm] = useState<Term>(30);
+  const [until, setUntil] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const log = useQuery({ queryKey: ["admin", "plan-log", u.id], queryFn: () => api.admin.planLog(u.id) });
+  const pro = u.is_pro && u.plan === "pro";
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+  async function send(body: AdminUserPatch, done: (x: AdminUserRead) => string) {
+    setBusy(true);
+    try {
+      const x = await api.admin.updateUser(u.id, { ...body, note: note.trim() || undefined });
+      saved(x);
+      log.refetch();
+      setNote("");
+      toast.success(done(x));
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const give = () => {
+    const body: AdminUserPatch =
+      term === "forever" ? { pro_forever: true } : term === "date" ? { pro_until: until } : { pro_days: term };
+    send(body, (x) => (x.pro_until ? t.admin.gave(x.email, dayLong(x.pro_until)) : t.admin.gaveForever(x.email)));
+  };
+
+  return (
+    <div className="propanel fade" role="group" aria-label={t.admin.proFor(u.email)}>
+      {u.pro_source === "payment" && pro && <p className="warn">{t.admin.paidWarn}</p>}
+      <div className="row">
+        <div className="seg" role="group" aria-label={t.admin.termH}>
+          {TERMS.map((x) => (
+            <button key={String(x)} type="button" aria-pressed={term === x} onClick={() => setTerm(x)}>
+              {t.admin.term[String(x) as keyof typeof t.admin.term]}
+            </button>
+          ))}
+        </div>
+        {term === "date" && (
+          <input className="field-input" type="date" min={tomorrow} value={until} aria-label={t.admin.term.date} onChange={(e) => setUntil(e.target.value)} />
+        )}
+      </div>
+      {pro && typeof term === "number" && u.pro_until && <p className="muted hint">{t.admin.extendHint}</p>}
+      <div className="row">
+        <input className="field-input" maxLength={255} placeholder={t.admin.note} aria-label={t.admin.note} value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="btn btn-accent btn-sm" type="button" disabled={busy || (term === "date" && !until)} onClick={give}>
+          {pro ? t.admin.extend : t.admin.give}
+        </button>
+        {u.plan === "pro" && (
+          <button className="btn btn-line btn-sm" type="button" disabled={busy} onClick={() => send({ plan: "free" }, (x) => t.admin.nowFree(x.email))}>
+            {t.admin.revoke}
+          </button>
+        )}
+        <button className="btn btn-line btn-sm" type="button" onClick={close}>
+          {t.common.cancel}
+        </button>
+      </div>
+      <h3>{t.admin.logH}</h3>
+      {log.data && log.data.length ? (
+        <ul className="plog">
+          {log.data.map((r, i) => (
+            <li key={i}>
+              <span className="muted">{dateTime(r.at)}</span>
+              <b>{t.admin.act[r.action as keyof typeof t.admin.act] ?? r.action}</b>
+              <span>{r.plan === "pro" ? (r.pro_until ? t.admin.proUntil(dayLong(r.pro_until)) : t.admin.proNoEnd) : t.common.free}</span>
+              <span className="muted">{r.by_email ?? t.admin.bySystem}</span>
+              {r.note && <span className="muted">«{r.note}»</span>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">{log.isLoading ? "…" : t.admin.logNone}</p>
+      )}
+    </div>
+  );
+}
+
 function UsersTab() {
   const t = useT();
   const qc = useQueryClient();
   const { user: me, refreshUser } = useAuth();
-  const { data: users, isLoading, isError, refetch } = useQuery({ queryKey: ["admin", "users"], queryFn: api.admin.users });
+  const [q, setQ] = useState("");
+  const [dq, setDq] = useState("");
+  const [filter, setFilter] = useState<AdminUserFilter>("all");
+  const [page, setPage] = useState(1);
+  const key = ["admin", "users", dq, filter, page] as const;
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: key,
+    queryFn: () => api.admin.users({ q: dq, plan: filter, page, page_size: PAGE_SIZE }),
+    placeholderData: keepPreviousData,
+  });
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<number | null>(null);
   const [confirmDel, setConfirmDel] = useState<number | null>(null);
+  const [proOpen, setProOpen] = useState<number | null>(null);
   const [askBatch, setAskBatch] = useState(false);
 
-  if (isLoading) return <Loading />;
-  if (isError || !users) return <Failed retry={() => refetch()} />;
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setDq(q.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [q]);
 
-  const put = (u: AdminUserRead) => qc.setQueryData<AdminUserRead[]>(["admin", "users"], (prev) => prev?.map((x) => (x.id === u.id ? u : x)));
+  if (isLoading && !data) return <Loading />;
+  if (isError || !data) return <Failed retry={() => refetch()} />;
+
+  const users = data.items;
+  const put = (u: AdminUserRead) =>
+    qc.setQueryData<AdminUsersPage>(key, (prev) => (prev ? { ...prev, items: prev.items.map((x) => (x.id === u.id ? u : x)) } : prev));
   const selectable = users.filter((u) => !u.is_admin).map((u) => u.id);
   const allOn = selectable.length > 0 && selectable.every((id) => sel.has(id));
+  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const from = data.total ? (page - 1) * PAGE_SIZE + 1 : 0;
+  const to = Math.min(page * PAGE_SIZE, data.total);
 
-  async function patch(u: AdminUserRead, body: { is_active?: boolean; plan?: "free" | "pro" }, done: (x: AdminUserRead) => string) {
+  function saved(x: AdminUserRead) {
+    put(x);
+    qc.invalidateQueries({ queryKey: ["admin", "users"], refetchType: "none" });
+    if (me?.id === x.id) refreshUser().catch(() => undefined);
+  }
+
+  async function patch(u: AdminUserRead, body: AdminUserPatch, done: (x: AdminUserRead) => string) {
     setBusy(u.id);
     try {
       const x = await api.admin.updateUser(u.id, body);
-      put(x);
-      if (me?.id === x.id) refreshUser().catch(() => undefined);
+      saved(x);
       toast.success(done(x));
     } catch (e) {
       toast.error(errMsg(e));
@@ -617,7 +757,6 @@ function UsersTab() {
     setBusy(u.id);
     try {
       await api.admin.deleteUser(u.id);
-      qc.setQueryData<AdminUserRead[]>(["admin", "users"], (prev) => prev?.filter((x) => x.id !== u.id));
       setSel((p) => {
         const n = new Set(p);
         n.delete(u.id);
@@ -625,6 +764,7 @@ function UsersTab() {
       });
       setConfirmDel(null);
       toast.success(t.admin.deleted(u.email));
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -638,7 +778,7 @@ function UsersTab() {
       const r = await api.admin.batchDeactivate([...sel]);
       toast.success(t.admin.deactivated(r.updated));
       setSel(new Set());
-      refetch();
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -653,6 +793,24 @@ function UsersTab() {
             {t.admin.planHint}
           </small>
         </h2>
+        <div className="ufind">
+          <input className="field-input" type="search" placeholder={t.admin.search} aria-label={t.admin.search} value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="seg" role="group" aria-label={t.admin.filterLabel}>
+            {FILTERS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                aria-pressed={filter === f}
+                onClick={() => {
+                  setFilter(f);
+                  setPage(1);
+                }}
+              >
+                {t.admin.filters[f]}
+              </button>
+            ))}
+          </div>
+        </div>
         {sel.size > 0 && (
           <div className="batch fade">
             <span>{askBatch ? t.admin.deactivateAsk(sel.size) : t.admin.selected(sel.size)}</span>
@@ -700,93 +858,109 @@ function UsersTab() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
-                  const pro = u.plan === "pro";
-                  return (
-                    <Fragment key={u.id}>
-                      <tr>
-                        <td>
-                          <input
-                            type="checkbox"
-                            aria-label={t.admin.selectOne(u.email)}
-                            disabled={u.is_admin}
-                            checked={sel.has(u.id)}
-                            onChange={() =>
-                              setSel((p) => {
-                                const n = new Set(p);
-                                if (n.has(u.id)) n.delete(u.id);
-                                else n.add(u.id);
-                                return n;
-                              })
-                            }
-                          />
-                        </td>
-                        <td className="u">
-                          <b>{u.email}</b>
-                          <small>
-                            {u.full_name || "—"}
-                            {u.is_admin && <span className="badge b-adm">{t.admin.admin}</span>}
-                          </small>
-                        </td>
-                        <td className="muted">{day(u.created_at)}</td>
-                        <td>
+                {users.map((u) => (
+                  <Fragment key={u.id}>
+                    <tr>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={t.admin.selectOne(u.email)}
+                          disabled={u.is_admin}
+                          checked={sel.has(u.id)}
+                          onChange={() =>
+                            setSel((p) => {
+                              const n = new Set(p);
+                              if (n.has(u.id)) n.delete(u.id);
+                              else n.add(u.id);
+                              return n;
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="u">
+                        <b>{u.email}</b>
+                        <small>
+                          {u.full_name || "—"}
+                          {u.is_admin && <span className="badge b-adm">{t.admin.admin}</span>}
+                        </small>
+                      </td>
+                      <td className="muted">{day(u.created_at)}</td>
+                      <td>
+                        <PlanCell u={u} />
+                      </td>
+                      <td className="r num">{int(u.favorites_count)}</td>
+                      <td>
+                        <span className={`badge ${u.is_active ? "b-on" : "b-off"}`}>{u.is_active ? t.admin.active : t.admin.disabled}</span>
+                      </td>
+                      <td className="r">
+                        <div className="acts">
                           <button
-                            className={`badge ${pro ? "b-pro" : "b-free"}`}
+                            className="btn btn-line btn-sm"
                             type="button"
-                            disabled={busy === u.id}
-                            aria-label={pro ? t.admin.setFree(u.email) : t.admin.setPro(u.email)}
-                            title={pro ? t.admin.setFree(u.email) : t.admin.setPro(u.email)}
-                            onClick={() => patch(u, { plan: pro ? "free" : "pro" }, (x) => (x.plan === "pro" ? t.admin.nowPro(x.email) : t.admin.nowFree(x.email)))}
+                            aria-expanded={proOpen === u.id}
+                            aria-label={t.admin.proFor(u.email)}
+                            onClick={() => setProOpen(proOpen === u.id ? null : u.id)}
                           >
-                            {pro ? "Pro" : t.common.free}
+                            {t.admin.proBtn}
                           </button>
+                          <button
+                            className="btn btn-line btn-sm"
+                            type="button"
+                            disabled={u.is_admin || busy === u.id}
+                            onClick={() => patch(u, { is_active: !u.is_active }, (x) => (x.is_active ? t.admin.isOn(x.email) : t.admin.isOff(x.email)))}
+                          >
+                            {u.is_active ? t.admin.deactivate : t.admin.reactivate}
+                          </button>
+                          <button className="del" type="button" disabled={u.is_admin} aria-label={t.admin.del(u.email)} onClick={() => setConfirmDel(u.id)}>
+                            <Trash2 size={16} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {proOpen === u.id && (
+                      <tr className="prorow">
+                        <td />
+                        <td colSpan={6}>
+                          <ProPanel u={u} close={() => setProOpen(null)} saved={saved} />
                         </td>
-                        <td className="r num">{int(u.favorites_count)}</td>
-                        <td>
-                          <span className={`badge ${u.is_active ? "b-on" : "b-off"}`}>{u.is_active ? t.admin.active : t.admin.disabled}</span>
-                        </td>
-                        <td className="r">
-                          <div className="acts">
-                            <button
-                              className="btn btn-line btn-sm"
-                              type="button"
-                              disabled={u.is_admin || busy === u.id}
-                              onClick={() => patch(u, { is_active: !u.is_active }, (x) => (x.is_active ? t.admin.isOn(x.email) : t.admin.isOff(x.email)))}
-                            >
-                              {u.is_active ? t.admin.deactivate : t.admin.reactivate}
-                            </button>
-                            <button className="del" type="button" disabled={u.is_admin} aria-label={t.admin.del(u.email)} onClick={() => setConfirmDel(u.id)}>
-                              <Trash2 size={16} aria-hidden="true" />
-                            </button>
+                      </tr>
+                    )}
+                    {confirmDel === u.id && (
+                      <tr className="confirm">
+                        <td />
+                        <td colSpan={6}>
+                          <div className="cbox fade" role="alertdialog" aria-label={t.admin.del(u.email)}>
+                            <span>{t.admin.delAsk(u.email)}</span>
+                            <span className="acts">
+                              <button className="btn btn-red btn-sm" type="button" disabled={busy === u.id} onClick={() => remove(u)}>
+                                {t.admin.delYes}
+                              </button>
+                              <button className="btn btn-line btn-sm" type="button" onClick={() => setConfirmDel(null)}>
+                                {t.common.cancel}
+                              </button>
+                            </span>
                           </div>
                         </td>
                       </tr>
-                      {confirmDel === u.id && (
-                        <tr className="confirm">
-                          <td />
-                          <td colSpan={6}>
-                            <div className="cbox fade" role="alertdialog" aria-label={t.admin.del(u.email)}>
-                              <span>{t.admin.delAsk(u.email)}</span>
-                              <span className="acts">
-                                <button className="btn btn-red btn-sm" type="button" disabled={busy === u.id} onClick={() => remove(u)}>
-                                  {t.admin.delYes}
-                                </button>
-                                <button className="btn btn-line btn-sm" type="button" onClick={() => setConfirmDel(null)}>
-                                  {t.common.cancel}
-                                </button>
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
+                    )}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="muted">{t.admin.noUsers}</p>
+          <p className="muted">{dq || filter !== "all" ? t.admin.noMatch : t.admin.noUsers}</p>
+        )}
+        {data.total > PAGE_SIZE && (
+          <div className="pager">
+            <span className="muted">{t.admin.shown(from, to, data.total)}</span>
+            <button className="btn btn-line btn-sm" type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              {t.admin.prev}
+            </button>
+            <button className="btn btn-line btn-sm" type="button" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+              {t.admin.next}
+            </button>
+          </div>
         )}
       </div>
     </section>
@@ -801,7 +975,7 @@ export default function AdminPanel() {
   const { hash } = useLocation();
   const tab: Tab = (TABS as string[]).includes(hash.slice(1)) ? (hash.slice(1) as Tab) : "health";
   const health = useQuery(healthQuery);
-  const { data: users } = useQuery({ queryKey: ["admin", "users"], queryFn: api.admin.users });
+  const { data: users } = useQuery({ queryKey: ["admin", "users", "count"], queryFn: () => api.admin.users({ page_size: 1 }) });
   usePageContext(`Admin panel, ${tab} tab: scraper health, scraping runs, data quality and user accounts.`);
 
   return (
@@ -817,7 +991,7 @@ export default function AdminPanel() {
           {TABS.map((id) => (
             <button key={id} type="button" role="tab" aria-selected={tab === id} aria-pressed={tab === id} onClick={() => nav({ hash: id === "health" ? "" : id }, { replace: true })}>
               {t.admin.tabs[id]}
-              {id === "users" && users && <span className="n num">{users.length}</span>}
+              {id === "users" && users && <span className="n num">{users.total}</span>}
             </button>
           ))}
         </div>

@@ -2,7 +2,7 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, UniqueConstraint
 
 # --- 1. PRODUCT GROUP (Aggregation for comparison) ---
 class ProductGroup(SQLModel, table=True):
@@ -176,7 +176,26 @@ class User(SQLModel, table=True):
     # "free" or "pro". Pro opens the analytics cabinet and data exports; an
     # admin switches it on by hand until card payments are wired in.
     plan: str = Field(default="free", max_length=16)
+    # End of Pro (UTC); None with plan "pro" = no end. Pro is active while
+    # plan == "pro" and this is in the future (app/services/plans.py).
+    pro_until: Optional[datetime] = Field(default=None)
+    # Who gave Pro: "admin" or "payment" (a paid subscription, later).
+    pro_source: Optional[str] = Field(default=None, max_length=16)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# --- 6b. PLAN CHANGE (log of every Pro grant, extension, revoke, expiry) ---
+class PlanChange(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(sa_column=Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), index=True, nullable=False))
+    at: datetime = Field(default_factory=datetime.utcnow)
+    # The admin who made the change; None = the system (expiry, payment).
+    by_user_id: Optional[int] = Field(default=None)
+    action: str = Field(max_length=16)  # grant | extend | revoke | expire
+    plan: str = Field(max_length=16)    # plan after the change
+    pro_until: Optional[datetime] = Field(default=None)
+    source: Optional[str] = Field(default=None, max_length=16)
+    note: Optional[str] = Field(default=None, max_length=255)
 
 
 # --- 7. USER PREFERENCES (Onboarding + personalization) ---

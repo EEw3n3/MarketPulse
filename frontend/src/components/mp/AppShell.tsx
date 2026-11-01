@@ -4,7 +4,8 @@ import { BarChart3, Heart, LayoutGrid, LogOut, Sun, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { useT } from "@/i18n";
-import { hasPro } from "@/lib/plan";
+import { dayLong } from "@/lib/format";
+import { hasPro, proEndingSoon } from "@/lib/plan";
 import ChatPanel from "./ChatPanel";
 import LangSwitch from "./LangSwitch";
 import SearchBox from "./SearchBox";
@@ -84,6 +85,7 @@ export default function AppShell({ children, search = true }: { children: ReactN
   const { ids } = useFavorites();
   const { pathname } = useLocation();
   const pro = hasPro(user);
+  const ending = proEndingSoon(user);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -133,6 +135,12 @@ export default function AppShell({ children, search = true }: { children: ReactN
         <AvatarMenu />
       </header>
       <main id="main" className="wrap app-main">
+        {ending && (
+          <div className="pro-ending fade" role="status">
+            <span>{t.shell.proEnding(dayLong(ending))}</span>
+            <Link to="/profile#plan">{t.shell.proEndingLink}</Link>
+          </div>
+        )}
         {children}
       </main>
       <nav className="bnav" aria-label={t.shell.mainNav}>

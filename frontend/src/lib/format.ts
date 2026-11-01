@@ -115,6 +115,12 @@ export function hoursSince(v: string | Date | null | undefined): number | null {
 }
 
 /** "3 hours ago", "yesterday" */
+/** Hours from now until `v` (negative once it has passed). */
+export function hoursUntil(v: string | Date | null | undefined): number | null {
+  if (!v) return null;
+  return (toDate(v).getTime() - Date.now()) / 3600000;
+}
+
 export function ago(v: string | Date | null | undefined): string {
   if (!v) return "—";
   const s = (Date.now() - toDate(v).getTime()) / 1000;

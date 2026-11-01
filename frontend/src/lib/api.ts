@@ -23,6 +23,9 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     } catch {
       // body wasn't JSON — fall back to statusText
     }
+    // Pro ended while the page was open: the profile is read again, so the
+    // site switches to the Free screens (AuthContext listens).
+    if (response.status === 403 && detail === "Pro plan required") window.dispatchEvent(new Event("mp:pro-ended"));
     throw new Error(
       `API Error: ${response.status} ${detail || response.statusText}`
     );
@@ -56,6 +59,11 @@ export interface UserRead {
   is_active: boolean;
   is_admin: boolean;
   plan: "free" | "pro" | string;
+  /** Pro features open: an admin, or Pro whose term has not ended. Use this, not `plan`. */
+  is_pro?: boolean;
+  /** End of Pro (UTC, no zone suffix); null = no end. */
+  pro_until?: string | null;
+  pro_source?: "admin" | "payment" | string | null;
   created_at: string;
   preferences: UserPreferences | null;
 }
@@ -489,13 +497,40 @@ export interface AdminUserRead {
   is_active: boolean;
   is_admin: boolean;
   plan: "free" | "pro" | string;
+  is_pro: boolean;
+  pro_until: string | null;
+  pro_source: "admin" | "payment" | string | null;
   created_at: string;
   favorites_count: number;
 }
 
+export interface AdminUsersPage {
+  items: AdminUserRead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export type AdminUserFilter = "all" | "pro" | "free" | "blocked" | "admin";
+
+/** plan "free" takes Pro away; Pro is given with one of pro_days, pro_until (YYYY-MM-DD), pro_forever. */
 export interface AdminUserPatch {
   is_active?: boolean;
   plan?: "free" | "pro";
+  pro_days?: number;
+  pro_until?: string;
+  pro_forever?: boolean;
+  note?: string;
+}
+
+export interface AdminPlanChange {
+  at: string;
+  action: "grant" | "extend" | "revoke" | "expire" | string;
+  plan: string;
+  pro_until: string | null;
+  source: string | null;
+  note: string | null;
+  by_email: string | null;
 }
 
 export interface AdminLogsResponse {
@@ -583,7 +618,9 @@ export const api = {
         body: JSON.stringify({ user_ids: userIds }),
       }),
     dataQuality: () => fetchApi<AdminDataQuality>("/admin/data-quality"),
-    users: () => fetchApi<AdminUserRead[]>("/admin/users"),
+    users: (p: { q?: string; plan?: AdminUserFilter; page?: number; page_size?: number } = {}) =>
+      fetchApi<AdminUsersPage>(`/admin/users${qs({ ...p, plan: p.plan === "all" ? undefined : p.plan })}`),
+    planLog: (userId: number) => fetchApi<AdminPlanChange[]>(`/admin/users/${userId}/plan-log`),
     updateUser: (userId: number, patch: AdminUserPatch) =>
       fetchApi<AdminUserRead>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(patch) }),
     logs: (tail = 50) => fetchApi<AdminLogsResponse>(`/admin/logs?tail=${tail}`),

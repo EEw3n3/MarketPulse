@@ -3,7 +3,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Literal, Optional, List
 from urllib.parse import urlparse
@@ -17,7 +17,8 @@ from sqlalchemy import func, delete, update, or_
 
 from app.api.deps import get_db, get_current_admin, get_worker
 from app.core.job_queue import job_queue
-from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences
+from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences, PlanChange
+from app.services import plans
 from app.services.normalizer import is_placeholder_brand
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -119,12 +120,37 @@ class AdminUserRead(BaseModel):
     is_active: bool
     is_admin: bool
     plan: str = "free"
+    is_pro: bool = False               # Pro features open (admin, or a running term)
+    pro_until: Optional[datetime] = None  # UTC; None with plan "pro" = no end
+    pro_source: Optional[str] = None   # "admin" | "payment"
     created_at: datetime
     favorites_count: int = 0
 
+class AdminUsersPage(BaseModel):
+    items: List[AdminUserRead]
+    total: int
+    page: int
+    page_size: int
+
 class AdminUserPatch(BaseModel):
+    """`plan="free"` takes Pro away. Pro is given with one of: `pro_days`
+    (counted from the current end while Pro runs), `pro_until` (a date, Pro
+    to the end of that day in Riga), `pro_forever`; `plan="pro"` alone = no end."""
     is_active: Optional[bool] = None
     plan: Optional[Literal["free", "pro"]] = None
+    pro_days: Optional[int] = None
+    pro_until: Optional[date] = None
+    pro_forever: bool = False
+    note: Optional[str] = None
+
+class PlanChangeRead(BaseModel):
+    at: datetime
+    action: str
+    plan: str
+    pro_until: Optional[datetime]
+    source: Optional[str]
+    note: Optional[str]
+    by_email: Optional[str] = None
 
 class LogsResponse(BaseModel):
     lines: List[str]
@@ -714,31 +740,52 @@ async def _freshness_report(db: AsyncSession) -> dict:
     }
 
 
-@router.get("/users", response_model=List[AdminUserRead])
+def _admin_user(u: User, favorites: int) -> AdminUserRead:
+    return AdminUserRead(
+        id=u.id, email=u.email, full_name=u.full_name, is_active=u.is_active, is_admin=u.is_admin,
+        plan=u.plan, is_pro=plans.has_pro(u), pro_until=u.pro_until, pro_source=u.pro_source,
+        created_at=u.created_at, favorites_count=favorites,
+    )
+
+
+@router.get("/users", response_model=AdminUsersPage)
 async def list_users(
+    q: Optional[str] = Query(default=None, max_length=100),
+    plan: Literal["all", "pro", "free", "blocked", "admin"] = "all",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_admin),
 ):
-    """All registered users with favorites count."""
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
-    users = result.scalars().all()
-
-    out: list[AdminUserRead] = []
-    for u in users:
-        fav_count = await db.scalar(
-            select(func.count(Favorite.id)).where(Favorite.user_id == u.id)
-        ) or 0
-        out.append(AdminUserRead(
-            id=u.id,
-            email=u.email,
-            full_name=u.full_name,
-            is_active=u.is_active,
-            is_admin=u.is_admin,
-            plan=u.plan,
-            created_at=u.created_at,
-            favorites_count=fav_count,
-        ))
-    return out
+    """Users, newest first, with their favorites count. `q` looks in the
+    e-mail and the profile name; `plan` filters: pro (running term), free,
+    blocked (deactivated), admin."""
+    await plans.expire_due(db)  # expired terms show as Free, with a log row
+    where = []
+    if q and q.strip():
+        like = f"%{q.strip().lower()}%"
+        where.append(or_(func.lower(User.email).like(like), func.lower(func.coalesce(User.full_name, "")).like(like)))
+    if plan == "pro":
+        where.append(User.plan == "pro")
+    elif plan == "free":
+        where.append(User.plan != "pro")
+    elif plan == "blocked":
+        where.append(User.is_active.is_(False))
+    elif plan == "admin":
+        where.append(User.is_admin.is_(True))
+    total = int(await db.scalar(select(func.count(User.id)).where(*where)) or 0)
+    users = (await db.execute(
+        select(User).where(*where).order_by(User.created_at.desc(), User.id.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+    favs: dict[int, int] = {}
+    if users:
+        favs = dict((await db.execute(
+            select(Favorite.user_id, func.count(Favorite.id))
+            .where(Favorite.user_id.in_([u.id for u in users])).group_by(Favorite.user_id)
+        )).all())
+    return AdminUsersPage(items=[_admin_user(u, favs.get(u.id, 0)) for u in users],
+                          total=total, page=page, page_size=page_size)
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserRead)
@@ -748,11 +795,9 @@ async def patch_user(
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """Toggle is_active or switch the plan of a user.
-
-    Admins cannot deactivate themselves; changing their own plan is harmless
-    (admins see Pro features anyway).
-    """
+    """Block/unblock a user, give Pro for a term or take it away. Every plan
+    change goes to the log. Admins cannot deactivate themselves; changing
+    their own plan is harmless (admins see Pro features anyway)."""
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -762,29 +807,44 @@ async def patch_user(
     changed = False
     if patch.is_active is not None:
         user.is_active = patch.is_active
-        changed = True
-    if patch.plan is not None:
-        user.plan = patch.plan
-        changed = True
-    if changed:
         db.add(user)
+        changed = True
+    try:
+        if patch.plan == "free":
+            plans.revoke(db, user, current_admin, patch.note)
+            changed = True
+        elif patch.plan == "pro" or patch.pro_days is not None or patch.pro_until is not None or patch.pro_forever:
+            plans.grant(db, user, current_admin, days=patch.pro_days, until=patch.pro_until,
+                        forever=patch.pro_forever or (patch.pro_days is None and patch.pro_until is None),
+                        note=patch.note)
+            changed = True
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if changed:
         await db.commit()
         await db.refresh(user)
 
     fav_count = await db.scalar(
         select(func.count(Favorite.id)).where(Favorite.user_id == user_id)
     ) or 0
+    return _admin_user(user, fav_count)
 
-    return AdminUserRead(
-        id=user.id,
-        email=user.email,
-        full_name=user.full_name,
-        is_active=user.is_active,
-        is_admin=user.is_admin,
-        plan=user.plan,
-        created_at=user.created_at,
-        favorites_count=fav_count,
-    )
+
+@router.get("/users/{user_id}/plan-log", response_model=List[PlanChangeRead])
+async def user_plan_log(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Every Pro grant, extension, revoke and expiry of a user, newest first."""
+    rows = await plans.history(db, user_id)
+    admin_ids = {r.by_user_id for r in rows if r.by_user_id}
+    emails = dict((await db.execute(select(User.id, User.email).where(User.id.in_(admin_ids)))).all()) if admin_ids else {}
+    return [
+        PlanChangeRead(at=r.at, action=r.action, plan=r.plan, pro_until=r.pro_until, source=r.source,
+                       note=r.note, by_email=emails.get(r.by_user_id))
+        for r in rows
+    ]
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -802,6 +862,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     await db.execute(delete(Favorite).where(Favorite.user_id == user_id))
     await db.execute(delete(UserPreferences).where(UserPreferences.user_id == user_id))
+    await db.execute(delete(PlanChange).where(PlanChange.user_id == user_id))
     await db.execute(delete(User).where(User.id == user_id))
     await db.commit()
 

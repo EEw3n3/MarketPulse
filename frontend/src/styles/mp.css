@@ -413,6 +413,8 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .drop-name span { display: block; font-weight: 400; font-size: 15px; }
 .drop .checked { display: block; margin-top: 6px; font-size: 13px; opacity: .72; }
 .checked.stale { color: var(--warn); opacity: 1; }
+.pro-ending { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--warn); color: var(--warn); font-size: 14px; }
+.pro-ending a { color: inherit; font-weight: 600; }
 .drop-pic { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); place-items: center; min-height: 0; }
 .drop-pic img { max-height: 210px; max-width: 100%; mix-blend-mode: multiply; }
 .pg-landing .shares { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gutter); }
@@ -1021,6 +1023,22 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .pg-admin .del svg { width: 16px; height: 16px; }
 .pg-admin .confirm { background: #fbeeee; }
 .pg-admin .confirm td { white-space: normal; }
+.pg-admin .ufind { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 14px; }
+.pg-admin .ufind .field-input { max-width: 340px; height: 40px; }
+.pg-admin .plan-cell { display: inline-flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.pg-admin .plan-cell small { font-size: 12.5px; }
+.pg-admin tr.prorow td { border-top: 0; padding-top: 0; white-space: normal; }
+.pg-admin .propanel { display: grid; gap: 10px; background: var(--surface); border-radius: 18px; padding: 14px; font-size: 14.5px; }
+.pg-admin .propanel .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.pg-admin .propanel .field-input { height: 38px; max-width: 320px; }
+.pg-admin .propanel .seg { background: var(--card); }
+.pg-admin .propanel .seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+.pg-admin .propanel .warn { color: var(--warn); margin: 0; }
+.pg-admin .propanel .hint { margin: 0; font-size: 13.5px; }
+.pg-admin .propanel h3 { font-size: 14px; font-weight: 600; margin: 6px 0 0; }
+.pg-admin .plog { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.pg-admin .plog li { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.pg-admin .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 14px; font-size: 14px; }
 @media (max-width: 1080px) { .pg-admin .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pg-admin .two { grid-template-columns: 1fr; } .pg-admin .runall { grid-template-columns: 1fr; } }
 /* On a phone the admin tables keep their columns and scroll sideways inside the card. */
 .pg-admin .acts { flex-wrap: nowrap; }
