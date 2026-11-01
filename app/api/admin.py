@@ -3,7 +3,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Literal, Optional, List
 from urllib.parse import urlparse
@@ -64,12 +64,53 @@ class ScrapingRuleRead(BaseModel):
     last_success: Optional[datetime]
     last_error: Optional[str]
 
+class ScrapeRunRead(BaseModel):
+    shop: str
+    source: str
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    status: str
+    items_seen: int
+    complete: bool
+    swept: int
+    note: Optional[str] = None
+
+
+class ShopFreshness(BaseModel):
+    shop: str
+    in_stock: int
+    stale_in_stock: int          # in stock but not seen for 30 hours
+    last_seen: Optional[datetime] = None
+    checks_7d: int = 0           # product-page checks in 7 days
+    matched_7d: int = 0
+    corrected_7d: int = 0
+    unreadable_7d: int = 0
+
+
+class PageMismatch(BaseModel):
+    product_id: Optional[int] = None
+    shop: str
+    kind: str
+    title: Optional[str] = None
+    volume: Optional[str] = None
+    url: Optional[str] = None
+    checked_at: datetime
+    db_price: Optional[float] = None
+    page_price: Optional[float] = None
+    db_in_stock: Optional[bool] = None
+    page_in_stock: Optional[bool] = None
+    note: Optional[str] = None
+
+
 class DataQualityResponse(BaseModel):
     total_products: int
     products_without_image: int
     products_without_history: int
     products_ungrouped: int
     total_price_events: int
+    shops: List[ShopFreshness] = []
+    runs: List[ScrapeRunRead] = []
+    mismatches: List[PageMismatch] = []
 
 class AdminUserRead(BaseModel):
     id: int
@@ -423,6 +464,82 @@ async def scrape_ingest(
     return {"inserted": inserted, "updated": updated, "price_changes": price_changes, "skipped": skipped}
 
 
+class PageCheckIn(BaseModel):
+    url: str
+    volume: Optional[str] = None
+    kind: Literal["deal", "random"] = "deal"
+    checked_at: datetime
+    db_price: Optional[float] = None
+    page_price: Optional[float] = None
+    db_in_stock: Optional[bool] = None
+    page_in_stock: Optional[bool] = None
+    ok: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class PageCheckBatchIn(BaseModel):
+    job_id: str
+    domain: str
+    checks: List[PageCheckIn]
+
+
+@router.get("/scrape/deal-candidates")
+async def scrape_deal_candidates(
+    domain: str,
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(get_worker),
+):
+    """The listings of a shop that would be on Today once their product page
+    confirms them. The PC worker reads these pages after uploading a pass:
+    the PC's own database holds other history, so its own candidates would
+    not be the ones the site shows."""
+    from app.services import page_check
+
+    shop = domain.lower().removeprefix("www.")
+    if shop not in _shop_domains():
+        raise HTTPException(status_code=400, detail=f"Unknown shop domain: {domain}")
+    return [{"url": p.url, "volume": p.volume} for p in await page_check.deal_candidates(db, shop)]
+
+
+@router.post("/scrape/page-checks")
+async def scrape_page_checks(
+    payload: PageCheckBatchIn,
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(get_worker),
+):
+    """Worker uploads the product-page checks of a job, after its products.
+
+    The products themselves (corrected to the page where it disagreed) came
+    with /scrape/ingest; this stores the check and stamps the listing, so a
+    confirmed deal can be shown (app/services/page_check.py)."""
+    from decimal import Decimal
+    from app.domain.models import PageCheck
+
+    shop = payload.domain.lower().removeprefix("www.")
+    if shop not in _shop_domains():
+        raise HTTPException(status_code=400, detail=f"Unknown shop domain: {payload.domain}")
+    stored = 0
+    for c in payload.checks:
+        q = select(Product).where(Product.url == c.url, Product.search_term == shop)
+        q = q.where(Product.volume == c.volume) if c.volume else q.where(Product.volume.is_(None))
+        product = (await db.execute(q.order_by(Product.id).limit(1))).scalar_one_or_none()
+        if product is None:
+            continue
+        checked_at = c.checked_at.replace(tzinfo=None)
+        dec = lambda v: Decimal(str(v)).quantize(Decimal("0.01")) if v is not None else None  # noqa: E731
+        db.add(PageCheck(
+            product_id=product.id, shop=shop, kind=c.kind, checked_at=checked_at,
+            db_price=dec(c.db_price), page_price=dec(c.page_price), db_in_stock=c.db_in_stock,
+            page_in_stock=c.page_in_stock, ok=c.ok, note=(c.note or "")[:255] or None,
+        ))
+        if c.page_price is not None and (product.page_checked_at is None or checked_at > product.page_checked_at):
+            product.page_checked_at = checked_at
+            product.page_price = dec(c.page_price)
+        stored += 1
+    await db.commit()
+    return {"stored": stored}
+
+
 @router.post("/scrape/complete")
 async def scrape_complete(
     job_id: str = Query(...),
@@ -536,7 +653,65 @@ async def data_quality(
         products_without_history=no_history,
         products_ungrouped=ungrouped,
         total_price_events=total_events,
+        **(await _freshness_report(db)),
     )
+
+
+async def _freshness_report(db: AsyncSession) -> dict:
+    """Per shop: stale "in stock" listings and the product-page checks of the
+    last 7 days; the latest scrape runs; the latest listings the product page
+    contradicted. Empty when the tables are not migrated yet."""
+    from sqlalchemy import text as _text
+    from app.domain.models import PageCheck, ScrapeRun
+    from app.services.freshness import deal_fresh_since
+
+    try:
+        week = datetime.utcnow() - timedelta(days=7)
+        fresh = deal_fresh_since()
+        stock = (await db.execute(_text("""
+            select search_term as shop,
+                   count(*) filter (where is_available) as in_stock,
+                   count(*) filter (where is_available and last_seen < :fresh) as stale,
+                   max(last_seen) as last_seen
+            from product group by search_term order by search_term
+        """), {"fresh": fresh})).all()
+        checks = {r.shop: r for r in (await db.execute(_text("""
+            select shop, count(*) as n,
+                   count(*) filter (where ok) as matched,
+                   count(*) filter (where ok = false) as corrected,
+                   count(*) filter (where ok is null) as unreadable
+            from pagecheck where checked_at >= :week group by shop
+        """), {"week": week})).all()}
+        shops = []
+        for r in stock:
+            c = checks.get(r.shop)
+            shops.append(ShopFreshness(
+                shop=r.shop, in_stock=int(r.in_stock), stale_in_stock=int(r.stale), last_seen=r.last_seen,
+                checks_7d=int(c.n) if c else 0, matched_7d=int(c.matched) if c else 0,
+                corrected_7d=int(c.corrected) if c else 0, unreadable_7d=int(c.unreadable) if c else 0,
+            ))
+        runs = (await db.execute(select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(20))).scalars().all()
+        bad = (await db.execute(
+            select(PageCheck, Product.title, Product.volume, Product.url)
+            .outerjoin(Product, Product.id == PageCheck.product_id)
+            .where(PageCheck.ok.is_(False))
+            .order_by(PageCheck.checked_at.desc()).limit(25)
+        )).all()
+    except Exception as e:
+        logger.warning(f"freshness report unavailable: {e}")
+        await db.rollback()
+        return {}
+    f = lambda v: float(v) if v is not None else None  # noqa: E731
+    return {
+        "shops": shops,
+        "runs": [ScrapeRunRead(**{k: getattr(r, k) for k in ScrapeRunRead.model_fields}) for r in runs],
+        "mismatches": [
+            PageMismatch(product_id=c.product_id, shop=c.shop, kind=c.kind, title=title, volume=volume, url=url,
+                         checked_at=c.checked_at, db_price=f(c.db_price), page_price=f(c.page_price),
+                         db_in_stock=c.db_in_stock, page_in_stock=c.page_in_stock, note=c.note)
+            for c, title, volume, url in bad
+        ],
+    }
 
 
 @router.get("/users", response_model=List[AdminUserRead])

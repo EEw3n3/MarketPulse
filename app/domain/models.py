@@ -84,6 +84,11 @@ class Product(SQLModel, table=True):
     # regular price. last_price stays the price without a code.
     promo_price: Optional[Decimal] = Field(default=None)
     promo_code: Optional[str] = Field(default=None)
+    # The shop's own product page, read after the catalogue pass: when and at
+    # what price. A deal is shown only when the page confirmed today's price
+    # (app/services/page_check.py).
+    page_checked_at: Optional[datetime] = Field(default=None)
+    page_price: Optional[Decimal] = Field(default=None)
 
     # Relationship with group (price comparison)
     group_id: Optional[int] = Field(default=None, foreign_key="productgroup.id")
@@ -129,6 +134,25 @@ class ScrapeRun(SQLModel, table=True):
     items_seen: int = Field(default=0)
     complete: bool = Field(default=False)
     swept: int = Field(default=0)
+    note: Optional[str] = Field(default=None, max_length=255)
+
+
+# --- 4c. PAGE CHECK (a listing compared with the shop's product page) ---
+class PageCheck(SQLModel, table=True):
+    """One listing read again on the shop's product page after a pass: every
+    deal before it is shown, and a few random listings a day as an audit.
+    `ok` = the catalogue's price and stock matched the page; when they did
+    not, the listing was corrected to the page."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: Optional[int] = Field(default=None, foreign_key="product.id", index=True)
+    shop: str = Field(index=True, max_length=64)
+    kind: str = Field(default="deal", max_length=16)  # deal | random
+    checked_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    db_price: Optional[Decimal] = Field(default=None)
+    page_price: Optional[Decimal] = Field(default=None)
+    db_in_stock: Optional[bool] = Field(default=None)
+    page_in_stock: Optional[bool] = Field(default=None)
+    ok: Optional[bool] = Field(default=None)  # None = the page could not be read
     note: Optional[str] = Field(default=None, max_length=255)
 
 

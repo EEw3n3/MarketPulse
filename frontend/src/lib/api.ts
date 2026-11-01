@@ -433,12 +433,53 @@ export interface AdminScrapingRule {
   last_error: string | null;
 }
 
+export interface AdminScrapeRun {
+  shop: string;
+  source: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  items_seen: number;
+  complete: boolean;
+  swept: number;
+  note: string | null;
+}
+
+export interface AdminShopFreshness {
+  shop: string;
+  in_stock: number;
+  stale_in_stock: number;
+  last_seen: string | null;
+  checks_7d: number;
+  matched_7d: number;
+  corrected_7d: number;
+  unreadable_7d: number;
+}
+
+export interface AdminPageMismatch {
+  product_id: number | null;
+  shop: string;
+  kind: string;
+  title: string | null;
+  volume: string | null;
+  url: string | null;
+  checked_at: string;
+  db_price: number | null;
+  page_price: number | null;
+  db_in_stock: boolean | null;
+  page_in_stock: boolean | null;
+  note: string | null;
+}
+
 export interface AdminDataQuality {
   total_products: number;
   products_without_image: number;
   products_without_history: number;
   products_ungrouped: number;
   total_price_events: number;
+  shops?: AdminShopFreshness[];
+  runs?: AdminScrapeRun[];
+  mismatches?: AdminPageMismatch[];
 }
 
 export interface AdminUserRead {

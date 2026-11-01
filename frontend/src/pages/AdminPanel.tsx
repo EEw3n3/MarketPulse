@@ -472,6 +472,110 @@ function QualityTab() {
           </div>
         ))}
       </div>
+      {!!data.shops?.length && (
+        <div className="card">
+          <h2>{t.admin.fH}</h2>
+          <p className="muted">{t.admin.fP}</p>
+          <div className="scroll">
+            <table className="adm">
+              <thead>
+                <tr>
+                  <th scope="col">{t.admin.fShop}</th>
+                  <th scope="col" className="r">{t.admin.fInStock}</th>
+                  <th scope="col" className="r">{t.admin.fStale}</th>
+                  <th scope="col">{t.admin.fLast}</th>
+                  <th scope="col">{t.admin.fChecks}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.shops.map((s) => (
+                  <tr key={s.shop}>
+                    <td>{shopOf(s.shop.replace(".lv", "")).label}</td>
+                    <td className="r num">{int(s.in_stock)}</td>
+                    <td className="r num" style={{ color: s.stale_in_stock ? "var(--warn)" : undefined }}>{int(s.stale_in_stock)}</td>
+                    <td>{s.last_seen ? dateTime(s.last_seen) : "—"}</td>
+                    <td className="num">
+                      {int(s.checks_7d)}: {int(s.matched_7d)} {t.admin.fMatched}, {int(s.corrected_7d)} {t.admin.fCorrected}, {int(s.unreadable_7d)} {t.admin.fUnread}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {!!data.runs?.length && (
+        <div className="card">
+          <h2>{t.admin.rH}</h2>
+          <div className="scroll">
+            <table className="adm">
+              <thead>
+                <tr>
+                  <th scope="col">{t.admin.fShop}</th>
+                  <th scope="col">{t.admin.rStarted}</th>
+                  <th scope="col" className="r">{t.admin.rSeen}</th>
+                  <th scope="col">{t.admin.rComplete}</th>
+                  <th scope="col" className="r">{t.admin.rSwept}</th>
+                  <th scope="col">{t.admin.rNote}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.runs.map((r) => (
+                  <tr key={`${r.shop}-${r.started_at}`}>
+                    <td>{shopOf(r.shop.replace(".lv", "")).label}</td>
+                    <td>{dateTime(r.started_at)}</td>
+                    <td className="r num">{int(r.items_seen)}</td>
+                    <td>{r.status === "running" ? "…" : r.complete ? t.common.yes : t.common.no}</td>
+                    <td className="r num">{int(r.swept)}</td>
+                    <td className="muted" style={{ whiteSpace: "normal" }}>{r.note ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {data.mismatches && (
+        <div className="card">
+          <h2>{t.admin.mH}</h2>
+          {data.mismatches.length ? (
+            <div className="scroll">
+              <table className="adm">
+                <thead>
+                  <tr>
+                    <th scope="col">{t.admin.fShop}</th>
+                    <th scope="col">{t.admin.mWhen}</th>
+                    <th scope="col" />
+                    <th scope="col" className="r">{t.admin.mOurs}</th>
+                    <th scope="col" className="r">{t.admin.mPage}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.mismatches.map((m) => (
+                    <tr key={`${m.product_id}-${m.checked_at}`}>
+                      <td>{shopOf(m.shop.replace(".lv", "")).label}</td>
+                      <td>{dateTime(m.checked_at)}</td>
+                      <td style={{ whiteSpace: "normal" }}>
+                        {m.url ? <a href={m.url} target="_blank" rel="noreferrer">{m.title} {m.volume}</a> : `${m.title ?? ""} ${m.volume ?? ""}`}
+                      </td>
+                      <td className="r num">
+                        {m.db_price != null ? `€${num(m.db_price, 2)}` : "—"}
+                        {m.db_in_stock === false ? ` · ${t.admin.outShort}` : ""}
+                      </td>
+                      <td className="r num">
+                        {m.page_price != null ? `€${num(m.page_price, 2)}` : "—"}
+                        {m.page_in_stock === false ? ` · ${t.admin.outShort}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted">{t.admin.mNone}</p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

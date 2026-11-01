@@ -311,6 +311,9 @@ DEAL_MAX_DROP = 0.6
 # The usual price needs this much in-stock price data inside its 30 days.
 USUAL_MIN_COVER = timedelta(days=7)
 USUAL_WINDOW = timedelta(days=30)
+# A page check counts for the pass it followed: the PC uploads its products
+# an hour or two after it read the pages, the server stamps them on arrival.
+PAGE_CHECK_WINDOW_H = 12
 
 
 async def deals(
@@ -323,6 +326,7 @@ async def deals(
     matched_only: bool = False,
     min_drop: float = DEAL_MIN_DROP,
     max_drop: float = DEAL_MAX_DROP,
+    confirmed_only: bool = True,
 ) -> list[schemas.MoveItem]:
     """Deals for Today and the landing page: listings cut in the last `days`
     that now sit under their usual price.
@@ -336,6 +340,9 @@ async def deals(
     Only bottles (no gift sets) with a brand, in stock, priced in the last
     DEAL_MAX_AGE (app/services/freshness.py) and with at least a week of
     price data. `old_price` of each item is the usual price.
+
+    `confirmed_only`: the shop's product page confirmed today's price after
+    the pass (app/services/page_check.py). Off only for picking what to check.
     """
     now = datetime.utcnow()
     start = now - timedelta(days=days)
@@ -358,6 +365,10 @@ async def deals(
         where.append(f"""p.group_id in (
             select group_id from product where group_id is not null and is_available
             group by group_id having count(distinct {_STORE_SQL}) >= 2)""")
+    if confirmed_only:
+        # Read on the product page in the same pass, at today's price.
+        where.append(f"""p.page_checked_at >= p.last_seen - interval '{PAGE_CHECK_WINDOW_H} hours'
+            and abs(p.page_price - p.last_price) <= 0.011""")
     rows = (await db.execute(text(f"""
         with cut as (
             select product_id, max(parsed_at) as at from pricehistory

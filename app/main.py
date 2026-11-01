@@ -89,10 +89,12 @@ async def process_target(session, target: dict, intent: dict | None, group_id: i
 # Semaphore for limiting concurrent tasks
 scrape_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SCRAPES)
 
-async def process_target_worker(target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True, max_items: int | None = None):
+async def process_target_worker(target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True, max_items: int | None = None, page_checks: bool = True):
     """One pass over a shop's catalogue, recorded as a ScrapeRun: a complete
     run lets the sweep mark the products the shop no longer lists unavailable
-    (app/services/freshness.py). Searches inside a group are not shop passes."""
+    (app/services/freshness.py). Searches inside a group are not shop passes.
+    page_checks=False: the PC worker, which checks the server's deal
+    candidates itself after uploading (scripts/scrape_worker.py)."""
     from app.services import freshness
 
     async with scrape_semaphore:
@@ -104,6 +106,14 @@ async def process_target_worker(target: dict, intent: dict | None, group_id: int
             except Exception as e:
                 logger.exception(f"💥 Error {target['url']}: {e}")
         await freshness.finish_run(run_id, ok)
+        if ok and not group_id and page_checks:
+            # Deals are shown only after the shop's product page confirmed
+            # them; a few random listings are read too, as the daily audit.
+            from app.services import page_check
+            try:
+                await page_check.check_after_pass(freshness.shop_of(target["url"]))
+            except Exception as e:
+                logger.warning(f"Page check after {target['url']} failed: {e}")
 
 async def main():
     

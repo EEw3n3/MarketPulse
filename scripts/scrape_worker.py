@@ -103,7 +103,8 @@ async def run_scrape(domain: str, max_items: int) -> Optional[float]:
     started = time.time()
     logger.info(f"🔍 Starting local scrape: {domain} (max_items={max_items})")
     try:
-        await process_target_worker(target_payload, None, None, enable_price_filter=True, max_items=max_items)
+        await process_target_worker(target_payload, None, None, enable_price_filter=True, max_items=max_items,
+                                    page_checks=False)
     except Exception as e:
         logger.exception(f"Scrape failed for {domain}: {e}")
         return None
@@ -164,6 +165,42 @@ async def push_to_server(client: httpx.AsyncClient, job_id: str, domain: str, pr
     return totals
 
 
+async def check_pages(client: httpx.AsyncClient, job_id: str, domain: str) -> int:
+    """Read the server's deal candidates (and a random sample) on the shop's
+    product pages, upload listings the pages corrected, then the checks.
+    Deals are shown only when their page confirmed them (app/services/page_check.py)."""
+    from app.services import page_check
+
+    r = await client.get(f"{SERVER_URL}/api/admin/scrape/deal-candidates",
+                         params={"domain": domain}, headers=_auth_headers(), timeout=60.0)
+    r.raise_for_status()
+    started = time.time()
+    await page_check.check_listed(domain, r.json())
+    # check_products stamps every listing it read; corrected ones go up again
+    # so the server gets the page's price and stock (with history).
+    touched = await fetch_fresh_products(domain, started)
+    if touched:
+        await push_to_server(client, job_id, domain, touched)
+    return await push_page_checks(client, job_id, domain, started)
+
+
+async def push_page_checks(client: httpx.AsyncClient, job_id: str, domain: str, since_ts: float) -> int:
+    """Upload the product-page checks made since `since_ts`."""
+    from app.services import page_check
+
+    checks = await page_check.checks_since(datetime.utcfromtimestamp(since_ts), shop=domain)
+    for i in range(0, len(checks), BATCH_SIZE):
+        r = await client.post(
+            f"{SERVER_URL}/api/admin/scrape/page-checks",
+            json={"job_id": job_id, "domain": domain, "checks": checks[i: i + BATCH_SIZE]},
+            headers=_auth_headers(), timeout=60.0,
+        )
+        r.raise_for_status()
+    if checks:
+        logger.info(f"📤 {len(checks)} product-page checks uploaded for {domain}")
+    return len(checks)
+
+
 async def mark_complete(client: httpx.AsyncClient, job_id: str, status: str) -> None:
     try:
         await client.post(
@@ -204,6 +241,10 @@ async def handle_job(
         logger.info(f"📤 Uploading {len(products)} products to server for {domain}")
         try:
             totals = await push_to_server(client, job_id, domain, products)
+            try:
+                await check_pages(client, job_id, domain)
+            except Exception as e:  # products are in; deals wait for the next confirmed pass
+                logger.warning(f"Page checks not done for {domain}: {e}")
             logger.info(
                 f"✅ Job {job_id} ({domain}) complete — inserted={totals['inserted']}  "
                 f"updated={totals['updated']}  price_changes={totals['price_changes']}"
