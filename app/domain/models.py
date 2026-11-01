@@ -109,6 +109,29 @@ class PriceHistory(SQLModel, table=True):
     product_id: Optional[int] = Field(default=None, foreign_key="product.id")
     product: Optional[Product] = Relationship(back_populates="history")
 
+# --- 4b. SCRAPE RUN (one pass over a shop's catalogue) ---
+class ScrapeRun(SQLModel, table=True):
+    """One pass over a shop's catalogue, on the server or by the PC worker.
+
+    A product a shop no longer lists is never visited again, so nothing would
+    ever mark it sold out. The runs give "not listed any more" a meaning: a
+    product missing from two complete runs in a row is marked unavailable
+    (app/services/freshness.py). A run is complete when it finished without an
+    error and saw at least 90% of what a usual run of that shop sees.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    shop: str = Field(index=True, max_length=64)        # "notino.lv", same as Product.search_term
+    source: str = Field(default="server", max_length=16)  # "server" | "worker"
+    job_id: Optional[str] = Field(default=None, index=True, max_length=64)
+    started_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    finished_at: Optional[datetime] = Field(default=None)
+    status: str = Field(default="running", max_length=16)  # running | done | failed
+    items_seen: int = Field(default=0)
+    complete: bool = Field(default=False)
+    swept: int = Field(default=0)
+    note: Optional[str] = Field(default=None, max_length=255)
+
+
 # --- 5. GLOBAL PATTERNS (System experience) ---
 class SharedPattern(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

@@ -285,7 +285,7 @@ class PerfumeNormalizer:
 
         # 3. Determine the AUTHORITATIVE brand:
         #    explicit_brand > detected-in-title > heuristic first-word
-        if explicit_brand:
+        if explicit_brand and not is_placeholder_brand(explicit_brand):
             # explicit_brand wins unconditionally — caller knows best
             brand = explicit_brand
         elif brand_in_title_canonical:
@@ -430,6 +430,20 @@ def _fold(text: str) -> str:
     text = unicodedata.normalize("NFKD", html.unescape(text or ""))
     text = text.encode("ascii", "ignore").decode().lower()
     return re.sub(r"['’`´]", "", text)
+
+
+# What a marketplace seller types when the brand field is empty: 220.lv shows
+# "Nav norādīts" ("not specified"). Never a brand.
+_PLACEHOLDER_BRANDS = {
+    "navnoradits", "navnoradita", "nav", "na", "none", "null", "unknown", "nezinams",
+    "cits", "citi", "other", "others", "various", "brand", "noname", "nobrand",
+}
+
+
+def is_placeholder_brand(brand: Optional[str]) -> bool:
+    """True for an empty brand field filled with "not specified" and the like."""
+    key = re.sub(r"[^a-z0-9]+", "", _fold(brand or ""))
+    return not key or key in _PLACEHOLDER_BRANDS
 
 
 # Words a shop adds to a brand ("Lattafa Perfumes", "Memo Paris", "Roja Parfums").

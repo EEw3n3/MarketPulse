@@ -18,6 +18,7 @@ from sqlalchemy import func, delete, update, or_
 from app.api.deps import get_db, get_current_admin, get_worker
 from app.core.job_queue import job_queue
 from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences
+from app.services.normalizer import is_placeholder_brand
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -269,6 +270,10 @@ async def scrape_ingest(
     shop = payload.domain.lower().removeprefix("www.")
     if shop not in _shop_domains():
         raise HTTPException(status_code=400, detail=f"Unknown shop domain: {payload.domain}")
+    # The job's pass over the shop starts with its first batch (see
+    # app/services/freshness.py); /scrape/complete closes it.
+    from app.services import freshness
+    await freshness.worker_run(payload.job_id, shop)
 
     inserted = 0
     updated = 0
@@ -284,6 +289,8 @@ async def scrape_ingest(
             continue
         if item.image_url and not item.image_url.startswith("https://"):
             item.image_url = None
+        if is_placeholder_brand(item.brand):  # a 220.lv seller's "Nav norādīts"
+            item.brand = None
         # Tolerate accidental duplicates by URL+volume (race condition leftovers
         # from earlier parallel uploads created some). `scalar_one_or_none()`
         # crashes on >1 row; we just take the first match — subsequent ingests
@@ -349,7 +356,7 @@ async def scrape_ingest(
                 volume=item.volume,
                 concentration=item.concentration,
                 image_url=item.image_url,
-                search_term=payload.domain,
+                search_term=shop,
                 last_price=price_dec,
                 is_available=item.is_available,
                 last_seen=datetime.utcnow(),
@@ -369,11 +376,12 @@ async def scrape_ingest(
         else:
             updated += 1
             product.title = item.title
-            product.brand = item.brand or product.brand
+            product.brand = item.brand or (None if is_placeholder_brand(product.brand) else product.brand)
             product.volume = item.volume or product.volume
             product.concentration = item.concentration or product.concentration
             if item.image_url:
                 product.image_url = item.image_url
+            was_available = product.is_available
             product.is_available = item.is_available
             product.last_seen = datetime.utcnow()
             product.card_type = item.card_type
@@ -382,22 +390,32 @@ async def scrape_ingest(
             product.promo_price = promo_dec
             product.promo_code = item.promo_code
 
-            if price_dec is not None and price_dec > 0:
-                old = product.last_price
-                if old != price_dec:
-                    if old is not None and price_dec < old:
-                        change = "price_down"
-                    elif old is not None and price_dec > old:
-                        change = "price_up"
-                    else:
-                        change = "initial"
-                    product.old_price = old
-                    product.last_price = price_dec
-                    db.add(PriceHistory(
-                        product_id=product.id, price=price_dec,
-                        in_stock=item.is_available, change_type=change,
-                    ))
-                    price_changes += 1
+            # Same change types as the server-side scraper (_flush_candidates):
+            # a stock change wins over a price change, so the price chart
+            # shows where a shop ran out and where it came back.
+            change = None
+            has_price = price_dec is not None and price_dec > 0
+            old = product.last_price
+            if has_price and old != price_dec:
+                if old is not None and old > 0 and price_dec < old:
+                    change = "price_down"
+                elif old is not None and old > 0 and price_dec > old:
+                    change = "price_up"
+                else:
+                    change = "initial"
+                product.old_price = old
+                product.last_price = price_dec
+                price_changes += 1
+            if item.is_available and not was_available and has_price:
+                change = "back_in_stock"
+            elif not item.is_available and was_available:
+                change = "out_of_stock"
+            history_price = price_dec if has_price else product.last_price
+            if change and history_price and history_price > 0:
+                db.add(PriceHistory(
+                    product_id=product.id, price=history_price,
+                    in_stock=item.is_available, change_type=change,
+                ))
 
     await db.commit()
     if skipped:
@@ -422,6 +440,11 @@ async def scrape_complete(
     fully successful scrape. The domain is resolved from the job state hash.
     """
     await job_queue.update_status(job_id, status)
+
+    # Close the job's pass: a complete pass sweeps the products the shop no
+    # longer lists (app/services/freshness.py).
+    from app.services import freshness
+    await freshness.finish_run(await freshness.run_for_job(job_id), status == "done")
 
     state = await job_queue.get_state(job_id)
     domain = (state or {}).get("domain")

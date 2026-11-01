@@ -62,7 +62,7 @@ async def process_target(session, target: dict, intent: dict | None, group_id: i
     logger.info(f"\n🏁 STARTING CHECK: {url}")
 
     html = await get_hybrid_html(url)
-    if not html: return
+    if not html: return False
 
     rule = await ai_generator.get_or_create_rule(session, url, html)
     if not rule:
@@ -72,7 +72,7 @@ async def process_target(session, target: dict, intent: dict | None, group_id: i
 
     if not rule:
         logger.error("❌ Failed to create rule.")
-        return
+        return False
 
     logger.info(f"📦 [{rule.site_name}] Attempting collection...")
     site_name_ui = target.get("site_name")
@@ -84,15 +84,26 @@ async def process_target(session, target: dict, intent: dict | None, group_id: i
     )
 
     scraper_service.validate_dataset(products)
+    return bool(products)
 
 # Semaphore for limiting concurrent tasks
 scrape_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SCRAPES)
 
 async def process_target_worker(target: dict, intent: dict | None, group_id: int | None, enable_price_filter: bool = True, max_items: int | None = None):
+    """One pass over a shop's catalogue, recorded as a ScrapeRun: a complete
+    run lets the sweep mark the products the shop no longer lists unavailable
+    (app/services/freshness.py). Searches inside a group are not shop passes."""
+    from app.services import freshness
+
     async with scrape_semaphore:
+        run_id = None if group_id else await freshness.start_run(freshness.shop_of(target["url"]), "server")
+        ok = False
         async with async_session() as session:
-            try: await process_target(session, target, intent, group_id, enable_price_filter, max_items=max_items)
-            except Exception as e: logger.exception(f"💥 Error {target['url']}: {e}")
+            try:
+                ok = bool(await process_target(session, target, intent, group_id, enable_price_filter, max_items=max_items))
+            except Exception as e:
+                logger.exception(f"💥 Error {target['url']}: {e}")
+        await freshness.finish_run(run_id, ok)
 
 async def main():
     

@@ -13,6 +13,7 @@ from sqlalchemy import or_
 from urllib.parse import urljoin, urlparse
 
 from app.domain.models import ScrapingRule, Product, PriceHistory, SharedPattern, ProductGroup
+from app.services.normalizer import is_placeholder_brand
 from app.core.client import stealth_client
 from app.core.config import settings
 from app.core.constants import (
@@ -63,6 +64,38 @@ class ScrapedItem:
     image_url: Optional[str] = None
     is_valid: bool = True
     validation_error: str = ""
+
+
+# notino.lv stock codes, as the listing and product pages spell them:
+# "MoreThan20", "moreThan5", "lessThan5", "Last1".."Last5" are in stock;
+# "OutOfStock" is not, nor are the page states for "notify me" and an ended
+# sale. A code never seen before leaves the card's price to decide, so a new
+# spelling cannot switch the whole shop off.
+_NOTINO_IN_STOCK = re.compile(r"^(?:morethan\d+|lessthan\d+|last\d+|instock|canbebought)$", re.IGNORECASE)
+_NOTINO_NOT_IN_STOCK = re.compile(
+    r"^(?:outofstock|showwatchdog|watchdog|disabled|discontinued|soldout|notavailable|unavailable|cannotbebought)$",
+    re.IGNORECASE,
+)
+
+
+def notino_listed_in_stock(info: dict) -> bool:
+    """Whether a notino.lv listing entry lets the product be bought.
+    Without listing data for the card the card's own price decides."""
+    if not info:
+        return True
+    availability = info.get("availability")
+    state = availability.get("state") if isinstance(availability, dict) else None
+    for raw in (info.get("stockAvailability"), state):
+        if isinstance(raw, dict):  # {"code": "outOfStock", "count": null}
+            raw = raw.get("code")
+        code = str(raw or "").strip()
+        if not code:
+            continue
+        if _NOTINO_NOT_IN_STOCK.match(code):
+            return False
+        if not _NOTINO_IN_STOCK.match(code):
+            logger.debug(f"notino: unknown stock code {code!r}, the card price decides")
+    return True
 
 
 class ScraperService:
@@ -385,10 +418,15 @@ class ScraperService:
                 suffix += f" {qualifier}"
             voucher = (d.get("attributes") or {}).get("VoucherDiscount") or {}
             promo = voucher.get("discountedPrice")
+            # In stock only when the shop says it can be bought. The tracking
+            # request knows "outOfStock" only; the page state also tells
+            # "ShowWatchdog" (notify me) and an ended sale ("Pārdošana ir
+            # beigusies") apart from CanBeBought.
+            state = ((apollo.get(vid) or {}).get("availability") or {}).get("state")
             variants.append({
                 "title_suffix": suffix,
                 "price": Decimal(str(price)).quantize(Decimal("0.01")),
-                "is_available": d.get("stockQuantity") != "outOfStock",
+                "is_available": d.get("stockQuantity") != "outOfStock" and state in (None, "CanBeBought"),
                 "promo_price": Decimal(str(promo)).quantize(Decimal("0.01")) if promo else None,
                 "promo_code": voucher.get("code") if promo else None,
             })
@@ -808,7 +846,7 @@ class ScraperService:
                         link = card.css("a::attr(href)").get() or card.css("*::attr(href)").get()
                         product_url = urljoin(current_url, link) if link else current_url
                         info = listing.get(product_url) or {}
-                        if "outofstock" in str(info.get("stockAvailability") or "").lower():
+                        if not notino_listed_in_stock(info):
                             is_available = False
                         # An out-of-stock card shows no price, but the listing data still
                         # has the shop's price: keep it instead of saving the product at 0 €.
@@ -1386,6 +1424,8 @@ class ScraperService:
                 image_url = re.sub(r'_(?:xsmall|small|medium|large|big)\.(jpe?g|png|webp)$', r'_reference.\1',
                                    data.get('photoUrl', ''))
                 brand     = dl.get('item_brand', '')
+                if is_placeholder_brand(brand):  # a seller's "Nav norādīts"
+                    brand = ''
                 status    = dl.get('item_status', 'active')
 
                 # regular_price = standard retail price (non-loyalty)
@@ -2414,7 +2454,8 @@ class ScraperService:
                 elif not product.group_id:
                     product.group_id = final_group_id
                 product.card_type = card_type
-                if not product.brand: product.brand = item.get("brand")
+                if not product.brand or is_placeholder_brand(product.brand):
+                    product.brand = item.get("brand")
                 if not product.volume: product.volume = item.get("volume")
                 if not product.concentration: product.concentration = item.get("concentration")
                 # Always overwrite title with the freshly-computed clean display_title.
@@ -2452,7 +2493,7 @@ class ScraperService:
             if item["image_url"]:
                 product.image_url = item["image_url"]
 
-            if not product.brand and item.get("title"):
+            if (not product.brand or is_placeholder_brand(product.brand)) and item.get("title"):
                 from app.services.normalizer import perfume_normalizer
                 norm = perfume_normalizer.extract_all(item["title"])
                 product.brand = norm.get("brand")
