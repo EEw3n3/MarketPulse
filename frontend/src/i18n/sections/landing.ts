@@ -40,6 +40,7 @@ const en = {
   ],
   proBadge: "Analytics",
   perMonth: "a month",
+  otherTerms: (half: string, year: string) => `or ${half} for 6 months, ${year} a year`,
   proList: [
     "Price index per shop and the biggest movers, daily",
     "Price gaps between shops for every matched bottle",
@@ -103,6 +104,7 @@ const lv: typeof en = {
   ],
   proBadge: "Analītika",
   perMonth: "mēnesī",
+  otherTerms: (half, year) => `vai ${half} par 6 mēnešiem, ${year} gadā`,
   proList: [
     "Cenu indekss pa veikaliem un lielākās izmaiņas katru dienu",
     "Cenu atšķirības starp veikaliem katrai salīdzinātajai pudelei",

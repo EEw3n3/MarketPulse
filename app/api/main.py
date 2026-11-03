@@ -32,6 +32,7 @@ from app.api.chat import router as chat_router
 from app.api.exports import router as exports_router
 from app.api.cards import router as cards_router
 from app.api.public import router as public_router
+from app.api.billing import router as billing_router
 from app.api.catalog_filters import (
     _brand_filter_clause,
     _expand_search_term_with_aliases,
@@ -95,6 +96,7 @@ app.include_router(exports_router, prefix="/api", dependencies=_PRO_REQUIRED)
 # Before the /api/products/{product_id} route below, so /cards etc. win.
 app.include_router(cards_router, prefix="/api")
 app.include_router(public_router, prefix="/api")
+app.include_router(billing_router, prefix="/api")
 
 # --- Startup ---
 

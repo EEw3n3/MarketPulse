@@ -10,8 +10,10 @@ next time it is loaded (any request of that user) or the admin opens Users;
 expire_due() does all of them at once. The site sends no e-mails: three days
 before the end a banner says "Pro until 30.11" instead.
 
-A paid subscription (pro_source "payment", once payments arrive) is never
-cut short by an admin: an admin grant only moves its end later.
+A paid subscription (pro_source "payment", app/services/billing.py) is never
+cut short by an admin grant: a grant only moves its end later. The webhooks of
+the subscription move pro_until with every paid period (pay / renew) and end
+Pro when it is cancelled or paused (cancel).
 """
 from __future__ import annotations
 
@@ -109,6 +111,38 @@ def grant(db: AsyncSession, user: User, by: Optional[User], *, days: Optional[in
     db.add(user)
     _log(db, user, action, by, note)
     return user
+
+
+def paid_until(db: AsyncSession, user: User, until: datetime, note: Optional[str] = None) -> Optional[PlanChange]:
+    """A paid period: Pro until `until` (never earlier than what the user
+    already has). Logs "pay" when paid Pro starts, "renew" when it moves later,
+    nothing when nothing changes. The caller commits."""
+    now = datetime.utcnow()
+    active = pro_active(user, now)
+    was_paid = active and user.pro_source == "payment"
+    if active and (user.pro_until is None or user.pro_until >= until):
+        if was_paid:
+            return None              # the same period again (a repeated event)
+        until = user.pro_until       # an admin grant runs longer: keep it
+    user.plan = "pro"
+    user.pro_until = until
+    user.pro_source = "payment"
+    db.add(user)
+    return _log(db, user, "renew" if was_paid else "pay", None, note)
+
+
+def payment_ended(db: AsyncSession, user: User, at: datetime, note: Optional[str] = None) -> Optional[PlanChange]:
+    """The subscription is cancelled or paused: paid Pro ends at `at`. Pro
+    given by an admin is not touched. The caller commits."""
+    if not pro_active(user) or user.pro_source != "payment":
+        return None
+    if user.pro_until is not None and user.pro_until <= at:
+        return None
+    user.pro_until = at
+    if at <= datetime.utcnow():
+        user.plan = "free"
+    db.add(user)
+    return _log(db, user, "cancel", None, note)
 
 
 def revoke(db: AsyncSession, user: User, by: Optional[User], note: Optional[str] = None) -> User:

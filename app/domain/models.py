@@ -225,11 +225,47 @@ class PlanChange(SQLModel, table=True):
     at: datetime = Field(default_factory=datetime.utcnow)
     # The admin who made the change; None = the system (expiry, payment).
     by_user_id: Optional[int] = Field(default=None)
-    action: str = Field(max_length=16)  # grant | extend | revoke | expire
+    action: str = Field(max_length=16)  # grant | extend | revoke | expire | pay | renew | cancel
     plan: str = Field(max_length=16)    # plan after the change
     pro_until: Optional[datetime] = Field(default=None)
     source: Optional[str] = Field(default=None, max_length=16)
     note: Optional[str] = Field(default=None, max_length=255)
+
+
+# --- 6c. SUBSCRIPTION (a Pro subscription paid through Paddle) ---
+class Subscription(SQLModel, table=True):
+    """One Paddle subscription, as its last webhook described it. Pro itself
+    lives on the user (plan / pro_until / pro_source "payment"); this row says
+    which plan was bought and when it renews or ends."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    # Kept after the account is deleted, so late webhooks find no one to update.
+    user_id: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    )
+    paddle_subscription_id: str = Field(unique=True, index=True, max_length=64)
+    paddle_customer_id: Optional[str] = Field(default=None, max_length=64)
+    # active | trialing | past_due | paused | canceled (Paddle's words)
+    status: str = Field(max_length=16)
+    term: Optional[str] = Field(default=None, max_length=8)  # month | half | year
+    price_id: Optional[str] = Field(default=None, max_length=64)
+    current_period_end: Optional[datetime] = Field(default=None)   # UTC
+    # A cancellation the user asked for: the subscription ends at this time.
+    cancel_at: Optional[datetime] = Field(default=None)
+    # occurred_at of the last event applied: an older event arriving late is skipped.
+    last_event_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# --- 6d. PADDLE EVENT (every webhook once: Paddle may send one twice) ---
+class PaddleEvent(SQLModel, table=True):
+    id: str = Field(primary_key=True, max_length=64)   # Paddle event_id
+    event_type: str = Field(max_length=64)
+    occurred_at: Optional[datetime] = Field(default=None)
+    received_at: datetime = Field(default_factory=datetime.utcnow)
+    subscription_id: Optional[str] = Field(default=None, max_length=64)
+    user_id: Optional[int] = Field(default=None)
+    result: Optional[str] = Field(default=None, max_length=255)   # what was done, for the admin
 
 
 # --- 7. USER PREFERENCES (Onboarding + personalization) ---

@@ -165,7 +165,7 @@ const en = {
   gaveForever: (e: string) => `${e}: Pro without an end date`,
   logH: "Plan history",
   logNone: "No changes yet.",
-  act: { grant: "Given", extend: "Extended", revoke: "Turned off", expire: "Expired" } as Record<string, string>,
+  act: { grant: "Given", extend: "Extended", revoke: "Turned off", expire: "Expired", pay: "Paid", renew: "Renewed", cancel: "Subscription ended" } as Record<string, string>,
   bySystem: "automatically",
   deactivate: "Deactivate",
   reactivate: "Reactivate",
@@ -176,7 +176,7 @@ const en = {
   delYes: "Delete",
   deleted: (e: string) => `Deleted ${e}`,
   noUsers: "No users yet.",
-  planHint: "Until card payments go live, Pro is given here by hand: for a term or without an end. Every change is logged.",
+  planHint: "Pro is bought by card through Paddle, or given here by hand: for a term or without an end. A paid term is never shortened here. Every change is logged.",
 };
 
 const lv: typeof en = {
@@ -344,7 +344,7 @@ const lv: typeof en = {
   gaveForever: (e) => `${e}: Pro bez beigu datuma`,
   logH: "Plāna vēsture",
   logNone: "Izmaiņu vēl nav.",
-  act: { grant: "Piešķirts", extend: "Pagarināts", revoke: "Izslēgts", expire: "Beidzies" },
+  act: { grant: "Piešķirts", extend: "Pagarināts", revoke: "Izslēgts", expire: "Beidzies", pay: "Apmaksāts", renew: "Atjaunots", cancel: "Abonements beidzies" },
   bySystem: "automātiski",
   deactivate: "Deaktivizēt",
   reactivate: "Aktivizēt",
@@ -355,7 +355,7 @@ const lv: typeof en = {
   delYes: "Dzēst",
   deleted: (e) => `${e} dzēsts`,
   noUsers: "Lietotāju vēl nav.",
-  planHint: "Kamēr maksājumi ar karti nedarbojas, Pro piešķir šeit manuāli: uz termiņu vai bez beigām. Katra izmaiņa tiek saglabāta vēsturē.",
+  planHint: "Pro var nopirkt ar karti caur Paddle vai piešķirt šeit manuāli: uz termiņu vai bez beigām. Apmaksātu termiņu šeit nesaīsina. Katra izmaiņa tiek saglabāta vēsturē.",
 };
 
 export default { en, lv };

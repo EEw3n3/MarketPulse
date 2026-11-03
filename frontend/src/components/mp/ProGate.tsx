@@ -1,8 +1,6 @@
-import { useState } from "react";
 import { Lock } from "lucide-react";
 import { useT } from "@/i18n";
-import { eur } from "@/lib/format";
-import { PRO_PRICE } from "@/lib/plan";
+import PlanPicker from "@/components/mp/PlanPicker";
 import { SHOPS } from "@/lib/shops";
 
 const LINES = SHOPS.map((s) => s.line);
@@ -98,11 +96,10 @@ const PREVIEWS: (() => JSX.Element)[] = [
   ),
 ];
 
-/** What a Free user sees in place of a Pro feature: the price, what Pro adds
- *  and how to get it while payments are not live yet. */
+/** What a Free user sees in place of a Pro feature: what Pro adds, the
+ *  plans and the checkout (PlanPicker). */
 export default function ProGate({ titleId = "gate-h" }: { titleId?: string }) {
   const t = useT();
-  const [asked, setAsked] = useState(false);
   return (
     <section aria-labelledby={titleId}>
       <div className="gate">
@@ -114,25 +111,12 @@ export default function ProGate({ titleId = "gate-h" }: { titleId?: string }) {
             {t.pro.gateTitle}
           </h2>
           <p>{t.pro.pitch}</p>
-          <div className="price">
-            <b className="num">{eur(PRO_PRICE)}</b>
-            <span>{t.pro.perMonth}</span>
-          </div>
           <ul>
             {t.pro.benefits.map((b) => (
               <li key={b}>{b}</li>
             ))}
           </ul>
-          <div className="acts">
-            <button className="btn btn-accent" type="button" onClick={() => setAsked(true)} aria-expanded={asked}>
-              {t.pro.get}
-            </button>
-          </div>
-          {asked && (
-            <p className="note fade" role="status">
-              {t.pro.manualNote}
-            </p>
-          )}
+          <PlanPicker />
         </div>
         <div className="gate-side rise">
           <div className="gate-side-h">

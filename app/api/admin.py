@@ -19,7 +19,7 @@ from app.api.deps import get_db, get_current_admin, get_worker
 from app.api.schemas import DupGroup, DupOffer, DupPage, DupPair
 from app.core.job_queue import job_queue
 from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences, PlanChange, GroupPair
-from app.services import group_merge, plans
+from app.services import billing, group_merge, plans
 from app.services.normalizer import is_placeholder_brand
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -861,6 +861,12 @@ async def delete_user(
     target = await db.get(User, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    sub = await billing.live_subscription(db, user_id)
+    if sub is not None:
+        try:
+            await billing.cancel_now(sub)  # no more charges for a deleted account
+        except billing.PaddleError as e:
+            raise HTTPException(status_code=409, detail=f"Could not stop the Paddle subscription: {e}") from e
     await db.execute(delete(Favorite).where(Favorite.user_id == user_id))
     await db.execute(delete(UserPreferences).where(UserPreferences.user_id == user_id))
     await db.execute(delete(PlanChange).where(PlanChange.user_id == user_id))

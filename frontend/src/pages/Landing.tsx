@@ -5,7 +5,7 @@ import { api, type CatalogCard, type MoveItem } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n";
 import { day, eur, eur0, int, pct, pctPlain } from "@/lib/format";
-import { PRO_PRICE } from "@/lib/plan";
+import { PRO_PRICE, PRO_PRICES } from "@/lib/plan";
 import { fieldStyle, shopOf } from "@/lib/shops";
 import Img from "@/components/mp/Img";
 import LangSwitch from "@/components/mp/LangSwitch";
@@ -300,6 +300,7 @@ export default function Landing() {
                   {eur(PRO_PRICE)}
                   <small>{t.landing.perMonth}</small>
                 </div>
+                <p className="terms-line">{t.landing.otherTerms(eur(PRO_PRICES.half.amount), eur(PRO_PRICES.year.amount))}</p>
                 <div className="cols">
                   <ul>
                     {t.landing.proList.map((x) => (
@@ -392,7 +393,7 @@ export default function Landing() {
           <span>{t.landing.foot}</span>
           <span>{t.landing.footScan(asOf)}</span>
           <span className="legal">
-            <Link to="/privacy">{t.legal.privacyH}</Link> · <Link to="/terms">{t.legal.termsH}</Link>
+            <Link to="/privacy">{t.legal.privacyH}</Link> · <Link to="/terms">{t.legal.termsH}</Link> · <Link to="/refunds">{t.legal.refundsH}</Link>
           </span>
         </footer>
       </div>

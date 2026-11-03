@@ -46,6 +46,20 @@ class Settings:
     # public (the browser sends it to Google), not a secret. Empty = no button.
     GOOGLE_CLIENT_ID: str | None = os.getenv("GOOGLE_CLIENT_ID") or None
 
+    # Card payments through Paddle (paddle.com, the reseller and Merchant of
+    # Record). PADDLE_ENV "sandbox" (test cards, only admins see the checkout)
+    # or "production". The client token and price ids are public (the browser
+    # sends them to Paddle); the API key and the webhook secret are secrets.
+    PADDLE_ENV: str = (os.getenv("PADDLE_ENV") or "sandbox").strip().lower()
+    PADDLE_CLIENT_TOKEN: str | None = os.getenv("PADDLE_CLIENT_TOKEN") or None
+    PADDLE_API_KEY: str | None = os.getenv("PADDLE_API_KEY") or None
+    PADDLE_WEBHOOK_SECRET: str | None = os.getenv("PADDLE_WEBHOOK_SECRET") or None
+    PADDLE_PRICE_MONTH: str | None = os.getenv("PADDLE_PRICE_MONTH") or None
+    PADDLE_PRICE_HALF: str | None = os.getenv("PADDLE_PRICE_HALF") or None
+    PADDLE_PRICE_YEAR: str | None = os.getenv("PADDLE_PRICE_YEAR") or None
+    # Sandbox only: accounts besides admins that may test the checkout (comma-separated emails).
+    PADDLE_SANDBOX_EMAILS: str = os.getenv("PADDLE_SANDBOX_EMAILS") or ""
+
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: str | None = os.getenv("TELEGRAM_BOT_TOKEN")
     TELEGRAM_BOT_USERNAME: str = os.getenv("TELEGRAM_BOT_USERNAME", "MarketPulseBot")

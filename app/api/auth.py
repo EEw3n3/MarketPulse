@@ -226,9 +226,22 @@ async def delete_account(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Permanently delete the authenticated user and all their data."""
+    """Permanently delete the authenticated user and all their data. A paid
+    subscription is stopped first, so the card is not charged again."""
     from sqlalchemy import delete
     from app.domain.models import Favorite
+    from app.services import billing
+
+    sub = await billing.live_subscription(db, user.id)
+    if sub is not None:
+        try:
+            await billing.cancel_now(sub)
+        except billing.PaddleError as e:
+            raise HTTPException(
+                status_code=409,
+                detail="Your Pro subscription could not be stopped right now, so the account was not deleted. "
+                       "Try again in a few minutes or cancel the subscription in Profile first.",
+            ) from e
 
     await db.execute(delete(Favorite).where(Favorite.user_id == user.id))
     await db.execute(delete(UserPreferences).where(UserPreferences.user_id == user.id))

@@ -72,6 +72,35 @@ export interface UserRead {
   preferences: UserPreferences | null;
 }
 
+export type BillingTerm = "month" | "half" | "year";
+
+export interface BillingPlan {
+  term: BillingTerm;
+  months: number;
+  /** EUR shown on the site; Paddle's checkout shows the final price with VAT. */
+  amount: number;
+  price_id: string | null;
+}
+
+export interface BillingConfig {
+  /** This user may open the checkout now (sandbox: admins and test accounts only). */
+  checkout: boolean;
+  environment: "sandbox" | "production";
+  client_token: string | null;
+  plans: BillingPlan[];
+}
+
+export interface BillingSubscription {
+  status: "active" | "trialing" | "past_due" | "paused" | "canceled" | string;
+  term: BillingTerm | null;
+  /** UTC, no zone suffix */
+  current_period_end: string | null;
+  /** Set when the user cancelled: the subscription ends then. */
+  cancel_at: string | null;
+  /** Paddle's customer portal can be opened (card, receipts, cancel). */
+  manageable: boolean;
+}
+
 export interface TokenResponse {
   access_token: string;
   token_type: "bearer";
@@ -633,6 +662,13 @@ export const api = {
   connectTelegram: () =>
     fetchApi<TelegramConnectResponse>("/auth/telegram/connect", { method: "POST" }),
   disconnectTelegram: () => fetchApi<void>("/auth/telegram/disconnect", { method: "POST" }),
+
+  // Pro by card (Paddle)
+  billing: {
+    config: () => fetchApi<BillingConfig>("/billing/config"),
+    me: () => fetchApi<BillingSubscription | null>("/billing/me"),
+    portal: () => fetchApi<{ url: string }>("/billing/portal", { method: "POST" }),
+  },
 
   // Market analytics (Pro)
   analytics: {

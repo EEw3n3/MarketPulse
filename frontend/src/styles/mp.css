@@ -266,6 +266,29 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .gate-card li::before { content: "✓"; font-weight: 600; }
 .gate-card .acts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .gate-card .note { background: #232528; border-radius: 18px; padding: 14px 16px; color: #e8e8e3; font-size: 14.5px; }
+/* Pro plans on the dark Pro cards (analytics gate, Profile → Plan). */
+.plans-pick { display: grid; gap: 14px; }
+.plans-pick .terms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.plans-pick .term { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 4px; align-content: start; padding: 12px 14px; border-radius: 18px; box-shadow: inset 0 0 0 1px #3a3c40; color: var(--bg); min-width: 0; transition: box-shadow 160ms, background-color 160ms; }
+.plans-pick .term:hover { background: #1c1e21; }
+.plans-pick .term[aria-checked="true"] { background: #232528; box-shadow: inset 0 0 0 2px var(--accent); }
+.plans-pick .term:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.plans-pick .term .tn { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 14px; color: #c9c9c4; }
+.plans-pick .term .save { background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 1px 7px; font-size: 12px; font-weight: 600; }
+.plans-pick .term b { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.05; }
+.plans-pick .term small { font-size: 12.5px; color: #a9a9a4; }
+.plans-pick .acts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.plans-pick .fine { font-size: 13px; color: #a9a9a4; margin: 0; max-width: 60ch; }
+.plans-pick .fine a { color: inherit; text-decoration: underline; }
+.plans-pick .sandbox { color: #f6c76b; }
+.plans-pick .note { margin: 0; }
+.pg-profile .plan-card .sub { display: grid; gap: 6px; margin-top: 10px; }
+.pg-profile .plan-card .sub p { margin: 0; }
+.pg-profile .plan-card .sub b { color: var(--bg); font-weight: 500; }
+.pg-profile .plan-card .sub .acts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 6px; }
+.pg-profile .plan-card > .plans-pick { margin-top: 18px; }
+.pg-profile .plan-card .test-h { font-size: 14px; font-weight: 600; color: #c9c9c4; margin: 0 0 10px; }
+@media (max-width: 520px) { .plans-pick .terms { grid-template-columns: 1fr; } .plans-pick .term { grid-template-columns: 1fr auto; align-items: baseline; } .plans-pick .term .tn { grid-column: 1 / -1; } }
 .gate-side { grid-column: 8 / -1; background: var(--card); border: 1px solid var(--rule); border-radius: 32px; padding: clamp(20px, 2.4vw, 30px); display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .gate-side-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .gate-side-h small { color: var(--muted); font-size: 13px; }
@@ -438,6 +461,7 @@ table.db input[type="checkbox"], .cbx { width: 18px; height: 18px; accent-color:
 .pg-landing .plan .price { font-family: var(--serif); font-size: 56px; line-height: 1; }
 .pg-landing .plan .price small { font-family: var(--sans); font-size: 16px; color: var(--muted); margin-left: 6px; }
 .pg-landing .plan.pro .price small { color: #b9b9b4; }
+.pg-landing .plan .terms-line { margin: -6px 0 0; font-size: 14px; color: #b9b9b4; }
 .pg-landing .plan ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .pg-landing .plan li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; }
 .pg-landing .plan li::before { content: "✓"; font-weight: 600; }

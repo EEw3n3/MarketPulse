@@ -1,8 +1,22 @@
-import type { UserRead } from "@/lib/api";
+import type { BillingTerm, UserRead } from "@/lib/api";
 import { hoursUntil } from "@/lib/format";
 
-// Placeholder until card payments arrive; an admin switches Pro on by hand.
-export const PRO_PRICE = 3.99;
+/** Pro prices in EUR (the same as app/services/billing.py PLANS); Paddle's checkout shows the final price. */
+export const PRO_PRICES: Record<BillingTerm, { amount: number; months: number }> = {
+  month: { amount: 3.99, months: 1 },
+  half: { amount: 19.99, months: 6 },
+  year: { amount: 34.99, months: 12 },
+};
+export const PRO_TERMS: BillingTerm[] = ["month", "half", "year"];
+export const PRO_PRICE = PRO_PRICES.month.amount;
+
+/** Per-month price of a term and how much it saves against paying monthly, in whole percent. */
+export function termDeal(term: BillingTerm): { perMonth: number; save: number } {
+  const { amount, months } = PRO_PRICES[term];
+  const perMonth = amount / months;
+  return { perMonth, save: Math.round((1 - perMonth / PRO_PRICE) * 100) };
+}
+
 /** The banner "Pro until 30.11" shows this many days before the end (the site sends no e-mails). */
 export const PRO_WARN_DAYS = 3;
 

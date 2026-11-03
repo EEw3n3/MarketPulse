@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, type BillingSubscription } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageContext } from "@/contexts/ChatContext";
 import { useT } from "@/i18n";
 import { BRAND_OPTIONS } from "@/lib/brands";
-import { dayLong, eur } from "@/lib/format";
-import { PRO_PRICE, hasPro } from "@/lib/plan";
+import { dayLong } from "@/lib/format";
+import { hasPro } from "@/lib/plan";
+import PlanPicker from "@/components/mp/PlanPicker";
 import { SHOPS, fieldStyle } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
 import LangSwitch from "@/components/mp/LangSwitch";
@@ -138,12 +139,60 @@ function TelegramConnect() {
   );
 }
 
+/** The paid subscription: plan, when it renews or ends, and the way to
+ *  Paddle's customer portal (card, receipts, cancel). */
+function SubscriptionInfo({ sub }: { sub: BillingSubscription }) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  async function manage() {
+    setBusy(true);
+    try {
+      const { url } = await api.billing.portal();
+      window.location.assign(url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t.pro.portalFail);
+      setBusy(false);
+    }
+  }
+  const end = sub.cancel_at ?? sub.current_period_end;
+  return (
+    <div className="sub">
+      <p>
+        <b>{sub.term ? t.pro.subTerm[sub.term] : "Pro"}</b>
+      </p>
+      <p className="muted">
+        {sub.status === "past_due"
+          ? t.pro.pastDue
+          : sub.status === "paused"
+            ? t.pro.paused
+            : sub.cancel_at
+              ? t.pro.ends(dayLong(sub.cancel_at))
+              : end
+                ? t.pro.renews(dayLong(end))
+                : ""}
+      </p>
+      {sub.manageable && (
+        <div className="acts">
+          <button className="btn btn-white btn-sm" type="button" onClick={manage} disabled={busy}>
+            {t.pro.manage}
+          </button>
+          <small>{t.pro.manageNote}</small>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlanCard() {
   const t = useT();
   const { user } = useAuth();
-  const [asked, setAsked] = useState(false);
   const pro = hasPro(user);
   const adds = t.pro.benefits.slice(0, -1);
+  const { data: sub } = useQuery({ queryKey: ["billing", "me"], queryFn: api.billing.me, enabled: !!user });
+  const { data: cfg } = useQuery({ queryKey: ["billing", "config"], queryFn: api.billing.config, enabled: !!user, staleTime: 5 * 60_000 });
+  const live = sub && sub.status !== "canceled" ? sub : null;
+  // Admins have Pro anyway; in the sandbox they test the checkout from here.
+  const adminTest = !!user?.is_admin && !live && !!cfg?.checkout && cfg.environment === "sandbox";
 
   return (
     <section className="card plan-card" id="plan" aria-labelledby="plan-h">
@@ -152,8 +201,12 @@ function PlanCard() {
       {pro ? (
         <>
           <p style={{ marginTop: 12 }}>{user?.is_admin && user.plan !== "pro" ? t.profile.adminPro : t.profile.proOn}</p>
-          {user?.plan === "pro" && (
-            <p className="muted" style={{ marginTop: 6 }}>{user.pro_until ? t.profile.proUntil(dayLong(user.pro_until)) : t.profile.proNoEnd}</p>
+          {live ? (
+            <SubscriptionInfo sub={live} />
+          ) : (
+            user?.plan === "pro" && (
+              <p className="muted" style={{ marginTop: 6 }}>{user.pro_until ? t.profile.proUntil(dayLong(user.pro_until)) : t.profile.proNoEnd}</p>
+            )
           )}
           <ul>
             {adds.map((b) => (
@@ -163,6 +216,12 @@ function PlanCard() {
           <Link className="btn btn-accent" to="/analytics" style={{ marginTop: 18 }}>
             {t.profile.openAnalytics}
           </Link>
+          {adminTest && (
+            <div style={{ marginTop: 22 }}>
+              <h3 className="test-h">{t.pro.adminTest}</h3>
+              <PlanPicker />
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -172,18 +231,7 @@ function PlanCard() {
               <li key={b}>{b}</li>
             ))}
           </ul>
-          <div className="price">
-            <b className="num">{eur(PRO_PRICE)}</b>
-            <span>{t.pro.perMonth}</span>
-          </div>
-          <button className="btn btn-accent" type="button" onClick={() => setAsked(true)} aria-expanded={asked}>
-            {t.pro.get}
-          </button>
-          {asked && (
-            <p className="note fade" role="status">
-              {t.pro.manualNote}
-            </p>
-          )}
+          <PlanPicker />
         </>
       )}
     </section>
