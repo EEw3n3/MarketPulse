@@ -374,6 +374,7 @@ class PerfumeNormalizer:
         words = clean_name.split()
         clean_name = " ".join(w for w in words if w.lower().strip("-,.:|") not in generic_words
                               and any(c.isalnum() for c in w))
+        clean_name = strip_descriptors(clean_name)
         # Again after the noise: shops put the type in front ("Tualetes ūdens
         # Hugo Boss Boss Bottled", "CALVIN KLEIN - Calvin Klein CK IN2U") and
         # 220.lv sellers the brand last ("Legend Spirit Montblanc").
@@ -471,6 +472,33 @@ _BRAND_KEY_ALIASES = {
     "bulgari": "bvlgari",
     "abanderas": "antoniobanderas",  # 220.lv sellers: "A. Banderas", "J.P. Gaultier"
     "jpgaultier": "jeanpaulgaultier",
+    # One brand under two names in different shops (checked on the data, 2026-11-03).
+    "alwataniahkhususi": "alwataniah",
+    "asombrosobyosmanylaffita": "asombroso",
+    "beverlyhills": "beverlyhillspoloclub",
+    "bois": "bois1920",
+    "bond": "bondno9",
+    "brutparfumsprestige": "brut",
+    "dsquared": "dsquared2",
+    "frankoliver": "franckolivier",
+    "goshcopenhagen": "gosh",
+    "initioparfumsprives": "initio",
+    "kenneth": "kennethcole",
+    "lecouventmaisondeparfum": "lecouvent",
+    "linn": "linnyoung",
+    "masaki": "masakimatsushima",
+    "mercedes": "mercedesbenz",
+    "mersedesbenz": "mercedesbenz",
+    "monothemefinefragrancesvenezia": "monotheme",
+    "nicolaiparfumeurcreateur": "nicolai",
+    "parfumdemarly": "parfumsdemarly",
+    "percynoblemans": "percynobleman",
+    "perry": "perryellis",
+    "rebelfragrances": "rebel",
+    "reyanetradition": "reyane",
+    "rosendomateuolfactiveexpressions": "rosendomateu",
+    "santinicosmetic": "santini",
+    "stevesnobullt": "steves",
 }
 
 
@@ -543,12 +571,60 @@ def strip_trailing_brand(text: str, brand_keys: set[str]) -> str:
     return " ".join(words)
 
 
+# 220.lv sellers describe the scent after the name ("Armaf Mirage Man koksnes",
+# "Hermès H24 Herbes Vives Svaiga augu spēks ar mūsdienīgu vēsumu"); the other
+# shops don't, so the same perfume got a group of its own there. These Latvian
+# (and a few Lithuanian/Croatian) words never name a perfume, they only
+# describe one, and are dropped from the name (folded forms, see _fold).
+_DESCRIPTOR_WORDS = frozenset("""
+    koksnes koksnains koksnaina koka koks citruskoksnes svaigs svaiga svaigu svaigums
+    parfimerija unisekss uniseks uniseksa aromatisks aromatiska ilgnoturigs ilgnoturiga
+    noturigs noturiga pikants pikanta pikantais austrumu austrumniecisks austrumnieciska
+    austrumnieciskas orientals orientala orientalu citrusauglu citrusigs citrusiga citrusu
+    dzintara dzintarains dzintaraina smarza ziedu ziedains ziedaina garsvielu smidzinamais
+    smidzinatajs sprejs tualudens speks smalka smalks viriskigs viriskiga drosmigs drosmiga
+    juras flakons universals universala izsmalcinata izsmalcinats musdienigs musdieniga
+    musdienigu auglains auglaina auglu elegants eleganta vinam vinai ambras augu vesumu
+    katra izsmidzinajuma policija saldais salds salda maigs maiga dabigs silts silta adas
+    kvapusis vanduo parfem muskarce muskarci
+""".split())
+# "and", "with", "for": dropped only next to a dropped word ("koksnes un
+# citrusaugļu", "ar orientālu"), so "Un Jardin sur le Nil" keeps its "Un".
+_DESCRIPTOR_LINKS = frozenset({"un", "ar", "za"})
+
+
+def _is_descriptor(token: str) -> bool:
+    parts = [re.sub(r"[^a-z0-9]", "", p) for p in re.split(r"[-–/]+", _fold(token))]
+    parts = [p for p in parts if p]
+    return bool(parts) and all(p in _DESCRIPTOR_WORDS for p in parts)
+
+
+def strip_descriptors(text: str) -> str:
+    """Drop the scent description a 220.lv seller adds to a name:
+    "Armaf Infinity Silver Men Svaigs citrusaugļu un koksnes" → "Armaf
+    Infinity Silver Men", "Bois 1920 Come L'amore, uniseks" → "Bois 1920 Come
+    L'amore"."""
+    tokens = text.split()
+    desc = [_is_descriptor(t) for t in tokens]
+    kept = []
+    for i, t in enumerate(tokens):
+        if desc[i]:
+            continue
+        if re.sub(r"[^a-z]", "", _fold(t)) in _DESCRIPTOR_LINKS:
+            next_desc = i + 1 < len(tokens) and desc[i + 1]
+            last_after_desc = i + 1 == len(tokens) and i > 0 and desc[i - 1]
+            if next_desc or last_after_desc:
+                continue
+        kept.append(t)
+    return " ".join(kept).strip(" ,;:-–—")
+
+
 # Words that don't tell two perfumes apart when names are compared.
 # "parfum" is left only by "Le Parfum", which older titles cut to "Le";
 # "s" by "Men's".
 _NAME_FILLER = {"de", "di", "du", "d", "of", "the", "and", "et", "by", "pour", "for", "per", "parfum", "s"}
-_MALE_WORDS = {"man", "men", "homme", "him", "uomo", "hombre"}
-_FEMALE_WORDS = {"woman", "women", "femme", "her", "donna", "mujer", "lady"}
+_MALE_WORDS = {"man", "men", "mens", "homme", "him", "uomo", "hombre"}
+_FEMALE_WORDS = {"woman", "women", "womens", "femme", "her", "donna", "mujer", "lady"}
 # Shop words for the same thing ("intensīvs" = "Intense").
 _NAME_SYNONYMS = {"intensivs": "intense"}
 # Short forms of a brand inside names ("CK One", "A. Banderas The Secret").
@@ -562,14 +638,16 @@ _brand_words_cache: dict[str, frozenset[str]] = {}
 
 
 def _brand_words(brand: Optional[str]) -> frozenset[str]:
-    """Words of every spelling of the brand ("Giorgio Armani" → giorgio, armani)."""
+    """Words of every spelling of the brand ("Giorgio Armani" → giorgio, armani),
+    the shop's own spelling included ("Initio Parfums Prives" → parfums, prives)."""
     key = brand_key(brand)
-    if key not in _brand_words_cache:
+    cache_key = f"{key}|{brand}"
+    if cache_key not in _brand_words_cache:
         spellings = [b for b in PerfumeNormalizer.BRANDS if brand_key(b) == key]
-        spellings.append(canonical_brand(brand) or "")
+        spellings += [canonical_brand(brand) or "", brand or ""]
         words = {w for b in spellings for w in re.sub(r"[^a-z0-9]+", " ", _fold(b)).split()}
-        _brand_words_cache[key] = frozenset(words | _BRAND_EXTRA_WORDS.get(key, set()))
-    return _brand_words_cache[key]
+        _brand_words_cache[cache_key] = frozenset(words | _BRAND_EXTRA_WORDS.get(key, set()))
+    return _brand_words_cache[cache_key]
 
 
 def name_key(clean_name: Optional[str], brand: Optional[str] = None) -> dict:
@@ -597,10 +675,16 @@ def name_key(clean_name: Optional[str], brand: Optional[str] = None) -> dict:
 
 def _same_word(a: str, b: str) -> bool:
     """Equal, or a typo in a long word ("Supremacy" / "Supermacy", "Vanilla" /
-    "Vanille"); never across digits or the pairs in _DIFFERENT_WORDS."""
+    "Vanille"); never across digits, lengths 2+ apart or the pairs in
+    _DIFFERENT_WORDS."""
     if a == b:
         return True
     if min(len(a), len(b)) < 6 or any(c.isdigit() for c in a + b) or frozenset({a, b}) in _DIFFERENT_WORDS:
+        return False
+    # Two letters more or less is another word ("Ameeri" / "Ameerati"), unless
+    # it is only an ending ("Orchid" / "Orchidée").
+    short, long_ = sorted((a, b), key=len)
+    if len(long_) - len(short) > 1 and not long_.startswith(short):
         return False
     return fuzz.ratio(a, b) >= 85
 
