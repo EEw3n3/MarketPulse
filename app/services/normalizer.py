@@ -586,7 +586,10 @@ _DESCRIPTOR_WORDS = frozenset("""
     juras flakons universals universala izsmalcinata izsmalcinats musdienigs musdieniga
     musdienigu auglains auglaina auglu elegants eleganta vinam vinai ambras augu vesumu
     katra izsmidzinajuma policija saldais salds salda maigs maiga dabigs silts silta adas
-    kvapusis vanduo parfem muskarce muskarci
+    kvapusis vanduo parfem muskarce muskarci greznais greznas iepakojums ilgi dumakains dumakaina
+    piemerots luksusa parfimetais aromatiskas aromatiskais svaigas sportisks sportiska
+    austrumnieciskais atsvaidzinoss udenains udenaina dzintars citrusaugli citrusaugliem muskusa
+    kvepalu purskiklis smilkalu dizainu jaunu elegence orientalais
 """.split())
 # "and", "with", "for": dropped only next to a dropped word ("koksnes un
 # citrusaugļu", "ar orientālu"), so "Un Jardin sur le Nil" keeps its "Un".
