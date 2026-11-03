@@ -521,6 +521,45 @@ export interface AdminUsersPage {
 
 export type AdminUserFilter = "all" | "pro" | "free" | "blocked" | "admin";
 
+export interface DupOffer {
+  shop: string;
+  volume: string | null;
+  price: number | null;
+  url: string;
+  is_available: boolean;
+}
+
+export interface DupGroup {
+  id: number | null;
+  name: string;
+  image_url: string | null;
+  shops: string[];
+  products: number;
+  offers: DupOffer[];
+}
+
+export type DupStatus = "pending" | "merged" | "different" | "undone";
+
+export interface DupPair {
+  id: number;
+  reason: "conc" | "subset" | "typo";
+  score: number;
+  status: DupStatus;
+  created_at: string;
+  decided_at: string | null;
+  common_volumes: string[];
+  a: DupGroup;
+  b: DupGroup;
+}
+
+export interface DupPage {
+  items: DupPair[];
+  total: number;
+  pending: number;
+  page: number;
+  page_size: number;
+}
+
 /** plan "free" takes Pro away; Pro is given with one of pro_days, pro_until (YYYY-MM-DD), pro_forever. */
 export interface AdminUserPatch {
   is_active?: boolean;
@@ -636,6 +675,12 @@ export const api = {
     updateUser: (userId: number, patch: AdminUserPatch) =>
       fetchApi<AdminUserRead>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(patch) }),
     logs: (tail = 50) => fetchApi<AdminLogsResponse>(`/admin/logs?tail=${tail}`),
+    duplicates: (p: { status?: DupStatus; page?: number; page_size?: number } = {}) =>
+      fetchApi<DupPage>(`/admin/duplicates${qs(p)}`),
+    scanDuplicates: () =>
+      fetchApi<{ found: number; added: number; dropped: number }>("/admin/duplicates/scan", { method: "POST" }),
+    decideDuplicate: (id: number, action: "merge" | "keep-apart" | "undo") =>
+      fetchApi<{ ok: boolean; status: DupStatus; moved: number }>(`/admin/duplicates/${id}/${action}`, { method: "POST" }),
     workerStatus: () =>
       fetchApi<{ online: boolean; last_seen_ago_s: number | null; queue_depth: number }>("/admin/worker/status"),
   },

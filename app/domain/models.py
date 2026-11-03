@@ -10,9 +10,40 @@ class ProductGroup(SQLModel, table=True):
     name: str = Field(index=True, unique=True) # Example: "iPhone 15 128GB Black"
     category: Optional[str] = Field(default="General", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+    # Set when an admin merged this group into another one ("Possible
+    # duplicates"): the group keeps its name but no products, so a new product
+    # that matches it lands in the group it was merged into (matcher.resolve).
+    merged_into_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(Integer, ForeignKey("productgroup.id", ondelete="SET NULL"), index=True, nullable=True),
+    )
+
     # Relationship with specific offers in different stores
     products: List["Product"] = Relationship(back_populates="group")
+
+
+class GroupPair(SQLModel, table=True):
+    """Two groups that may be one perfume sold under different names
+    ("Possible duplicates" in the admin panel). Found after each day scan;
+    an admin decides: merge them (undoable) or keep them apart. The names are
+    kept too, so the decision is still known after a regroup."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    group_a_id: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, ForeignKey("productgroup.id", ondelete="SET NULL"), index=True)
+    )
+    group_b_id: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, ForeignKey("productgroup.id", ondelete="SET NULL"), index=True)
+    )
+    name_a: str = Field(max_length=255)
+    name_b: str = Field(max_length=255)
+    reason: str = Field(max_length=16)  # subset | typo | conc
+    score: float = Field(default=0)
+    status: str = Field(default="pending", max_length=16, index=True)  # pending | merged | different | undone
+    # Products moved from B to A by the merge, so it can be undone.
+    moved_product_ids: Optional[list] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    decided_at: Optional[datetime] = Field(default=None)
+    decided_by: Optional[int] = Field(default=None)
 
 # --- 2. PARSING RULES (Domain configuration) ---
 class ScrapingRule(SQLModel, table=True):

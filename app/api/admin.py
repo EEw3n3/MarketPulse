@@ -16,9 +16,10 @@ from sqlalchemy.future import select
 from sqlalchemy import func, delete, update, or_
 
 from app.api.deps import get_db, get_current_admin, get_worker
+from app.api.schemas import DupGroup, DupOffer, DupPage, DupPair
 from app.core.job_queue import job_queue
-from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences, PlanChange
-from app.services import plans
+from app.domain.models import User, ScrapingRule, Product, PriceHistory, Favorite, UserPreferences, PlanChange, GroupPair
+from app.services import group_merge, plans
 from app.services.normalizer import is_placeholder_brand
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -414,7 +415,7 @@ async def scrape_ingest(
                 await db.execute(upsert)
                 await db.flush()
                 resolved = (await db.execute(select(ProductGroup).where(ProductGroup.name == canonical))).scalar_one()
-                group_id = resolved.id
+                group_id = (await matcher_service.resolve_merged(db, resolved)).id
 
             product = Product(
                 url=item.url,
@@ -897,3 +898,106 @@ async def get_logs(
     """Recent log lines from the in-memory ring buffer."""
     lines = LOG_RING[-tail:] if LOG_RING else ["[No log entries captured yet — start the scraper to populate]"]
     return LogsResponse(lines=lines, total=len(LOG_RING))
+
+
+# ── Possible duplicates ──────────────────────────────────────────────────────
+
+def _dup_group(gid: Optional[int], name: str, products: list) -> DupGroup:
+    """One side of a pair: the cheapest offer per shop and volume."""
+    best: dict[tuple[str, str], Product] = {}
+    for p in products:
+        k = (p.search_term, (p.volume or "").lower())
+        cur = best.get(k)
+        if cur is None or (p.last_price is not None and (cur.last_price is None or p.last_price < cur.last_price)):
+            best[k] = p
+    offers = sorted(best.values(), key=lambda p: (group_merge.volume_sort_key(p.volume or ""), p.search_term))
+    image = next((p.image_url for p in products if p.image_url and p.is_available), None) \
+        or next((p.image_url for p in products if p.image_url), None)
+    return DupGroup(
+        id=gid, name=name, image_url=image, shops=sorted({p.search_term for p in products}), products=len(products),
+        offers=[DupOffer(shop=p.search_term, volume=p.volume, price=float(p.last_price) if p.last_price is not None else None,
+                         url=p.url, is_available=p.is_available) for p in offers],
+    )
+
+
+async def _dup_pairs(db: AsyncSession, pairs: list) -> list:
+    gids = {g for p in pairs for g in (p.group_a_id, p.group_b_id) if g}
+    moved = {i for p in pairs if p.status == "merged" for i in (p.moved_product_ids or [])}
+    rows = []
+    if gids or moved:
+        rows = (await db.execute(select(Product).where(
+            or_(Product.group_id.in_(gids or [-1]), Product.id.in_(moved or [-1])),
+            Product.card_type == "perfume"))).scalars().all()
+    by_group: dict[int, list] = {}
+    by_id = {p.id: p for p in rows}
+    for p in rows:
+        by_group.setdefault(p.group_id, []).append(p)
+    out = []
+    for pair in pairs:
+        if pair.status == "merged":
+            ids_b = set(pair.moved_product_ids or [])
+            a_products = [p for p in by_group.get(pair.group_a_id, []) if p.id not in ids_b]
+            b_products = [by_id[i] for i in ids_b if i in by_id]
+        else:
+            a_products = by_group.get(pair.group_a_id, [])
+            b_products = by_group.get(pair.group_b_id, [])
+        a = _dup_group(pair.group_a_id, pair.name_a, a_products)
+        b = _dup_group(pair.group_b_id, pair.name_b, b_products)
+        common = sorted({(o.volume or "").lower() for o in a.offers} & {(o.volume or "").lower() for o in b.offers} - {""},
+                        key=group_merge.volume_sort_key)
+        out.append(DupPair(id=pair.id, reason=pair.reason, score=pair.score, status=pair.status,
+                           created_at=pair.created_at, decided_at=pair.decided_at, common_volumes=common, a=a, b=b))
+    return out
+
+
+@router.get("/duplicates", response_model=DupPage)
+async def list_duplicates(
+    status_: Literal["pending", "merged", "different", "undone"] = Query(default="pending", alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Possible duplicates: pending ones by score (most likely first), decided
+    ones newest first."""
+    total = int(await db.scalar(select(func.count(GroupPair.id)).where(GroupPair.status == status_)) or 0)
+    pending = int(await db.scalar(select(func.count(GroupPair.id)).where(GroupPair.status == "pending")) or 0)
+    order = (GroupPair.score.desc(), GroupPair.id) if status_ == "pending" else (GroupPair.decided_at.desc(), GroupPair.id.desc())
+    pairs = (await db.execute(select(GroupPair).where(GroupPair.status == status_).order_by(*order)
+                              .offset((page - 1) * page_size).limit(page_size))).scalars().all()
+    return DupPage(items=await _dup_pairs(db, list(pairs)), total=total, pending=pending, page=page, page_size=page_size)
+
+
+@router.post("/duplicates/scan")
+async def scan_duplicates(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_admin)):
+    """Look for new possible duplicates now (it also runs after each day scan)."""
+    result = await group_merge.find_pairs(db)
+    await db.commit()
+    return result
+
+
+@router.post("/duplicates/{pair_id}/{action}")
+async def decide_duplicate(
+    pair_id: int,
+    action: Literal["merge", "keep-apart", "undo"],
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """merge: one card from now on (B's products go to A); keep-apart: never
+    propose this pair again; undo: split a merged pair again."""
+    pair = await db.get(GroupPair, pair_id)
+    if pair is None:
+        raise HTTPException(status_code=404, detail="Pair not found")
+    try:
+        if action == "merge":
+            moved = await group_merge.merge_pair(db, pair, admin.id)
+        elif action == "undo":
+            moved = await group_merge.undo_merge(db, pair, admin.id)
+        else:
+            await group_merge.keep_apart(db, pair, admin.id)
+            moved = 0
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    await db.commit()
+    logger.info(f"duplicates: pair {pair_id} {action} by admin {admin.id} ({moved} products)")
+    return {"ok": True, "status": pair.status, "moved": moved}

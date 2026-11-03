@@ -2423,7 +2423,7 @@ class ScraperService:
                         await session.execute(upsert_stmt)
                         await session.flush()
                         result = await session.execute(select(ProductGroup).where(ProductGroup.name == canonical))
-                        resolved_group = result.scalar_one()
+                        resolved_group = await matcher_service.resolve_merged(session, result.scalar_one())
                         final_group_id = resolved_group.id
                         logger.info(f"✨ Created NEW Chain: {canonical}")
 

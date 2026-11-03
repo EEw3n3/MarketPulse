@@ -114,6 +114,15 @@ async def process_target_worker(target: dict, intent: dict | None, group_id: int
                 await page_check.check_after_pass(freshness.shop_of(target["url"]))
             except Exception as e:
                 logger.warning(f"Page check after {target['url']} failed: {e}")
+            # New cards that may be another shop's name for a known perfume go to
+            # "Possible duplicates" in the admin panel (nothing is merged here).
+            from app.services import group_merge
+            try:
+                async with async_session() as s:
+                    await group_merge.find_pairs(s)
+                    await s.commit()
+            except Exception as e:
+                logger.warning(f"Duplicate search after {target['url']} failed: {e}")
 
 async def main():
     

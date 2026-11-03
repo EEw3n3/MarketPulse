@@ -53,8 +53,14 @@ from app.services.normalizer import brand_key, canonical_brand, name_key, names_
 REPORTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "reports"))
 
 
-def plan_groups(products: list[dict], old_names: dict[int, str]) -> dict:
-    """Assign every product a new group. Returns the plan (no DB access)."""
+def plan_groups(products: list[dict], old_names: dict[int, str], merged: dict[int, int] | None = None) -> dict:
+    """Assign every product a new group. Returns the plan (no DB access).
+
+    `merged` maps groups an admin merged into another ("Possible duplicates")
+    to their target: {merged group id: target group id}. Their products keep
+    going to the target, and the empty merged group stays (see
+    matcher.resolve_merged)."""
+    merged = merged or {}
     matcher = MatcherService()
     order = sorted(products, key=lambda p: (-(p["last_seen"].timestamp() if p["last_seen"] else 0), p["id"]))
 
@@ -102,6 +108,61 @@ def plan_groups(products: list[dict], old_names: dict[int, str]) -> dict:
         found["members"].append(p)
         p["new_cluster"] = found
 
+    # Admin merges ("Possible duplicates"), before old ids are kept: the
+    # cluster that gathers the merged group's name joins the cluster of the
+    # target group. The empty merged group stays as an alias that points to it
+    # (matcher.resolve_merged), so new products with that name land there too.
+    removed: set[int] = set()
+    by_old: dict[int, list[dict]] = defaultdict(list)
+    if merged:
+        for p in order:
+            if p["group_id"]:
+                by_old[p["group_id"]].append(p)
+
+    def alive(c) -> bool:
+        return c is not None and id(c) not in removed
+
+    def cluster_for(name: str):
+        c = by_name.get(name.lower())
+        if alive(c):
+            return c
+        norm = perfume_normalizer.extract_all(name)
+        if not norm["brand"] or not norm["clean_name"]:
+            return None
+        key = name_key(norm["clean_name"], norm["brand"])
+        return next((c for c in by_bucket[(brand_key(norm["brand"]), (norm["concentration"] or "").lower())]
+                     if alive(c) and c["key"] is not None and names_match(key, c["key"])), None)
+
+    merges_applied: list[tuple[str, str]] = []
+    merges_ended: list[str] = []
+    alias_into: dict[int, dict] = {}
+    for gid, target in merged.items():
+        name = old_names.get(gid, "")
+        cb = cluster_for(name)
+        ca = cluster_for(old_names.get(target, ""))
+        if ca is None:
+            # The target was renamed: take the cluster that holds most of its
+            # own products (the merged-in ones are in cb).
+            own = [m["new_cluster"] for m in by_old.get(target, [])
+                   if alive(m["new_cluster"]) and m["new_cluster"] is not cb]
+            if own:
+                best = Counter(id(c) for c in own).most_common(1)[0][0]
+                ca = next(c for c in own if id(c) == best)
+        if ca is None:
+            # The target holds no products any more: the merged group's
+            # products stay together as an ordinary group.
+            merges_ended.append(name)
+            continue
+        if alive(cb) and cb is not ca:
+            for m in cb["members"]:
+                m["new_cluster"] = ca
+            ca["members"].extend(cb["members"])
+            clusters.remove(cb)
+            removed.add(id(cb))
+        merges_applied.append((name, ca["name"]))
+        if cb is not ca:
+            alias_into[gid] = ca
+
     # Keep the old group id that holds most of each new group's products.
     taken: set[int] = set()
     for c in sorted(clusters, key=lambda c: -len(c["members"])):
@@ -109,8 +170,20 @@ def plan_groups(products: list[dict], old_names: dict[int, str]) -> dict:
         c["group_id"] = c["kept_id"] = next((gid for gid, _ in counts.most_common() if gid not in taken), None)
         if c["group_id"]:
             taken.add(c["group_id"])
+
+    # An alias stays unless its group is a real one again or a group now has
+    # its name (the names match by themselves: no alias needed).
+    names_now = {c["name"].lower() for c in clusters}
+    still_merged: dict[int, dict] = {}
+    for gid, ca in alias_into.items():
+        if gid in taken or old_names.get(gid, "").lower() in names_now:
+            continue
+        still_merged[gid] = ca
+        taken.add(gid)
     return {"clusters": clusters, "no_name": no_name, "collisions": collisions,
-            "kept_ids": taken, "deleted_ids": set(old_names) - taken}
+            "kept_ids": taken, "deleted_ids": set(old_names) - taken,
+            "merges_applied": merges_applied, "merges_ended": merges_ended,
+            "still_merged": still_merged}
 
 
 def e(x) -> str:
@@ -194,6 +267,10 @@ table td{{padding:2px 12px 2px 0}} input{{padding:6px;width:360px;margin:8px 0}}
   const q=this.value.toLowerCase();document.querySelectorAll('details').forEach(d=>d.style.display=d.textContent.toLowerCase().includes(q)?'':'none')">
 <h2>Старые группы, которые разделятся ({len(split_rows)})</h2>{"".join(split_rows)}
 <h2>Новые группы из нескольких старых ({len(merged_rows)})</h2>{"".join(merged_rows)}
+<h2>Объединения из «Возможных дублей» ({len(plan.get("merges_applied", []))})</h2>
+<p class="muted">Группы, которые админ объединил вручную, остаются объединёнными.
+{f'Закончились (у целевой группы не осталось товаров): {e("; ".join(plan["merges_ended"]))}' if plan.get("merges_ended") else ""}</p>
+<details><summary>список</summary><ul>{"".join(f"<li>{e(a)} → <b>{e(b)}</b></li>" for a, b in plan.get("merges_applied", []))}</ul></details>
 <h2>Товары без группы: в названии только бренд ({len(no_name)})</h2>
 <details><summary>список</summary><ul>{"".join(product_line(p) for p in no_name)}</ul></details>
 <h2>Переименования групп ({len(renamed)})</h2><details><summary>список</summary><ul>{renamed_html}</ul></details>
@@ -214,6 +291,8 @@ async def main() -> None:
 
     async with async_session_maker() as s:
         old_names = {gid: name for gid, name in (await s.execute(text("SELECT id, name FROM productgroup"))).all()}
+        merged = dict((await s.execute(text(
+            "SELECT id, merged_into_id FROM productgroup WHERE merged_into_id IS NOT NULL"))).all())
         rows = (await s.execute(text(
             "SELECT id, title, brand, concentration, card_type, group_id, last_seen, search_term FROM product"
         ))).mappings().all()
@@ -222,7 +301,7 @@ async def main() -> None:
         p["old_group_name"] = old_names.get(p["group_id"])
     print(f"{len(products)} products, {len(old_names)} groups loaded")
 
-    plan = plan_groups(products, old_names)
+    plan = plan_groups(products, old_names, merged)
     brand_changes: Counter = Counter()
     for p in products:
         canon = canonical_brand(p["brand"]) if p["brand"] else p["brand"]
@@ -235,6 +314,11 @@ async def main() -> None:
         async with async_session_maker() as s:
             async with s.begin():
                 clusters = plan["clusters"]
+                # Merges whose target is gone end: that group is an ordinary one again.
+                ended = [gid for gid in merged if gid not in plan["still_merged"]]
+                if ended:
+                    await s.execute(text("UPDATE productgroup SET merged_into_id = NULL WHERE id = ANY(:ids)"),
+                                    {"ids": ended})
                 # Free every kept group's name first: new names may swap between groups.
                 for c in clusters:
                     if c["group_id"]:
@@ -255,6 +339,13 @@ async def main() -> None:
                         ), {"n": c["name"]})).scalar_one()
                     await s.execute(text("UPDATE product SET group_id = :g WHERE id = ANY(:ids)"),
                                     {"g": c["group_id"], "ids": [m["id"] for m in c["members"]]})
+                # Aliases point to the group their target's products ended up in.
+                for gid, c in plan["still_merged"].items():
+                    await s.execute(text("UPDATE productgroup SET merged_into_id = :t WHERE id = :g"),
+                                    {"t": c["group_id"], "g": gid})
+                    await s.execute(text("UPDATE grouppair SET group_a_id = :t "
+                                         "WHERE status = 'merged' AND group_b_id = :g"),
+                                    {"t": c["group_id"], "g": gid})
                 for (old, new), _ in brand_changes.items():
                     await s.execute(text("UPDATE product SET brand = :new WHERE brand = :old"),
                                     {"new": new, "old": old})

@@ -581,3 +581,42 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+
+
+# ── Possible duplicates (admin) ─────────────────────────────────────────────
+
+class DupOffer(BaseModel):
+    shop: str
+    volume: Optional[str] = None
+    price: Optional[float] = None
+    url: str
+    is_available: bool
+
+
+class DupGroup(BaseModel):
+    id: Optional[int] = None
+    name: str
+    image_url: Optional[str] = None
+    shops: List[str]
+    products: int
+    offers: List[DupOffer]
+
+
+class DupPair(BaseModel):
+    id: int
+    reason: str
+    score: float
+    status: str
+    created_at: datetime
+    decided_at: Optional[datetime] = None
+    common_volumes: List[str]
+    a: DupGroup
+    b: DupGroup
+
+
+class DupPage(BaseModel):
+    items: List[DupPair]
+    total: int
+    pending: int
+    page: int
+    page_size: int

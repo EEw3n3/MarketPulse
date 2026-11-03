@@ -12,16 +12,20 @@ import {
   type AdminUserPatch,
   type AdminUserRead,
   type AdminUsersPage,
+  type DupGroup,
+  type DupPage,
+  type DupPair,
+  type DupStatus,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageContext } from "@/contexts/ChatContext";
 import { useT } from "@/i18n";
-import { ago, dateTime, day, dayLong, int, num } from "@/lib/format";
+import { ago, dateTime, day, dayLong, eur, int, num } from "@/lib/format";
 import { fieldStyle, isShownShop, shopOf } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
 
-type Tab = "health" | "scraping" | "quality" | "users";
-const TABS: Tab[] = ["health", "scraping", "quality", "users"];
+type Tab = "health" | "scraping" | "quality" | "dups" | "users";
+const TABS: Tab[] = ["health", "scraping", "quality", "dups", "users"];
 const LIMITS: (number | null)[] = [50, 100, 500, 1000, null];
 const STUCK_MS = 6 * 60 * 1000;
 
@@ -694,6 +698,168 @@ function ProPanel({ u, close, saved }: { u: AdminUserRead; close: () => void; sa
   );
 }
 
+// ── Possible duplicates ─────────────────────────────────────────────────────
+
+const DUP_PAGE = 20;
+const DUP_STATUSES: DupStatus[] = ["pending", "merged", "different", "undone"];
+
+function DupSide({ g, common, role }: { g: DupGroup; common: Set<string>; role: string }) {
+  const t = useT();
+  return (
+    <div className="dside">
+      <small className="muted">{role}</small>
+      <div className="dhead">
+        {g.image_url ? (
+          <img src={g.image_url} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
+        ) : (
+          <span className="noimg" aria-hidden="true" />
+        )}
+        <b>{g.name}</b>
+      </div>
+      {g.offers.length ? (
+        <table className="adm doff">
+          <tbody>
+            {g.offers.map((o) => (
+              <tr key={`${o.shop}-${o.volume}`} className={common.has((o.volume ?? "").toLowerCase()) ? "hit" : undefined}>
+                <td className="num">{o.volume ?? "—"}</td>
+                <td>
+                  <a href={o.url} target="_blank" rel="noreferrer">
+                    {shopOf(o.shop).label}
+                  </a>
+                </td>
+                <td className="r num">{o.price != null ? eur(o.price) : "—"}</td>
+                <td className="muted">{o.is_available ? "" : t.admin.dOut}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">{t.admin.dGone}</p>
+      )}
+    </div>
+  );
+}
+
+function DupsTab() {
+  const t = useT();
+  const qc = useQueryClient();
+  const [status, setStatus] = useState<DupStatus>("pending");
+  const [page, setPage] = useState(1);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const key = ["admin", "dups", status, page] as const;
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: key,
+    queryFn: () => api.admin.duplicates({ status, page, page_size: DUP_PAGE }),
+    placeholderData: keepPreviousData,
+  });
+  if (isLoading && !data) return <Loading />;
+  if (isError || !data) return <Failed retry={() => refetch()} />;
+  const pages = Math.max(1, Math.ceil(data.total / DUP_PAGE));
+  const from = data.total ? (page - 1) * DUP_PAGE + 1 : 0;
+  const to = Math.min(page * DUP_PAGE, data.total);
+
+  async function decide(p: DupPair, action: "merge" | "keep-apart" | "undo") {
+    setBusy(p.id);
+    try {
+      const r = await api.admin.decideDuplicate(p.id, action);
+      qc.setQueryData<DupPage>(key, (prev) =>
+        prev ? { ...prev, items: prev.items.filter((x) => x.id !== p.id), total: prev.total - 1,
+                 pending: prev.pending + (status === "pending" ? -1 : 0) } : prev,
+      );
+      qc.invalidateQueries({ queryKey: ["admin", "dups"], refetchType: "none" });
+      toast.success(action === "merge" ? t.admin.dMerged(r.moved) : action === "undo" ? t.admin.dUndone(r.moved) : t.admin.dKept);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function scan() {
+    setScanning(true);
+    try {
+      const r = await api.admin.scanDuplicates();
+      toast.success(t.admin.dScanned(r.added));
+      qc.invalidateQueries({ queryKey: ["admin", "dups"] });
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  return (
+    <section className="panel" role="tabpanel" aria-label={t.admin.tabs.dups}>
+      <div className="card">
+        <h2>
+          <span>{t.admin.dH}</span>
+          <button className="btn btn-line btn-sm" type="button" disabled={scanning} onClick={scan} style={{ marginLeft: "auto" }}>
+            {scanning ? t.admin.dScanning : t.admin.dScan}
+          </button>
+        </h2>
+        <p className="muted">{t.admin.dP}</p>
+        <div className="seg" role="group" aria-label={t.admin.dFilter} style={{ marginBottom: 12 }}>
+          {DUP_STATUSES.map((s) => (
+            <button key={s} type="button" aria-pressed={status === s} onClick={() => { setStatus(s); setPage(1); }}>
+              {t.admin.dStatus[s]}
+              {s === "pending" && <span className="n num">{data.pending}</span>}
+            </button>
+          ))}
+        </div>
+        {data.items.length ? (
+          data.items.map((p) => {
+            const common = new Set(p.common_volumes.map((v) => v.toLowerCase()));
+            return (
+              <article key={p.id} className="dpair">
+                <p className="dwhy">
+                  <b>{t.admin.dReason[p.reason]}</b>
+                  {p.common_volumes.length > 0 && <span className="muted"> · {t.admin.dCommon(p.common_volumes.join(", "))}</span>}
+                  {p.decided_at && <span className="muted"> · {dateTime(p.decided_at)}</span>}
+                </p>
+                <div className="dsides">
+                  <DupSide g={p.a} common={common} role={t.admin.dStays} />
+                  <DupSide g={p.b} common={common} role={t.admin.dJoins} />
+                </div>
+                <div className="dact">
+                  {p.status === "pending" && (
+                    <>
+                      <button className="btn btn-ink btn-sm" type="button" disabled={busy === p.id} onClick={() => decide(p, "merge")}>
+                        {t.admin.dSame}
+                      </button>
+                      <button className="btn btn-line btn-sm" type="button" disabled={busy === p.id} onClick={() => decide(p, "keep-apart")}>
+                        {t.admin.dDifferent}
+                      </button>
+                    </>
+                  )}
+                  {p.status === "merged" && (
+                    <button className="btn btn-line btn-sm" type="button" disabled={busy === p.id} onClick={() => decide(p, "undo")}>
+                      {t.admin.dUndo}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <p className="muted">{status === "pending" ? t.admin.dNone : t.admin.dNoneHere}</p>
+        )}
+        {data.total > DUP_PAGE && (
+          <div className="pager">
+            <span className="muted">{t.admin.shown(from, to, data.total)}</span>
+            <button className="btn btn-line btn-sm" type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              {t.admin.prev}
+            </button>
+            <button className="btn btn-line btn-sm" type="button" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+              {t.admin.next}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function UsersTab() {
   const t = useT();
   const qc = useQueryClient();
@@ -976,7 +1142,8 @@ export default function AdminPanel() {
   const tab: Tab = (TABS as string[]).includes(hash.slice(1)) ? (hash.slice(1) as Tab) : "health";
   const health = useQuery(healthQuery);
   const { data: users } = useQuery({ queryKey: ["admin", "users", "count"], queryFn: () => api.admin.users({ page_size: 1 }) });
-  usePageContext(`Admin panel, ${tab} tab: scraper health, scraping runs, data quality and user accounts.`);
+  const { data: dups } = useQuery({ queryKey: ["admin", "dups", "count"], queryFn: () => api.admin.duplicates({ page_size: 1 }) });
+  usePageContext(`Admin panel, ${tab} tab: scraper health, scraping runs, data quality, possible duplicate cards and user accounts.`);
 
   return (
     <AppShell>
@@ -992,11 +1159,14 @@ export default function AdminPanel() {
             <button key={id} type="button" role="tab" aria-selected={tab === id} aria-pressed={tab === id} onClick={() => nav({ hash: id === "health" ? "" : id }, { replace: true })}>
               {t.admin.tabs[id]}
               {id === "users" && users && <span className="n num">{users.total}</span>}
+              {id === "dups" && dups && dups.pending > 0 && <span className="n num">{dups.pending}</span>}
             </button>
           ))}
         </div>
         {tab === "quality" ? (
           <QualityTab />
+        ) : tab === "dups" ? (
+          <DupsTab />
         ) : tab === "users" ? (
           <UsersTab />
         ) : health.isLoading ? (

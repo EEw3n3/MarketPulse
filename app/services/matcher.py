@@ -69,6 +69,18 @@ class MatcherService:
             self._group_cache[cache_key] = parsed
         return self._group_cache[cache_key]
 
+    async def resolve_merged(self, session, group: Optional[ProductGroup]) -> Optional[ProductGroup]:
+        """The group a product really goes to: an admin may have merged this one
+        into another ("Possible duplicates"); it then has no products of its own."""
+        seen: set[int] = set()
+        while group is not None and group.merged_into_id and group.id not in seen:
+            seen.add(group.id)
+            target = await session.get(ProductGroup, group.merged_into_id)
+            if target is None:
+                break
+            group = target
+        return group
+
     async def find_best_match(self, session, product_data: Dict) -> Optional[ProductGroup]:
         """
         Tries to find an existing ProductGroup (Chain) for the given perfume.
@@ -89,7 +101,7 @@ class MatcherService:
 
         if not brand:
             # No brand: fall back to a strict full-title fuzzy match.
-            return await self._fuzzy_fallback(session, title)
+            return await self.resolve_merged(session, await self._fuzzy_fallback(session, title))
         key = name_key(norm["clean_name"], brand)
 
         # Strict Matching Phase — pre-filter by brand prefix (with aliases).
@@ -123,7 +135,7 @@ class MatcherService:
                     f"🔗 CHAIN LINKED! (conc={concentration or '∅'}): "
                     f"'{title}' joined '{group.name}'"
                 )
-                return group
+                return await self.resolve_merged(session, group)
 
         return None
 
