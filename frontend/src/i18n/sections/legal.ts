@@ -22,7 +22,7 @@ const en = {
     {
       h: "Who we are",
       p: [
-        "MarketPulse (marketpulse1.me) compares perfume prices in Latvian online shops. It is run by Ervin Ubinin, Riga, Latvia, who is responsible for your data.",
+        "MarketPulse (marketpulse1.me) compares perfume prices in Latvian online shops. It is run by Ervīns Ubiņins, Riga, Latvia, who is responsible for your data.",
         `Questions about your data: ${CONTACT}.`,
       ],
     },
@@ -153,7 +153,7 @@ const lv: typeof en = {
     {
       h: "Kas mēs esam",
       p: [
-        "MarketPulse (marketpulse1.me) salīdzina smaržu cenas Latvijas interneta veikalos. To uztur Ervins Ubinins, Rīga, Latvija, kurš ir atbildīgs par jūsu datiem.",
+        "MarketPulse (marketpulse1.me) salīdzina smaržu cenas Latvijas interneta veikalos. To uztur Ervīns Ubiņins, Rīga, Latvija, kurš ir atbildīgs par jūsu datiem.",
         `Jautājumi par jūsu datiem: ${CONTACT}.`,
       ],
     },
