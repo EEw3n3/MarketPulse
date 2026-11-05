@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, TokenResponse, UserRead, UserPreferencesUpdate } from "@/lib/api";
 
 const TOKEN_KEY = "marketpulse_token";
@@ -37,7 +38,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
+  const qc = useQueryClient();
+
   const _persist = (newToken: string, newUser: UserRead) => {
+    // Another account's cached data (plan, checkout, favorites) must not show for this one.
+    qc.clear();
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
     setUser(newUser);
@@ -64,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    qc.clear();
   };
 
   const updatePreferences = async (patch: UserPreferencesUpdate) => {

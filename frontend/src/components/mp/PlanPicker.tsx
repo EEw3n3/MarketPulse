@@ -23,7 +23,7 @@ export default function PlanPicker() {
   const [term, setTerm] = useState<BillingTerm>("year");
   const [state, setState] = useState<State>("idle");
   const { data: cfg } = useQuery({
-    queryKey: ["billing", "config"],
+    queryKey: ["billing", "config", user?.id],
     queryFn: api.billing.config,
     enabled: !!user,
     staleTime: 5 * 60_000,
@@ -100,11 +100,18 @@ export default function PlanPicker() {
           );
         })}
       </div>
-      <div className="acts">
-        <button className="btn btn-accent" type="button" onClick={buy} disabled={state === "opening" || state === "waiting"}>
-          {state === "opening" ? t.pro.opening : state === "waiting" ? t.pro.waiting : t.pro.get}
-        </button>
-      </div>
+      {cfg && !cfg.checkout ? (
+        // No checkout for this account yet (test mode, or keys not set): no button, just say so.
+        <p className="note" role="status">
+          {t.pro.manualNote}
+        </p>
+      ) : (
+        <div className="acts">
+          <button className="btn btn-accent" type="button" onClick={buy} disabled={!cfg || state === "opening" || state === "waiting"}>
+            {state === "opening" ? t.pro.opening : state === "waiting" ? t.pro.waiting : t.pro.get}
+          </button>
+        </div>
+      )}
       {state === "soon" ? (
         <p className="note fade" role="status">
           {t.pro.manualNote}

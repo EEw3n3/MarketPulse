@@ -188,8 +188,8 @@ function PlanCard() {
   const { user } = useAuth();
   const pro = hasPro(user);
   const adds = t.pro.benefits.slice(0, -1);
-  const { data: sub } = useQuery({ queryKey: ["billing", "me"], queryFn: api.billing.me, enabled: !!user });
-  const { data: cfg } = useQuery({ queryKey: ["billing", "config"], queryFn: api.billing.config, enabled: !!user, staleTime: 5 * 60_000 });
+  const { data: sub } = useQuery({ queryKey: ["billing", "me", user?.id], queryFn: api.billing.me, enabled: !!user });
+  const { data: cfg } = useQuery({ queryKey: ["billing", "config", user?.id], queryFn: api.billing.config, enabled: !!user, staleTime: 5 * 60_000 });
   const live = sub && sub.status !== "canceled" ? sub : null;
   // Admins have Pro anyway; in the sandbox they test the checkout from here.
   const adminTest = !!user?.is_admin && !live && !!cfg?.checkout && cfg.environment === "sandbox";
