@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { BRAND_OPTIONS } from "@/lib/brands";
-import { SHOPS, fieldStyle } from "@/lib/shops";
+import { SHOPS, fieldStyle, shownShops } from "@/lib/shops";
 import LangSwitch from "@/components/mp/LangSwitch";
 
 function Head({ step }: { step: 1 | 2 }) {
@@ -34,7 +34,7 @@ export function OnboardingStores() {
   const t = useT();
   const nav = useNavigate();
   const { user, updatePreferences } = useAuth();
-  const [sel, setSel] = useState<Set<string>>(() => new Set(user?.preferences?.monitored_stores ?? []));
+  const [sel, setSel] = useState<Set<string>>(() => new Set(shownShops(user?.preferences?.monitored_stores)));
   const [busy, setBusy] = useState(false);
   const { data } = useQuery({ queryKey: ["filters"], queryFn: api.getFilters, staleTime: 10 * 60_000 });
   const counts = new Map((data?.stores ?? []).map((s) => [s.value, s.count]));

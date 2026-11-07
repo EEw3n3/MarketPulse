@@ -30,6 +30,11 @@ export function isShownShop(s: string | null | undefined): boolean {
   return !HIDDEN_SHOPS.has(shopKey(s));
 }
 
+/** A user's saved shop list without the hidden shops (old accounts still have "1a"). */
+export function shownShops(list: string[] | null | undefined): string[] {
+  return (list ?? []).filter(isShownShop);
+}
+
 /** "Douglas Latvia", "makeup.lv", "Makeup.lv" -> "douglas", "makeup". */
 export function shopKey(s: string | null | undefined): string {
   return (s || "")

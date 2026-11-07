@@ -10,7 +10,7 @@ import { BRAND_OPTIONS } from "@/lib/brands";
 import { dayLong } from "@/lib/format";
 import { hasPro } from "@/lib/plan";
 import PlanPicker from "@/components/mp/PlanPicker";
-import { SHOPS, fieldStyle } from "@/lib/shops";
+import { SHOPS, fieldStyle, shownShops } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
 import LangSwitch from "@/components/mp/LangSwitch";
 
@@ -286,7 +286,7 @@ function AccountCard() {
 function ShopsCard() {
   const t = useT();
   const { user, updatePreferences } = useAuth();
-  const [shops, setShops] = useState<Set<string>>(() => new Set(user?.preferences?.monitored_stores ?? []));
+  const [shops, setShops] = useState<Set<string>>(() => new Set(shownShops(user?.preferences?.monitored_stores)));
   const [brands, setBrands] = useState<Set<string>>(() => new Set(user?.preferences?.interested_brands ?? []));
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);

@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useChat, usePageContext } from "@/contexts/ChatContext";
 import { useT } from "@/i18n";
 import { day, eur, int, pct, pctPlain } from "@/lib/format";
-import { fieldStyle, shopOf } from "@/lib/shops";
+import { fieldStyle, shopOf, shownShops } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
 import Checked from "@/components/mp/Checked";
 import Img from "@/components/mp/Img";
@@ -73,7 +73,8 @@ export default function Today() {
   const { ask, setOpen } = useChat();
   usePageContext("Today page: recent price drops in the user's shops and brands, and changes on their favorites list");
   const prefs = user?.preferences;
-  const stores = prefs?.monitored_stores?.length ? prefs.monitored_stores : undefined;
+  const shown = shownShops(prefs?.monitored_stores);
+  const stores = shown.length ? shown : undefined;
   const brands = prefs?.interested_brands?.length ? prefs.interested_brands : undefined;
   const [mine, setMine] = useState(!!brands);
 
