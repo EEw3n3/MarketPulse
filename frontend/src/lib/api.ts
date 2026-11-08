@@ -722,10 +722,14 @@ export const api = {
   },
 
   // Chat
-  sendChat: (message: string, history: ChatMessage[], page_context?: string) =>
+  sendChat: (
+    message: string,
+    history: ChatMessage[],
+    opts: { page_context?: string; product_id?: number | null; lang?: string } = {},
+  ) =>
     fetchApi<ChatResponse>("/chat", {
       method: "POST",
-      body: JSON.stringify({ message, history, page_context }),
+      body: JSON.stringify({ message, history, ...opts }),
     }),
 
   // Favorites

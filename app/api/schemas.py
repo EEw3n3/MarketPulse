@@ -577,7 +577,12 @@ class ChatRequest(BaseModel):
     # The chat sends the last 6 messages; anything older is dropped.
     history: List[ChatMessage] = Field(default_factory=list, max_length=12)
     # Short description of the page the chat was opened on (product, filters).
+    # Kept for old clients; the server uses product_id.
     page_context: Optional[str] = Field(default=None, max_length=300)
+    # The product page the chat was opened on: "is this a good price?".
+    product_id: Optional[int] = None
+    # The site's language, for questions written in no clear language.
+    lang: Optional[str] = Field(default=None, max_length=5)
 
 class ChatResponse(BaseModel):
     reply: str

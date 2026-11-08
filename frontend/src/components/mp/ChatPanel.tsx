@@ -3,7 +3,7 @@ import { ArrowUp, X } from "lucide-react";
 import { api, type ChatMessage } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useChat } from "@/contexts/ChatContext";
-import { useT } from "@/i18n";
+import { useI18n, useT } from "@/i18n";
 
 const MAX_STORED = 40;
 
@@ -63,7 +63,8 @@ function Bubble({ m }: { m: ChatMessage }) {
 export default function ChatPanel() {
   const t = useT();
   const { user } = useAuth();
-  const { open, setOpen, pageContext, pending, takePending } = useChat();
+  const { lang } = useI18n();
+  const { open, setOpen, pageContext, productId, pending, takePending } = useChat();
   const key = user ? `marketpulse_chat_${user.id}` : null;
   const [msgs, setMsgs] = useState<ChatMessage[]>(() => {
     if (!key) return [];
@@ -106,7 +107,11 @@ export default function ChatPanel() {
     setErr(null);
     setBusy(true);
     try {
-      const res = await api.sendChat(q, history, pageContext || undefined);
+      const res = await api.sendChat(q, history, {
+        page_context: pageContext || undefined,
+        product_id: productId,
+        lang,
+      });
       setMsgs((m) => [...m, { role: "assistant", content: res.reply }]);
     } catch (e) {
       setErr(String(e).includes("429") ? t.chat.limit : t.chat.failed);

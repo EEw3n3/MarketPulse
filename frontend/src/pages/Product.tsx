@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowUpRight, Heart as HeartIcon, Sparkles } from "lucide-re
 import { toast } from "sonner";
 import { api, type ProductCardDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { useChat, usePageContext } from "@/contexts/ChatContext";
+import { useChat, usePageContext, usePageProduct } from "@/contexts/ChatContext";
 import { useFavorites } from "@/contexts/FavoritesContext";
 import { useT } from "@/i18n";
 import { exportUrl } from "@/lib/download";
@@ -74,6 +74,7 @@ export default function Product() {
   const favId = bottleIds.find((x) => isFavorite(x));
   const fav = favs.data?.find((f) => f.product_id === favId);
 
+  usePageProduct(p?.id);
   usePageContext(
     p
       ? `Product page: ${full}, ${p.concentration ?? ""} ${p.volume ?? ""}; cheapest ${eur(best?.price ?? p.current_price)} at ${shopOf(bestShop).label}; ${offers.length} shops in stock`
