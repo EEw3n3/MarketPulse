@@ -661,7 +661,10 @@ async def data_quality(
         select(func.count(Product.id)).where(Product.image_url.is_(None))
     ) or 0
 
-    products_with_history_subq = select(PriceHistory.product_id).distinct().subquery()
+    # The synthetic gap-fill rows of October 2026 are not real observations:
+    # they never count as price history here.
+    real = PriceHistory.change_type != "synthetic"
+    products_with_history_subq = select(PriceHistory.product_id).where(real).distinct().subquery()
     no_history = await db.scalar(
         select(func.count(Product.id)).where(
             ~Product.id.in_(products_with_history_subq)
@@ -672,7 +675,7 @@ async def data_quality(
         select(func.count(Product.id)).where(Product.group_id.is_(None))
     ) or 0
 
-    total_events = await db.scalar(select(func.count(PriceHistory.id))) or 0
+    total_events = await db.scalar(select(func.count(PriceHistory.id)).where(real)) or 0
 
     return DataQualityResponse(
         total_products=total,
