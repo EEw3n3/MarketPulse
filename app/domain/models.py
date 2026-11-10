@@ -298,3 +298,9 @@ class Favorite(SQLModel, table=True):
     alert_threshold_percent: Optional[Decimal] = Field(default=None)
     price_when_added: Optional[Decimal] = Field(default=None)  # snapshot for "savings vs. entry"
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # What the daily alert digest (app/services/alert_digest.py) last told the
+    # user about this bottle; None = never (the digest starts from
+    # price_when_added).
+    last_alert_price: Optional[Decimal] = Field(default=None)
+    last_alert_in_stock: Optional[bool] = Field(default=None)
+    last_alert_at: Optional[datetime] = Field(default=None)

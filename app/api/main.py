@@ -28,6 +28,7 @@ from app.api.favorites import router as favorites_router
 from app.api.analytics import router as analytics_router
 from app.api.admin import router as admin_router
 from app.api.telegram import router as telegram_router
+from app.api.notifications import router as notifications_router
 from app.api.chat import router as chat_router
 from app.api.exports import router as exports_router
 from app.api.cards import router as cards_router
@@ -91,6 +92,7 @@ app.include_router(favorites_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api", dependencies=_PRO_REQUIRED)
 app.include_router(admin_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(exports_router, prefix="/api", dependencies=_PRO_REQUIRED)
 # Before the /api/products/{product_id} route below, so /cards etc. win.

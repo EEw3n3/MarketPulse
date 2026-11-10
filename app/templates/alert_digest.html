@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <title>MarketPulse price alerts</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f2;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e4e0;border-radius:12px;">
+        <tr><td style="padding:20px 24px;border-bottom:1px solid #ececea;">
+          <span style="font-size:18px;font-weight:700;letter-spacing:-0.3px;">Market<span style="color:#15803d;">Pulse</span></span>
+        </td></tr>
+        <tr><td style="padding:20px 24px 4px;">
+          {% if test %}
+            <p style="margin:0 0 12px;font-size:15px;line-height:1.5;">This is a test message: this is how your price alerts will look.</p>
+          {% else %}
+            <p style="margin:0 0 12px;font-size:15px;line-height:1.5;">Today's check found news about {{ items|length }} of your saved bottle{{ "s" if items|length != 1 }}.</p>
+          {% endif %}
+        </td></tr>
+        {% for i in items %}
+        <tr><td style="padding:8px 24px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececea;border-radius:10px;">
+            <tr>
+              <td width="72" valign="top" style="padding:12px 0 12px 12px;">
+                {% if i.image_url %}
+                  <img src="{{ i.image_url }}" alt="" width="60" height="60" style="display:block;width:60px;height:60px;object-fit:contain;border-radius:6px;background:#f7f7f5;" />
+                {% else %}
+                  <div style="width:60px;height:60px;border-radius:6px;background:#f0f0ee;"></div>
+                {% endif %}
+              </td>
+              <td valign="top" style="padding:12px;">
+                {% if i.kind == "back" %}
+                  <div style="font-size:12px;font-weight:600;color:#1d4ed8;margin-bottom:4px;">Back in stock</div>
+                {% elif i.kind == "drop" %}
+                  <div style="font-size:12px;font-weight:600;color:#15803d;margin-bottom:4px;">Price drop {{ "%.1f"|format(i.pct) }}%</div>
+                {% endif %}
+                <div style="font-size:15px;font-weight:600;line-height:1.35;margin-bottom:2px;">{{ i.name }}</div>
+                <div style="font-size:13px;color:#666;margin-bottom:8px;">{{ i.store }}</div>
+                <div style="font-size:20px;font-weight:700;">
+                  €{{ "%.2f"|format(i.new_price) }}
+                  {% if i.ref_price and i.ref_price != i.new_price %}
+                    <span style="font-size:14px;font-weight:400;color:#888;text-decoration:line-through;">€{{ "%.2f"|format(i.ref_price) }}</span>
+                  {% endif %}
+                </div>
+                <a href="{{ i.product_url }}" style="display:inline-block;margin-top:10px;font-size:13px;font-weight:600;color:#15803d;text-decoration:none;">Compare shops →</a>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        {% endfor %}
+        <tr><td style="padding:16px 24px 20px;">
+          <a href="{{ favorites_url }}" style="display:block;text-align:center;background:#15803d;color:#ffffff;font-weight:700;font-size:14px;padding:12px 20px;border-radius:8px;text-decoration:none;">Open my favorites</a>
+        </td></tr>
+        <tr><td style="padding:14px 24px;border-top:1px solid #ececea;font-size:11px;line-height:1.6;color:#888;text-align:center;">
+          You get this because you turned on price alerts on MarketPulse. At most one e-mail a day.<br />
+          <a href="{{ profile_url }}" style="color:#666;">Alert settings</a> ·
+          <a href="{{ unsubscribe_url }}" style="color:#666;">Stop these e-mails</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
