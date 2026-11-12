@@ -14,8 +14,10 @@ export function PageLoading() {
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const { pathname, search, hash } = useLocation();
+  const { pathname } = useLocation();
   if (loading) return <PageLoading />;
-  if (!user) return <Navigate to={`/signin?next=${encodeURIComponent(pathname + search + hash)}`} replace />;
+  // Only the page comes back after sign-in, not its old filters (?shop=…, ?q=…):
+  // a new login starts with a clean catalogue.
+  if (!user) return <Navigate to={`/signin?next=${encodeURIComponent(pathname)}`} replace />;
   return <>{children}</>;
 }

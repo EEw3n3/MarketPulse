@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, X } from "lucide-react";
 import { api, type ChatMessage } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { chatKey } from "@/lib/session";
 import { useChat } from "@/contexts/ChatContext";
 import { useI18n, useT } from "@/i18n";
 
@@ -65,7 +66,7 @@ export default function ChatPanel() {
   const { user } = useAuth();
   const { lang } = useI18n();
   const { open, setOpen, pageContext, productId, pending, takePending } = useChat();
-  const key = user ? `marketpulse_chat_${user.id}` : null;
+  const key = user ? chatKey(user.id) : null;
   const [msgs, setMsgs] = useState<ChatMessage[]>(() => {
     if (!key) return [];
     try {

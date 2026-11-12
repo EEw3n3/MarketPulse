@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, TokenResponse, UserRead, UserPreferencesUpdate } from "@/lib/api";
-
-const TOKEN_KEY = "marketpulse_token";
+import { TOKEN_KEY, clearSession, storedToken, tokenExpiry } from "@/lib/session";
 
 interface AuthContextValue {
   user: UserRead | null;
@@ -21,7 +20,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserRead | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => storedToken());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch((e) => {
         // Only a rejected token signs the user out; a network blip keeps it for the next load.
         if (/API Error: 40[13]\b/.test(e instanceof Error ? e.message : "")) {
-          localStorage.removeItem(TOKEN_KEY);
+          clearSession();
           setToken(null);
         }
       })
@@ -43,6 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const _persist = (newToken: string, newUser: UserRead) => {
     // Another account's cached data (plan, checkout, favorites) must not show for this one.
     qc.clear();
+    // Every sign-in starts clean: no chat or tab state from an earlier login.
+    clearSession();
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
     setUser(newUser);
@@ -65,12 +66,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    if (user) localStorage.removeItem(`marketpulse_chat_${user.id}`);
-    localStorage.removeItem(TOKEN_KEY);
+    clearSession();
     setToken(null);
     setUser(null);
     qc.clear();
   };
+
+  // The token ran out while the page was open: sign out at that moment.
+  useEffect(() => {
+    if (!token) return;
+    const exp = tokenExpiry(token);
+    const wait = exp == null ? null : exp - Date.now();
+    // setTimeout holds at most ~24.8 days; a longer token is checked on the next load.
+    if (wait == null || wait > 2 ** 31 - 1) return;
+    const id = window.setTimeout(logout, Math.max(wait, 0));
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // Signed out in another tab: this tab drops the session too.
+  useEffect(() => {
+    if (!token) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY && !e.newValue) logout();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const updatePreferences = async (patch: UserPreferencesUpdate) => {
     const prefs = await api.updatePreferences(patch);
