@@ -21,7 +21,7 @@ import json
 import random
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -39,6 +39,13 @@ CHALLENGE = ("_cf_chl_opt", "Mazliet uzgaidiet", "<title>Just a moment", "neesat
 # A fresh browser context every this many pages: an open context keeps its
 # connections, and thousands of them run Windows out of ports (28.10).
 PAGES_PER_CONTEXT = 15
+# notino.lv: a product page opened as a new navigation stops at a Cloudflare
+# check (37 of 40 each night), which is never answered. Its pass already
+# reads each deep-dived product on its page (the shop's own tracking request,
+# scraper.scrape_product_details), so the check uses that reading instead.
+READ_IN_PASS = {"notino.lv"}
+PASS_READ_MAX_AGE = timedelta(hours=12)
+_PASS_READS: dict[tuple[str, str], tuple["PageResult", datetime]] = {}
 
 
 @dataclass
@@ -60,6 +67,30 @@ def _want(volume: Optional[str]) -> Optional[str]:
     if v and re.search(r"refill|uzpild", (volume or "").lower()):
         v += " refill"
     return v
+
+
+def _url_key(url: str) -> str:
+    """A product URL without query, /p-<id>/ segment and trailing slash."""
+    u = (url or "").split("#")[0].split("?")[0]
+    return re.sub(r"/p-\d+/?$", "", u.rstrip("/")).rstrip("/").lower()
+
+
+def record_pass_read(url: str, title_suffix: str, price, in_stock: bool) -> None:
+    """Remember one variant the pass read on its product page (READ_IN_PASS shops)."""
+    v = _vol(title_suffix)
+    if not v or _dec(price) is None:
+        return
+    if re.search(r"refill|uzpild", (title_suffix or "").lower()):
+        v += " refill"
+    _PASS_READS[(_url_key(url), v)] = (PageResult(_dec(price), bool(in_stock), "read on the page in the pass"),
+                                       datetime.utcnow())
+
+
+def _pass_read(product: Product) -> Optional["PageResult"]:
+    hit = _PASS_READS.get((_url_key(product.url), _want(product.volume)))
+    if hit and datetime.utcnow() - hit[1] <= PASS_READ_MAX_AGE:
+        return hit[0]
+    return None
 
 
 def _dec(v) -> Optional[Decimal]:
@@ -224,13 +255,14 @@ async def check_products(shop: str, ids: list[tuple[int, str]]) -> list[PageChec
     parser = PARSERS.get(shop)
     if not parser or not ids:
         return []
+    in_pass = shop in READ_IN_PASS
     from app.core.browser import browser_manager
 
     out: list[PageCheck] = []
     ctx = None
     try:
         for n, (pid, kind) in enumerate(ids):
-            if ctx is None or n % PAGES_PER_CONTEXT == 0:
+            if not in_pass and (ctx is None or n % PAGES_PER_CONTEXT == 0):
                 if ctx is not None:
                     await ctx.close()
                 ctx = await browser_manager.get_context()
@@ -238,9 +270,15 @@ async def check_products(shop: str, ids: list[tuple[int, str]]) -> list[PageChec
                 product = await session.get(Product, pid)
                 if product is None:
                     continue
-                html = await _fetch(ctx, product.url)
                 res = None
-                note = "page not loaded" if html is None else ""
+                if in_pass:
+                    # No new page is opened: it would stop at a Cloudflare check.
+                    html = None
+                    res = _pass_read(product)
+                    note = "" if res else "not read on its page in this pass"
+                else:
+                    html = await _fetch(ctx, product.url)
+                    note = "page not loaded" if html is None else ""
                 if html is not None:
                     try:
                         res = parser(product.url, product.volume, html)

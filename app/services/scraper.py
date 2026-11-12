@@ -472,6 +472,10 @@ class ScraperService:
                  network_variants = await self._scrape_network_variants(url)
              if network_variants:
                  logger.success(f"🎯 Network intercept extracted {len(network_variants)} variants flawlessly.")
+                 # The pass's page check uses these readings (no new navigation).
+                 from app.services.page_check import record_pass_read
+                 for v in network_variants:
+                     record_pass_read(url, v["title_suffix"], v["price"], v["is_available"])
              else:
                  # The generic DOM/AI path cannot read Notino; trying it only ends
                  # in a stored "SKIP" that switches deep dives off for good.
