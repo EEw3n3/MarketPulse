@@ -123,6 +123,23 @@ def popularity(shops, brand_lower, favs, in_stock):
     )
 
 
+def shops_per_card_subquery():
+    """(k, shops, live): how many shops list each card at all and how many have
+    it in stock, whatever filters the catalogue has on. A card filtered to one
+    shop still says how many shops sell the bottle."""
+    live_store = case((Product.is_available.is_(True), store_expr()))
+    return (
+        select(
+            card_key_expr().label("k"),
+            func.count(func.distinct(store_expr())).label("shops"),
+            func.count(func.distinct(live_store)).label("live"),
+        )
+        .where(Product.last_price > 0)
+        .group_by(card_key_expr())
+        .subquery()
+    )
+
+
 CardSort = Literal["popular", "shops", "drop", "low", "high", "gap", "brand", "new"]
 
 
@@ -183,10 +200,17 @@ async def query_cards(
         func.sum(base.c.favs).label("favs"),
         func.count(base.c.price_live).label("live"),
     ).group_by(base.c.key)
-    if multi_shop:
-        agg = agg.having(func.count(func.distinct(base.c.store)) >= 2)
     if dropped:
         agg = agg.having(min_now < min_ref)
+    agg = agg.subquery()
+    # "Sold in 2+ shops" and the shop count look at every shop that lists the
+    # bottle, not only at the shops left after the filters.
+    per_card = shops_per_card_subquery()
+    agg = select(
+        agg, func.coalesce(per_card.c.shops, agg.c.shops).label("shops_all"),
+    ).outerjoin(per_card, per_card.c.k == agg.c.key)
+    if multi_shop:
+        agg = agg.where(per_card.c.shops >= 2)
     agg = agg.subquery()
 
     totals = (await db.execute(select(func.count(), func.coalesce(func.sum(agg.c.offers), 0)).select_from(agg))).one()
@@ -196,7 +220,7 @@ async def query_cards(
     order = {
         # md5 spreads equal scores across brands instead of listing them A–Z.
         "popular": [popularity(agg.c.shops, agg.c.brand_sort, agg.c.favs, agg.c.live > 0).desc(), func.md5(agg.c.key)],
-        "shops": [agg.c.shops.desc(), agg.c.offers.desc(), agg.c.brand_sort, agg.c.title_sort],
+        "shops": [agg.c.shops_all.desc(), agg.c.offers.desc(), agg.c.brand_sort, agg.c.title_sort],
         "drop": [change.asc().nulls_last(), agg.c.shops.desc()],
         "low": [agg.c.min_price.asc(), agg.c.title_sort],
         "high": [agg.c.min_price.desc(), agg.c.title_sort],
@@ -222,17 +246,24 @@ async def query_cards(
     grouped: dict[str, list[tuple[Product, Optional[float]]]] = defaultdict(list)
     for p, ref_price in (await db.execute(prod_stmt)).all():
         grouped[card_key(p)].append((p, _f(ref_price)))
+    shop_counts = {
+        r.k: int(r.live or r.shops)
+        for r in (await db.execute(select(per_card.c.k, per_card.c.shops, per_card.c.live).where(per_card.c.k.in_(keys)))).all()
+    }
 
     items: list[schemas.CatalogCard] = []
     for k in keys:
         rows = grouped.get(k)
         if not rows:
             continue
-        items.append(build_card(k, rows))
+        items.append(build_card(k, rows, shop_counts.get(k)))
     return schemas.CardsPage(total=int(totals[0] or 0), listings=int(totals[1] or 0), items=items)
 
 
-def build_card(key: str, rows: list[tuple[Product, Optional[float]]]) -> schemas.CatalogCard:
+def build_card(key: str, rows: list[tuple[Product, Optional[float]]], shops_total: Optional[int] = None) -> schemas.CatalogCard:
+    """`rows` are the listings the card shows. `shops_total` is the number of
+    shops that have the bottle (in stock, or listed at all when nobody has it);
+    without it the card counts its own rows the same way."""
     products = [p for p, _ in rows]
     offers = []
     for p, ref_price in rows:
@@ -269,6 +300,7 @@ def build_card(key: str, rows: list[tuple[Product, Optional[float]]]) -> schemas
         max_price=max(o.price for o in offers),
         cheapest_store=best.store,
         shops=len({o.store for o in offers}),
+        shops_total=shops_total or len({o.store for o in offers if o.in_stock}) or len({o.store for o in offers}),
         change_30d=_pct(best.price, best_ref),
         has_promo=any(o.promo_price for o in offers),
         offers=offers,
@@ -441,9 +473,32 @@ def _ml(v: str) -> float:
     return float(m.group(1).replace(",", ".")) if m else 0.0
 
 
+def _volume_facets(vols) -> list[schemas.FacetValue]:
+    return [
+        schemas.FacetValue(value=v, label=v.replace("ml", " ml"), count=int(c))
+        for v, c in sorted(vols, key=lambda r: (_ml(r[0]), r[0]))
+    ]
+
+
 @router.get("/filters", response_model=schemas.CatalogFacets)
-async def get_filters(db: AsyncSession = Depends(get_db)):
-    """Every value the catalogue filters can take, with product counts."""
+async def get_filters(brands: List[str] = Query(None), db: AsyncSession = Depends(get_db)):
+    """Every value the catalogue filters can take, with product counts.
+
+    With `brands` the sizes are counted for those brands only (matched the way
+    the catalogue's brand filter matches); everything else stays catalogue-wide."""
+    brands = [b for b in (brands or []) if b and b.strip()]
+    if brands:
+        full = await get_filters(None, db)
+        vols = (await db.execute(
+            apply_product_filters(
+                select(Product.volume, func.count()).where(
+                    Product.last_price > 0, Product.volume.isnot(None), Product.volume != ""
+                ),
+                brands=brands,
+            ).group_by(Product.volume)
+        )).all()
+        return full.model_copy(update={"volumes": _volume_facets(vols)})
+
     now = time.monotonic()
     if _FACETS_CACHE["value"] is not None and now - _FACETS_CACHE["at"] < _FACETS_TTL:
         return _FACETS_CACHE["value"]
@@ -493,10 +548,7 @@ async def get_filters(db: AsyncSession = Depends(get_db)):
             for k, c in sorted(stores, key=lambda r: -r[1])
         ],
         concentrations=conc_facets,
-        volumes=[
-            schemas.FacetValue(value=v, label=v.replace("ml", " ml"), count=int(c))
-            for v, c in sorted(vols, key=lambda r: (_ml(r[0]), r[0]))
-        ],
+        volumes=_volume_facets(vols),
         brands=brand_facets,
         price_min=float(lo or 0),
         price_max=float(hi or 0),

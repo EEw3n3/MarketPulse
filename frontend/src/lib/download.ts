@@ -9,7 +9,7 @@ export type ExportFormat = "xlsx" | "pdf" | "csv" | "json";
 export function exportUrl(path: string, params: Record<string, unknown>): string {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v == null || v === "" || v === false) continue;
+    if (v == null || v === "" || (v === false && k !== "in_stock")) continue;
     if (Array.isArray(v)) v.forEach((x) => qs.append(k, String(x)));
     else qs.append(k, String(v));
   }

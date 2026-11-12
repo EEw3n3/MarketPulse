@@ -159,7 +159,8 @@ class CatalogCard(BaseModel):
     min_price: float
     max_price: float
     cheapest_store: str
-    shops: int
+    shops: int               # shops among the offers shown (after the shop / stock filters)
+    shops_total: int         # shops that sell this bottle at all, whatever the filters
     change_30d: Optional[float] = None
     has_promo: bool = False
     offers: List[CardOffer] = []

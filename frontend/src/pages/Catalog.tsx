@@ -8,6 +8,7 @@ import { usePageContext } from "@/contexts/ChatContext";
 import { useT } from "@/i18n";
 import { exportUrl } from "@/lib/download";
 import { day, eur, int, pct } from "@/lib/format";
+import { sizeOptions, stockParam, withoutFilters } from "@/lib/catalog";
 import { hasPro } from "@/lib/plan";
 import { LIVE_SHOPS, SHOPS, shopOf } from "@/lib/shops";
 import AppShell from "@/components/mp/AppShell";
@@ -45,7 +46,10 @@ export default function Catalog() {
   const brands = sp.getAll("brand");
   const priceMin = num(sp.get("pmin"));
   const priceMax = num(sp.get("pmax"));
-  const inStock = sp.get("stock") === "1";
+  // stock=1 shows in-stock listings only, stock=0 out-of-stock only.
+  const stock = stockParam(sp.get("stock"));
+  const inStock = stock === true;
+  const outStock = stock === false;
   const promo = sp.get("promo") === "1";
   const multi = sp.get("multi") === "1";
   const dropped = sp.get("dropped") === "1";
@@ -55,7 +59,7 @@ export default function Catalog() {
   const tdir = sp.get("tdir") === "desc" ? "desc" : "asc";
   const page = Math.max(1, Number(sp.get("page")) || 1);
 
-  const [more, setMore] = useState(() => !!(volumes.length || brands.length || priceMin != null || priceMax != null || inStock || promo || multi || dropped));
+  const [more, setMore] = useState(() => !!(volumes.length || brands.length || priceMin != null || priceMax != null || inStock || outStock || promo || multi || dropped));
   const [brandQ, setBrandQ] = useState("");
   const [minDraft, setMinDraft] = useState(priceMin?.toString() ?? "");
   const [maxDraft, setMaxDraft] = useState(priceMax?.toString() ?? "");
@@ -94,7 +98,7 @@ export default function Catalog() {
     brands: brands.length ? brands : undefined,
     price_min: priceMin,
     price_max: priceMax,
-    in_stock: inStock || undefined,
+    in_stock: stock,
     promo: promo || undefined,
     multi_shop: multi || undefined,
     dropped: dropped || undefined,
@@ -113,6 +117,14 @@ export default function Catalog() {
     enabled: view === "table",
     placeholderData: keepPreviousData,
   });
+  // Sizes of the picked brands only; without a brand the general list is used.
+  const brandFacets = useQuery({
+    queryKey: ["filters", "brands", brands],
+    queryFn: () => api.getFiltersFor(brands),
+    enabled: brands.length > 0,
+    staleTime: 10 * 60_000,
+    placeholderData: keepPreviousData,
+  });
   const flip = useFlip<HTMLDivElement>(cards.data);
 
   const f = facets.data;
@@ -120,7 +132,12 @@ export default function Catalog() {
   const commonVols = useMemo(() => (f?.volumes ?? []).filter((v) => v.count >= 30), [f]);
   const quickVols = useMemo(() => commonVols.slice().sort((a, b) => b.count - a.count).slice(0, 4).sort((a, b) => parseFloat(a.value) - parseFloat(b.value)), [commonVols]);
   const [allVols, setAllVols] = useState(false);
-  const volOpts = allVols ? f?.volumes ?? [] : commonVols;
+  const brandVols = brands.length ? brandFacets.data?.volumes ?? null : null;
+  const volKey = volumes.join("|");
+  const volOpts = useMemo(
+    () => sizeOptions({ all: f?.volumes ?? [], forBrands: brandVols, picked: volKey ? volKey.split("|") : [], showAll: allVols }),
+    [f, brandVols, volKey, allVols],
+  );
   const brandOpts = useMemo(() => {
     const all = f?.brands ?? [];
     const q = brandQ.trim().toLowerCase();
@@ -152,11 +169,20 @@ export default function Catalog() {
         ]
       : []),
     ...(inStock ? [{ label: t.catalog.inStock, clear: () => setOne("stock", null) }] : []),
+    ...(outStock ? [{ label: t.catalog.outStock, clear: () => setOne("stock", null) }] : []),
     ...(promo ? [{ label: t.catalog.promo, clear: () => setOne("promo", null) }] : []),
     ...(multi ? [{ label: t.catalog.multi, clear: () => setOne("multi", null) }] : []),
     ...(dropped ? [{ label: t.catalog.dropped, clear: () => setOne("dropped", null) }] : []),
   ];
-  const extraCount = volumes.length + brands.length + (priceMin != null || priceMax != null ? 1 : 0) + [inStock, promo, multi, dropped].filter(Boolean).length;
+  const extraCount = volumes.length + brands.length + (priceMin != null || priceMax != null ? 1 : 0) + [inStock, outStock, promo, multi, dropped].filter(Boolean).length;
+
+  // One button for everything: filters, the search and the brand finder. The view and the sort stay.
+  function clearFilters() {
+    setBrandQ("");
+    setMinDraft("");
+    setMaxDraft("");
+    setSp(withoutFilters(sp), { replace: true });
+  }
 
   const exportFilters = {
     search: query.search,
@@ -307,12 +333,19 @@ export default function Catalog() {
             {more ? t.catalog.fewerFilters : t.catalog.moreFilters}
             {extraCount > 0 && <span className="n num">{extraCount}</span>}
           </button>
+          <button className="chip clear" type="button" disabled={active.length === 0} onClick={clearFilters}>
+            <X size={15} />
+            {t.catalog.clearFilters}
+          </button>
         </div>
 
         {more && (
           <div className="more fade">
             <div className="blk vols">
-              <b>{t.catalog.sizes}</b>
+              <b>
+                {t.catalog.sizes}
+                {brandVols && <small>{t.catalog.sizesFor(brands.join(", "))}</small>}
+              </b>
               <div className="vol-list">
                 {volOpts.map((v) => (
                   <button key={v.value} className="chip" type="button" aria-pressed={volumes.includes(v.value)} onClick={() => toggleIn("vol", v.value)}>
@@ -320,7 +353,7 @@ export default function Catalog() {
                   </button>
                 ))}
               </div>
-              {(f?.volumes.length ?? 0) > commonVols.length && (
+              {!brandVols && (f?.volumes.length ?? 0) > commonVols.length && (
                 <button className="linkish" type="button" onClick={() => setAllVols((x) => !x)} style={{ fontSize: 14 }}>
                   {allVols ? t.common.less : `${t.common.all} (${f?.volumes.length})`}
                 </button>
@@ -371,14 +404,16 @@ export default function Catalog() {
               <b>{t.catalog.showing}</b>
               {(
                 [
-                  ["stock", inStock, t.catalog.inStock, t.catalog.inStockHint],
-                  ["promo", promo, t.catalog.promo, t.catalog.promoHint],
-                  ["multi", multi, t.catalog.multi, t.catalog.multiHint],
-                  ["dropped", dropped, t.catalog.dropped, t.catalog.droppedHint],
+                  // In stock and Out of stock share one parameter, so ticking one unticks the other.
+                  ["stock", "1", inStock, t.catalog.inStock, t.catalog.inStockHint],
+                  ["stock", "0", outStock, t.catalog.outStock, t.catalog.outStockHint],
+                  ["promo", "1", promo, t.catalog.promo, t.catalog.promoHint],
+                  ["multi", "1", multi, t.catalog.multi, t.catalog.multiHint],
+                  ["dropped", "1", dropped, t.catalog.dropped, t.catalog.droppedHint],
                 ] as const
-              ).map(([k, on, label, hint]) => (
-                <label key={k} className="flag">
-                  <input type="checkbox" checked={on} onChange={() => setOne(k, on ? null : "1")} />
+              ).map(([k, v, on, label, hint]) => (
+                <label key={k + v} className="flag">
+                  <input type="checkbox" checked={on} onChange={() => setOne(k, on ? null : v)} />
                   <span>
                     {label}
                     <small>{hint}</small>
@@ -397,7 +432,7 @@ export default function Catalog() {
                 <X />
               </button>
             ))}
-            <button className="linkish" type="button" onClick={() => setSp(view === "table" ? { view: "table" } : {}, { replace: true })}>
+            <button className="linkish" type="button" onClick={clearFilters}>
               {t.common.clearAll}
             </button>
           </div>

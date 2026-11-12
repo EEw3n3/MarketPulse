@@ -166,7 +166,10 @@ export interface CatalogCard {
   min_price: number;
   max_price: number;
   cheapest_store: string;
+  /** Shops among the offers shown (after the shop and stock filters). */
   shops: number;
+  /** Shops that sell the bottle at all, whatever the filters. */
+  shops_total?: number;
   change_30d: number | null;
   has_promo: boolean;
   offers: CardOffer[];
@@ -230,6 +233,7 @@ export interface CatalogQuery {
   types?: string[];
   price_min?: number | null;
   price_max?: number | null;
+  /** true = in stock only, false = out of stock only, undefined = both. */
   in_stock?: boolean;
   promo?: boolean;
   multi_shop?: boolean;
@@ -619,7 +623,8 @@ export interface AdminLogsResponse {
 function qs(params: object): string {
   const out = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v == null || v === "" || v === false) continue;
+    // false means "flag off" everywhere except in_stock, where it asks for out-of-stock listings.
+    if (v == null || v === "" || (v === false && k !== "in_stock")) continue;
     if (Array.isArray(v)) v.forEach((x) => out.append(k, String(x)));
     else out.append(k, String(v));
   }
@@ -634,6 +639,8 @@ export const api = {
   getListings: (q: CatalogQuery & { sort?: ListingSort; direction?: "asc" | "desc"; skip?: number; limit?: number }) =>
     fetchApi<ListingsPage>(`/products/listings${qs(q)}`),
   getFilters: () => fetchApi<CatalogFacets>("/products/filters"),
+  /** The same facets, with `volumes` counted for the given brands only. */
+  getFiltersFor: (brands: string[]) => fetchApi<CatalogFacets>(`/products/filters${qs({ brands })}`),
   getDrops: (q: { days?: number; stores?: string[]; brands?: string[]; limit?: number }) =>
     fetchApi<MoveItem[]>(`/products/drops${qs(q)}`),
   getProduct: (id: number | string) => fetchApi<ProductCardDetail>(`/products/${id}`),

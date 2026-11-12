@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { Check } from "lucide-react";
 import type { CatalogCard } from "@/lib/api";
 import { eur, pct } from "@/lib/format";
-import { fieldStyle, shopKey, shopOf } from "@/lib/shops";
+import { shopCount, soldOut } from "@/lib/catalog";
+import { fieldStyle, shopOf } from "@/lib/shops";
 import { useT } from "@/i18n";
 import Heart from "./Heart";
 import Img from "./Img";
@@ -29,14 +30,14 @@ export default function Tile({
   const c = card.change_30d;
   const steady = c == null || Math.abs(c) < 0.5;
   const title = `${card.brand} ${card.name}`;
-  // A shop can list the same bottle more than once; count shops, not listings.
-  const live = new Set(card.offers.filter((o) => o.in_stock).map((o) => shopKey(o.store))).size || card.shops;
+  const live = shopCount(card);
+  const out = soldOut(card);
   return (
-    <div data-key={card.key} className={`tile ${picked ? "is-picked" : ""} ${className}`} style={{ ...fieldStyle(card.cheapest_store), ...style }}>
+    <div data-key={card.key} className={`tile ${picked ? "is-picked" : ""} ${out ? "is-out" : ""} ${className}`} style={{ ...fieldStyle(card.cheapest_store), ...style }}>
       <Link
         to={`/product/${card.product_id}`}
         className="t-cover"
-        aria-label={`${title}, ${spec(card)}, ${eur(card.min_price)} ${t.common.at(shop.label)}`}
+        aria-label={`${title}, ${spec(card)}, ${eur(card.min_price)} ${t.common.at(shop.label)}${out ? `, ${t.common.outOfStock}` : ""}`}
         onClick={(e) => {
           if (picking && onPick) {
             e.preventDefault();
@@ -58,6 +59,7 @@ export default function Tile({
           )}
         </span>
       </div>
+      {out && <span className="t-out">{t.common.outOfStock}</span>}
       <div className="t-pic">
         <Img src={card.image_url} brand={card.brand} />
       </div>

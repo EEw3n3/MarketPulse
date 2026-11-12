@@ -1341,6 +1341,9 @@ def _filters_desc(**f) -> str:
     names = {"price_min": "price from", "price_max": "price up to", "types": "type", "stores": "shops"}
     parts = []
     for k, v in f.items():
+        if k == "in_stock" and v is False:
+            parts.append("out of stock")
+            continue
         if v in (None, [], False, ""):
             continue
         if v is True and k in flags:
